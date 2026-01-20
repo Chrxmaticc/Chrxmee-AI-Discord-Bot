@@ -4,6 +4,8 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName("ask")
     .setDescription("Ask Chrxmee AI anything!")
+    .setContexts([0, 1, 2])
+    .setIntegrationTypes([0, 1])
     .addStringOption((option) =>
       option
         .setName("question")

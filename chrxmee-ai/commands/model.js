@@ -4,6 +4,8 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName("model")
     .setDescription("Change the AI's personality!")
+    .setContexts([0, 1, 2])
+    .setIntegrationTypes([0, 1])
     .addStringOption((option) =>
       option
         .setName("type")

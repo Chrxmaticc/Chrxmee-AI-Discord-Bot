@@ -3,7 +3,9 @@ const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("status")
-    .setDescription("Check the bot's current state and your settings"),
+    .setDescription("Check the bot's current state and your settings")
+    .setContexts([0, 1, 2])
+    .setIntegrationTypes([0, 1]),
   async execute(interaction) {
     const userId = interaction.user.id;
     const userData = interaction.client.memory.get(userId) || { history: [], model: "smart" };
