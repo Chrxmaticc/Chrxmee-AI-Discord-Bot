@@ -15,23 +15,24 @@ module.exports = {
     const content = message.content.toLowerCase();
     const stopPhrases = ["bye chrxmee ai.", "stop", "bye"];
 
+    // Inactivity check (3 minutes)
+    const now = Date.now();
+    if (userData.lastActivity && (now - userData.lastActivity > 180000)) {
+      userData.inChat = false;
+      client.memory.set(userId, userData);
+      return; 
+    }
+
     if (stopPhrases.includes(content)) {
       // Save conversation
       const logDir = path.join(__dirname, "../conversations");
+      if (!fs.existsSync(logDir)) fs.mkdirSync(logDir);
       const logFile = path.join(logDir, `${userId}_${Date.now()}.json`);
       fs.writeFileSync(logFile, JSON.stringify(userData.history, null, 2));
 
       userData.inChat = false;
       client.memory.set(userId, userData);
       return message.reply("👋 Conversation ended and saved! See you later.");
-    }
-
-    // Inactivity check
-    const now = Date.now();
-    if (now - userData.lastActivity > 180000) {
-      userData.inChat = false;
-      client.memory.set(userId, userData);
-      return;
     }
 
     userData.lastActivity = now;
