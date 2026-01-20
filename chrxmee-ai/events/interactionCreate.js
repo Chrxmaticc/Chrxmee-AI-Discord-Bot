@@ -11,11 +11,12 @@ module.exports = {
         await command.execute(interaction);
       } catch (err) {
         console.error(`Error executing ${interaction.commandName}:`, err);
-        if (!interaction.replied && !interaction.deferred) {
-          await interaction.reply({
-            content: "Error executing command!",
-            ephemeral: true,
-          });
+        const errorContent = "There was an error while executing this command!";
+        
+        if (interaction.replied || interaction.deferred) {
+          await interaction.followUp({ content: errorContent, flags: [64] }).catch(() => {});
+        } else {
+          await interaction.reply({ content: errorContent, flags: [64] }).catch(() => {});
         }
       }
     } else if (interaction.isButton()) {
