@@ -1,10 +1,19 @@
 const fs = require("fs");
 const path = require("path");
 
+// Simple cache for message deduplication
+const processedMessages = new Set();
+// Clear cache every 10 minutes to avoid memory leak
+setInterval(() => processedMessages.clear(), 600000);
+
 module.exports = {
   name: "messageCreate",
   async execute(message) {
     if (message.author.bot) return;
+
+    // Deduplication check
+    if (processedMessages.has(message.id)) return;
+    processedMessages.add(message.id);
 
     const client = message.client;
     const userId = message.author.id;
@@ -55,7 +64,9 @@ module.exports = {
     userData.lastActivity = now;
     client.memory.set(activeSessionUser, userData);
 
-    message.channel.sendTyping();
+    try {
+      message.channel.sendTyping();
+    } catch (e) { /* Ignore typing errors */ }
 
     const models = {
       smart: "llama-3.3-70b-versatile",
@@ -88,6 +99,7 @@ module.exports = {
       const data = await response.json();
       
       if (!data.choices || !data.choices[0]) {
+        console.error("Groq API Error Details:", JSON.stringify(data));
         throw new Error("Invalid API response from Groq");
       }
 
@@ -103,7 +115,10 @@ module.exports = {
       }
     } catch (err) {
       console.error("AI Error:", err.message);
-      message.reply("Sorry, I hit a snag in our conversation.");
+      // Silently fail if interaction is too old, otherwise notify
+      if (!err.message.includes("Unknown interaction")) {
+        message.reply("Sorry, I hit a snag in our conversation.");
+      }
     }
   },
 };

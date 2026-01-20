@@ -32,21 +32,28 @@ module.exports = {
     } else if (interaction.isButton()) {
       const [action, userId, prompt] = interaction.customId.split("|");
       if (interaction.user.id !== userId) {
-        return interaction.reply({ content: "This is not for you!", ephemeral: true });
+        return interaction.reply({ content: "This is not for you!", flags: [64] });
       }
 
-      if (action === "explain_yes") {
-        await interaction.update({ content: "Re-explaining in a different way...", components: [] });
-        const command = client.commands.get("ask");
-        if (command) {
-          // Mocking options for the re-execution
-          interaction.options = {
-            getString: (name) => name === "question" ? `Explain ${prompt} in a different way` : null
-          };
-          await command.execute(interaction);
+      try {
+        if (action === "explain_yes") {
+          await interaction.update({ content: "Re-explaining in a different way...", components: [] });
+          const command = client.commands.get("ask");
+          if (command) {
+            interaction.options = {
+              getString: (name) => name === "question" ? `Explain ${prompt} in a different way` : null
+            };
+            await command.execute(interaction);
+          }
+        } else if (action === "explain_no") {
+          await interaction.update({ content: "Okay, I won't explain it.", components: [] });
         }
-      } else if (action === "explain_no") {
-        await interaction.update({ content: "Okay, I won't explain it.", components: [] });
+      } catch (err) {
+        if (err.code === 10062) {
+          console.warn("Button interaction expired.");
+        } else {
+          console.error("Button Error:", err);
+        }
       }
     }
   },
