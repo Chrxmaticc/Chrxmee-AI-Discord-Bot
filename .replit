@@ -33,3 +33,7 @@ outputType = "console"
 
 [userenv.shared]
 CLIENT_ID = "1458944258454065377"
+
+[deployment]
+deploymentTarget = "vm"
+run = ["bash", "-c", "cd chrxmee-ai && node index.js"]
