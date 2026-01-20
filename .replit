@@ -28,3 +28,8 @@ args = "cd chrxmee-ai && node index.js"
 
 [workflows.workflow.metadata]
 outputType = "console"
+
+[userenv]
+
+[userenv.shared]
+CLIENT_ID = "1458944258454065377"
