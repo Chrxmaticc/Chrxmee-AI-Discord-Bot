@@ -9,7 +9,9 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.DirectMessages,
   ],
+  partials: [1, 3], // CHANNEL, MESSAGE for DMs
 });
 
 client.commands = new Collection();

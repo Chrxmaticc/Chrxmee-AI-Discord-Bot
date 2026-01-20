@@ -13,7 +13,9 @@ module.exports = {
       .setDescription("I am your smart AI friend, available everywhere in Discord!")
       .addFields(
         { name: "🤖 /ask [question]", value: "Chat with me! I have a 'brain' and remember our conversation history." },
-        { name: "🎭 /model [type]", value: "Change my personality: **Smart** (Genius), **Fast** (Speedster), or **Thinker** (Philosopher)." },
+        { name: "💬 /chat", value: "Start a continuous conversation session. No /commands needed!" },
+        { name: "💻 /code-generate [prompt]", value: "Generate professional code snippets in any language." },
+        { name: "🎭 /model [type]", value: "Change my personality: **Smart**, **Fast**, or **Thinker**." },
         { name: "🔄 /translate [text] [language]", value: "Translate any text into your desired language instantly." },
         { name: "📝 /summarize [text]", value: "Get a concise summary of long paragraphs or articles." },
         { name: "📊 /status", value: "Check my current state, your active model, and memory usage." },
