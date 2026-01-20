@@ -8,7 +8,21 @@ module.exports = {
 
     const client = message.client;
     const userId = message.author.id;
-    let userData = client.memory.get(userId);
+    const channelId = message.channelId;
+
+    // Find if there's an active chat session in this channel
+    let activeSessionUser = null;
+    let userData = null;
+
+    for (const [id, data] of client.memory.entries()) {
+      if (data.inChat && data.chatChannelId === channelId) {
+        if (data.chatMode === "group" || id === userId) {
+          activeSessionUser = id;
+          userData = data;
+          break;
+        }
+      }
+    }
 
     if (!userData || !userData.inChat) return;
 
@@ -19,19 +33,19 @@ module.exports = {
     const now = Date.now();
     if (userData.lastActivity && (now - userData.lastActivity > 180000)) {
       userData.inChat = false;
-      client.memory.set(userId, userData);
+      client.memory.set(activeSessionUser, userData);
       return; 
     }
 
-    if (stopPhrases.includes(content)) {
+    if (stopPhrases.includes(content) && (activeSessionUser === userId)) {
       // Save conversation
       const logDir = path.join(__dirname, "../conversations");
       if (!fs.existsSync(logDir)) fs.mkdirSync(logDir);
-      const logFile = path.join(logDir, `${userId}_${Date.now()}.json`);
+      const logFile = path.join(logDir, `${activeSessionUser}_${Date.now()}.json`);
       fs.writeFileSync(logFile, JSON.stringify(userData.history, null, 2));
 
       userData.inChat = false;
-      client.memory.set(userId, userData);
+      client.memory.set(activeSessionUser, userData);
       return message.reply("👋 Conversation ended and saved! See you later.");
     }
 
@@ -44,7 +58,10 @@ module.exports = {
       thinker: "deepseek-r1-distill-llama-70b"
     };
 
-    userData.history.push({ role: "user", content: message.content });
+    // Add speaker name if in group mode
+    const msgContent = userData.chatMode === "group" ? `${message.author.username}: ${message.content}` : message.content;
+    
+    userData.history.push({ role: "user", content: msgContent });
     if (userData.history.length > 15) userData.history = userData.history.slice(-15);
 
     try {
@@ -66,7 +83,7 @@ module.exports = {
       const data = await response.json();
       const answer = data.choices[0].message.content;
       userData.history.push({ role: "assistant", content: answer });
-      client.memory.set(userId, userData);
+      client.memory.set(activeSessionUser, userData);
 
       if (answer.length > 2000) {
         const chunks = answer.match(/[\s\S]{1,1900}/g);
