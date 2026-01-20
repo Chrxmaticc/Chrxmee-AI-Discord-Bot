@@ -10,13 +10,23 @@ module.exports = {
       try {
         await command.execute(interaction);
       } catch (err) {
+        // Handle common interaction errors gracefully
+        if (err.code === 10062 || err.code === 40060) {
+          console.warn(`Interaction for ${interaction.commandName} expired before response.`);
+          return;
+        }
+
         console.error(`Error executing ${interaction.commandName}:`, err);
         const errorContent = "There was an error while executing this command!";
         
-        if (interaction.replied || interaction.deferred) {
-          await interaction.followUp({ content: errorContent, flags: [64] }).catch(() => {});
-        } else {
-          await interaction.reply({ content: errorContent, flags: [64] }).catch(() => {});
+        try {
+          if (interaction.replied || interaction.deferred) {
+            await interaction.followUp({ content: errorContent, flags: [64] });
+          } else {
+            await interaction.reply({ content: errorContent, flags: [64] });
+          }
+        } catch (e) {
+          console.error("Failed to send error message:", e.message);
         }
       }
     } else if (interaction.isButton()) {

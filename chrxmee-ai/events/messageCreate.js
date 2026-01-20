@@ -24,6 +24,7 @@ module.exports = {
       }
     }
 
+    // Only respond if we found an active session in THIS channel
     if (!userData || !userData.inChat) return;
 
     const content = message.content.toLowerCase();
@@ -37,6 +38,7 @@ module.exports = {
       return; 
     }
 
+    // Only allow the session starter to stop the chat
     if (stopPhrases.includes(content) && (activeSessionUser === userId)) {
       // Save conversation
       const logDir = path.join(__dirname, "../conversations");
@@ -49,7 +51,10 @@ module.exports = {
       return message.reply("👋 Conversation ended and saved! See you later.");
     }
 
+    // Update activity
     userData.lastActivity = now;
+    client.memory.set(activeSessionUser, userData);
+
     message.channel.sendTyping();
 
     const models = {
@@ -81,6 +86,11 @@ module.exports = {
       });
 
       const data = await response.json();
+      
+      if (!data.choices || !data.choices[0]) {
+        throw new Error("Invalid API response from Groq");
+      }
+
       const answer = data.choices[0].message.content;
       userData.history.push({ role: "assistant", content: answer });
       client.memory.set(activeSessionUser, userData);
@@ -92,7 +102,7 @@ module.exports = {
         await message.reply(answer);
       }
     } catch (err) {
-      console.error(err);
+      console.error("AI Error:", err.message);
       message.reply("Sorry, I hit a snag in our conversation.");
     }
   },
