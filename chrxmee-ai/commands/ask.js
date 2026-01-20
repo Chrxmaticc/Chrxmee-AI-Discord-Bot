@@ -18,11 +18,18 @@ module.exports = {
     const question = interaction.options.getString("question");
     const userId = interaction.user.id;
 
-    // Brain: Retrieve conversation history
-    let history = interaction.client.memory.get(userId) || [];
-    history.push({ role: "user", content: question });
+    // Brain: Retrieve user data (history + preferred model)
+    let userData = interaction.client.memory.get(userId) || { history: [], model: "smart" };
+    let history = userData.history || [];
+    const modelPreference = userData.model || "smart";
 
-    // Limit history to last 10 messages
+    const models = {
+      smart: "llama-3.3-70b-versatile",
+      fast: "llama-3.1-8b-instant",
+      thinker: "deepseek-r1-distill-llama-70b"
+    };
+
+    history.push({ role: "user", content: question });
     if (history.length > 10) history = history.slice(-10);
 
     try {
@@ -33,9 +40,9 @@ module.exports = {
           Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
         },
         body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
+          model: models[modelPreference],
           messages: [
-            { role: "system", content: "You are Chrxmee AI. If the user says something too wild, dangerous, or inappropriate, start your response with 'WILD_CONTENT_DETECTED'." },
+            { role: "system", content: `You are Chrxmee AI acting as the '${modelPreference}' personality. If the user says something too wild, dangerous, or inappropriate, start your response with 'WILD_CONTENT_DETECTED'.` },
             ...history
           ],
           temperature: 0.7,
@@ -89,11 +96,12 @@ module.exports = {
 
       // Update brain with AI response
       history.push({ role: "assistant", content: answer });
-      interaction.client.memory.set(userId, history);
+      userData.history = history;
+      interaction.client.memory.set(userId, userData);
 
       if (answer.length > 2000) {
         const chunks = answer.match(/[\s\S]{1,1900}/g);
-        const replyText = `**Chrxmee AI (Groq):** ${chunks[0]}...`;
+        const replyText = `**Chrxmee AI (Groq - ${modelPreference}):** ${chunks[0]}...`;
         if (isButtonSim) {
           await interaction.followUp(replyText);
         } else {
@@ -103,7 +111,7 @@ module.exports = {
           await interaction.followUp(chunks[i]);
         }
       } else {
-        const replyText = `**Chrxmee AI (Groq):** ${answer}`;
+        const replyText = `**Chrxmee AI (Groq - ${modelPreference}):** ${answer}`;
         if (isButtonSim) {
           await interaction.followUp(replyText);
         } else {
