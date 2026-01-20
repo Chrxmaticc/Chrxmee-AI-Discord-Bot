@@ -23,7 +23,7 @@ module.exports = {
           Authorization: `Bearer ${process.env.XAI_API_KEY}`,
         },
         body: JSON.stringify({
-          model: "flux", // or current image model
+          model: "grok-2-vision-1212", // Updated model name for vision/image related tasks if flux fails
           prompt: prompt,
           n: 1,
           size: "1024x1024",
@@ -32,10 +32,20 @@ module.exports = {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`API error ${response.status}: ${errorText}`);
+        let errorMessage = `API error ${response.status}`;
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.error?.message || errorText;
+        } catch (e) {
+          errorMessage = errorText;
+        }
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
+      if (!data.data || data.data.length === 0) {
+        throw new Error("No image data returned from AI.");
+      }
       const imageUrl = data.data[0].url;
 
       await interaction.editReply({
@@ -43,8 +53,8 @@ module.exports = {
         files: [imageUrl],
       });
     } catch (err) {
-      console.error(err);
-      await interaction.editReply("Failed to generate image — try again.");
+      console.error(`Image command error: ${err.message}`);
+      await interaction.editReply(`Failed to generate image: ${err.message.substring(0, 100)}`);
     }
   },
 };
