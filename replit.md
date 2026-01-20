@@ -2,7 +2,7 @@
 
 ## Overview
 
-Chrxmee AI is a Discord bot that wraps the Grok AI API (via x.ai) to provide AI chat and image generation capabilities. The bot is built with Discord.js and offers slash commands for users to interact with AI features directly in Discord servers.
+Chrxmee AI is a Discord bot that uses the Groq API to provide AI chat capabilities. The bot is built with Discord.js and offers slash commands for users to interact with AI features directly in Discord servers.
 
 ## User Preferences
 
@@ -12,39 +12,35 @@ Preferred communication style: Simple, everyday language.
 
 ### Bot Framework
 - **Discord.js v14** handles all Discord interactions, including slash commands, message events, and gateway connections
-- Commands are organized in a modular `/commands` folder structure where each command is a separate file
-- Command registration is handled separately via `deploy-commands.js` which registers commands globally with Discord's API
+- Commands are organized in a modular `/commands` folder structure
+- Command registration is handled via `deploy-commands.js`
 
 ### Command Pattern
 - Each command exports a `data` object (SlashCommandBuilder) and an `execute` function
-- Commands are dynamically loaded at startup by scanning the commands directory
-- The bot uses `Collection` from Discord.js to store command handlers for quick lookup
+- Commands are dynamically loaded at startup
 
 ### AI Integration
-- **Grok AI API** (x.ai) is the backend for all AI functionality
-- Two main AI capabilities:
-  - Text chat completions (`/ask` command) using the `grok-2-1212` model
-  - Image generation (`/image-generate` command) using the `grok-2-vision-1212` model
+- **Groq API** is the backend for all AI functionality
+- AI capability:
+  - Text chat completions (`/ask` command) using the `llama-3.3-70b-versatile` model
 - API calls use native `fetch` with Bearer token authentication
-- All AI commands use `deferReply()` to handle API latency gracefully
 
 ### Configuration
 - Environment variables managed via `dotenv`:
   - `BOT_TOKEN` - Discord bot authentication token
-  - `CLIENT_ID` - Discord application client ID for command registration
-  - `XAI_API_KEY` - Grok/x.ai API key for AI functionality
+  - `CLIENT_ID` - Discord application client ID
+  - `GROQ_API_KEY` - Groq API key
 
 ## External Dependencies
 
 ### Third-Party Services
-- **Discord API** - Bot hosting and user interaction platform
-- **x.ai API** - Grok AI backend for chat completions and image generation
-  - Endpoint: `https://api.x.ai/v1/chat/completions` (text)
-  - Endpoint: `https://api.x.ai/v1/images/generations` (images)
+- **Discord API** - Bot platform
+- **Groq API** - AI backend
+  - Endpoint: `https://api.groq.com/openai/v1/chat/completions`
 
 ### NPM Packages
-- `discord.js` (v14.25.1) - Discord bot framework
-- `dotenv` (v16.6.1) - Environment variable management
+- `discord.js` (v14.25.1)
+- `dotenv` (v16.6.1)
 
 ### Runtime Requirements
 - Node.js >= 18.0.0

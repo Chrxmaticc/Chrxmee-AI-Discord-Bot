@@ -16,14 +16,14 @@ module.exports = {
     const question = interaction.options.getString("question");
 
     try {
-      const response = await fetch("https://api.x.ai/v1/chat/completions", {
+      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.XAI_API_KEY}`,
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
         },
         body: JSON.stringify({
-          model: "grok-2-1212", // Updated to a more standard model name if grok-beta fails
+          model: "llama-3.3-70b-versatile", // High performance Groq model
           messages: [{ role: "user", content: question }],
           temperature: 0.7,
         }),
@@ -49,17 +49,17 @@ module.exports = {
 
       if (answer.length > 2000) {
         const chunks = answer.match(/[\s\S]{1,1900}/g);
-        await interaction.editReply(`**Chrxmee AI:** ${chunks[0]}...`);
+        await interaction.editReply(`**Chrxmee AI (Groq):** ${chunks[0]}...`);
         for (let i = 1; i < chunks.length; i++) {
           await interaction.followUp(chunks[i]);
         }
       } else {
-        await interaction.editReply(`**Chrxmee AI:** ${answer}`);
+        await interaction.editReply(`**Chrxmee AI (Groq):** ${answer}`);
       }
     } catch (err) {
       console.error(`Ask command error: ${err.message}`);
       await interaction.editReply(
-        `Failed to reach Chrxmee AI: ${err.message.substring(0, 100)}`
+        `Failed to reach Chrxmee AI (Groq): ${err.message.substring(0, 100)}`
       );
     }
   },
