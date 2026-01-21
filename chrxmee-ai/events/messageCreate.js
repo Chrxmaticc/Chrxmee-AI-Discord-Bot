@@ -2,7 +2,6 @@ const fs = require("fs");
 const path = require("path");
 const { Client } = require("pg");
 
-// Database setup for deduplication
 const db = new Client({
   connectionString: process.env.DATABASE_URL,
 });
@@ -13,28 +12,22 @@ module.exports = {
   async execute(message) {
     if (message.author.bot) return;
 
-    // Database-backed deduplication check with smarter locking
     try {
       const result = await db.query(
         "INSERT INTO processed_messages (message_id) VALUES ($1) ON CONFLICT (message_id) DO NOTHING RETURNING message_id",
         [message.id]
       );
-      if (result.rowCount === 0) {
-        console.log(`[Deduplicator] Ignored duplicate message: ${message.id}`);
-        return; 
-      }
+      if (result.rowCount === 0) return; 
     } catch (err) {
       console.error("Deduplication DB error:", err.message);
     }
 
-    // Add a small randomized delay to prevent race conditions during bursts
     await new Promise(resolve => setTimeout(resolve, Math.random() * 200 + 100));
 
     const client = message.client;
     const userId = message.author.id;
     const channelId = message.channelId;
 
-    // Find if there's an active chat session in this channel
     let activeSessionUser = null;
     let userData = null;
 
@@ -48,13 +41,11 @@ module.exports = {
       }
     }
 
-    // Only respond if we found an active session in THIS channel
     if (!userData || !userData.inChat) return;
 
     const content = message.content.toLowerCase();
     const stopPhrases = ["bye chrxmee ai.", "stop", "bye"];
 
-    // Inactivity check (3 minutes)
     const now = Date.now();
     if (userData.lastActivity && (now - userData.lastActivity > 180000)) {
       userData.inChat = false;
@@ -62,7 +53,6 @@ module.exports = {
       return; 
     }
 
-    // Only allow the session starter to stop the chat
     if (stopPhrases.includes(content) && (activeSessionUser === userId)) {
       const logDir = path.join(__dirname, "../conversations");
       if (!fs.existsSync(logDir)) fs.mkdirSync(logDir);
@@ -79,14 +69,17 @@ module.exports = {
 
     try {
       message.channel.sendTyping();
-    } catch (e) { /* Ignore typing errors */ }
+    } catch (e) { }
 
     const models = {
       smart: "llama-3.3-70b-versatile",
       fast: "llama-3.1-8b-instant",
       thinker: "deepseek-r1-distill-llama-70b",
       creative: "mixtral-8x7b-32768",
-      efficient: "gemma2-9b-it"
+      efficient: "gemma2-9b-it",
+      visionary: "qwen-2.5-72b",
+      analyst: "llama-3.2-11b-text-preview",
+      classic: "llama-3.1-70b-versatile"
     };
 
     const msgContent = userData.chatMode === "group" ? `${message.author.username}: ${message.content}` : message.content;
@@ -113,7 +106,6 @@ module.exports = {
       const data = await response.json();
       
       if (!data.choices || !data.choices[0]) {
-        console.error("Groq API Error Details:", JSON.stringify(data));
         throw new Error("Invalid API response from Groq");
       }
 
@@ -128,7 +120,6 @@ module.exports = {
         await message.reply(answer);
       }
     } catch (err) {
-      console.error("AI Error:", err.message);
       if (!err.message.includes("Unknown interaction")) {
         message.reply("Sorry, I hit a snag in our conversation.");
       }
