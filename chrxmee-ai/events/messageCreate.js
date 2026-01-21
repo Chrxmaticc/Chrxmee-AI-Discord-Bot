@@ -1,19 +1,29 @@
 const fs = require("fs");
 const path = require("path");
+const { Client } = require("pg");
 
-// Simple cache for message deduplication
-const processedMessages = new Set();
-// Clear cache every 10 minutes to avoid memory leak
-setInterval(() => processedMessages.clear(), 600000);
+// Database setup for deduplication
+const db = new Client({
+  connectionString: process.env.DATABASE_URL,
+});
+db.connect().catch(err => console.error("DB Connection Error:", err));
 
 module.exports = {
   name: "messageCreate",
   async execute(message) {
     if (message.author.bot) return;
 
-    // Deduplication check
-    if (processedMessages.has(message.id)) return;
-    processedMessages.add(message.id);
+    // Database-backed deduplication check
+    try {
+      const result = await db.query(
+        "INSERT INTO processed_messages (message_id) VALUES ($1) ON CONFLICT (message_id) DO NOTHING RETURNING message_id",
+        [message.id]
+      );
+      if (result.rowCount === 0) return; // Already processed
+    } catch (err) {
+      console.error("Deduplication DB error:", err.message);
+      // Fallback to basic check if DB fails
+    }
 
     const client = message.client;
     const userId = message.author.id;
@@ -49,7 +59,6 @@ module.exports = {
 
     // Only allow the session starter to stop the chat
     if (stopPhrases.includes(content) && (activeSessionUser === userId)) {
-      // Save conversation
       const logDir = path.join(__dirname, "../conversations");
       if (!fs.existsSync(logDir)) fs.mkdirSync(logDir);
       const logFile = path.join(logDir, `${activeSessionUser}_${Date.now()}.json`);
@@ -60,7 +69,6 @@ module.exports = {
       return message.reply("👋 Conversation ended and saved! See you later.");
     }
 
-    // Update activity
     userData.lastActivity = now;
     client.memory.set(activeSessionUser, userData);
 
@@ -76,7 +84,6 @@ module.exports = {
       efficient: "gemma2-9b-it"
     };
 
-    // Add speaker name if in group mode
     const msgContent = userData.chatMode === "group" ? `${message.author.username}: ${message.content}` : message.content;
     
     userData.history.push({ role: "user", content: msgContent });
@@ -117,7 +124,6 @@ module.exports = {
       }
     } catch (err) {
       console.error("AI Error:", err.message);
-      // Silently fail if interaction is too old, otherwise notify
       if (!err.message.includes("Unknown interaction")) {
         message.reply("Sorry, I hit a snag in our conversation.");
       }
