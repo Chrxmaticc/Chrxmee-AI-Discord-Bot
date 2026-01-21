@@ -13,17 +13,22 @@ module.exports = {
   async execute(message) {
     if (message.author.bot) return;
 
-    // Database-backed deduplication check
+    // Database-backed deduplication check with smarter locking
     try {
       const result = await db.query(
         "INSERT INTO processed_messages (message_id) VALUES ($1) ON CONFLICT (message_id) DO NOTHING RETURNING message_id",
         [message.id]
       );
-      if (result.rowCount === 0) return; // Already processed
+      if (result.rowCount === 0) {
+        console.log(`[Deduplicator] Ignored duplicate message: ${message.id}`);
+        return; 
+      }
     } catch (err) {
       console.error("Deduplication DB error:", err.message);
-      // Fallback to basic check if DB fails
     }
+
+    // Add a small randomized delay to prevent race conditions during bursts
+    await new Promise(resolve => setTimeout(resolve, Math.random() * 200 + 100));
 
     const client = message.client;
     const userId = message.author.id;
