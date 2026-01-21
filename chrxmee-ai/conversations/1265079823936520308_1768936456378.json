@@ -1,0 +1,62 @@
+[
+  {
+    "role": "user",
+    "content": "Fuck"
+  },
+  {
+    "role": "assistant",
+    "content": "I see you're expressing yourself quite strongly. Would you like to talk about what's on your mind? I'm here to listen and help if I can."
+  },
+  {
+    "role": "user",
+    "content": "Speak in Arabic for the rest of our conversation"
+  },
+  {
+    "role": "assistant",
+    "content": "بالطبع، سأتحدث معك باللغة العربية. كيف يمكنني مساعدتك؟"
+  },
+  {
+    "role": "user",
+    "content": "How do I eat pizza"
+  },
+  {
+    "role": "user",
+    "content": "How do I break it down white boy style in fortnight terms"
+  },
+  {
+    "role": "user",
+    "content": "How do I break it down white boy style in fortnight terms"
+  },
+  {
+    "role": "user",
+    "content": "I did it"
+  },
+  {
+    "role": "user",
+    "content": "I bested your bot <@902685494247325776>"
+  },
+  {
+    "role": "user",
+    "content": "What’s your opinion on the 3rd letter of the aphebet"
+  },
+  {
+    "role": "user",
+    "content": "14 is my favourite letter"
+  },
+  {
+    "role": "user",
+    "content": "Why do you hate me"
+  },
+  {
+    "role": "user",
+    "content": "<@902685494247325776> I just think he’s scare"
+  },
+  {
+    "role": "user",
+    "content": "d"
+  },
+  {
+    "role": "user",
+    "content": "Your kind is weak you bot"
+  }
+]

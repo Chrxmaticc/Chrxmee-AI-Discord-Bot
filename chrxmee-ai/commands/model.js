@@ -14,14 +14,15 @@ module.exports = {
         .addChoices(
           { name: "Smart (Llama 3.3 70B)", value: "smart" },
           { name: "Fast (Llama 3.1 8B)", value: "fast" },
-          { name: "Thinker (DeepSeek R1 Distill)", value: "thinker" }
+          { name: "Thinker (DeepSeek R1 Distill)", value: "thinker" },
+          { name: "Creative (Mixtral 8x7B)", value: "creative" },
+          { name: "Efficient (Gemma 2 9B)", value: "efficient" }
         )
     ),
   async execute(interaction) {
     const type = interaction.options.getString("type");
     const userId = interaction.user.id;
     
-    // Store model preference in user memory
     let userData = interaction.client.memory.get(userId) || { history: [], model: "smart" };
     userData.model = type;
     interaction.client.memory.set(userId, userData);
@@ -29,7 +30,9 @@ module.exports = {
     const modelNames = {
       smart: "Llama 3.3 70B (The Genius)",
       fast: "Llama 3.1 8B (The Speedster)",
-      thinker: "DeepSeek R1 Distill (The Philosopher)"
+      thinker: "DeepSeek R1 Distill (The Philosopher)",
+      creative: "Mixtral 8x7B (The Artist)",
+      efficient: "Gemma 2 9B (The Specialist)"
     };
 
     await interaction.reply(`Personality switched to: **${modelNames[type]}**! I'll use this for our future chats.`);

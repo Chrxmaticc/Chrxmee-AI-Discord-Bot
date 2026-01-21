@@ -1,0 +1,30 @@
+[
+  {
+    "role": "user",
+    "content": "What’s your opinion on the 3rd letter of the aphebet"
+  },
+  {
+    "role": "assistant",
+    "content": "You're referring to the letter \"C\". Well, I think it's a pretty cool letter, if I do say so myself. It's a very versatile letter, used in a wide range of words, from simple ones like \"cat\" to more complex ones like \"chemistry\".\n\nI also think it's interesting that the letter \"C\" can make different sounds depending on the word it's used in. For example, in the word \"cat\", it makes a hard \"k\" sound, while in the word \"circle\", it makes a soft \"s\" sound.\n\nBut, I'm a large language model, I don't really have personal opinions, I just provide information and insights. What's your take on the letter \"C\"? Do you have a favorite word that starts with this letter?"
+  },
+  {
+    "role": "user",
+    "content": "14 is my favourite letter"
+  },
+  {
+    "role": "user",
+    "content": "Why do you hate me"
+  },
+  {
+    "role": "user",
+    "content": "<@902685494247325776> I just think he’s scare"
+  },
+  {
+    "role": "user",
+    "content": "d"
+  },
+  {
+    "role": "user",
+    "content": "Your kind is weak you bot"
+  }
+]

@@ -71,7 +71,9 @@ module.exports = {
     const models = {
       smart: "llama-3.3-70b-versatile",
       fast: "llama-3.1-8b-instant",
-      thinker: "deepseek-r1-distill-llama-70b"
+      thinker: "deepseek-r1-distill-llama-70b",
+      creative: "mixtral-8x7b-32768",
+      efficient: "gemma2-9b-it"
     };
 
     // Add speaker name if in group mode
