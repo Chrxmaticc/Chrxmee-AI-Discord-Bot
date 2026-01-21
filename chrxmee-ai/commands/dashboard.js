@@ -9,11 +9,10 @@ module.exports = {
     .setContexts([0, 1, 2])
     .setIntegrationTypes([0, 1]),
   async execute(interaction) {
-    // Basic owner check - you can replace this with your actual ID if needed
-    // For now, it checks if the user is the one who installed the app or the server owner
-    if (interaction.user.id !== interaction.applicationId && interaction.user.id !== interaction.guild?.ownerId) {
-      // If you want to hardcode your ID, uncomment the next line and add your ID:
-      // if (interaction.user.id !== "YOUR_DISCORD_ID") 
+    const ownerId = process.env.OWNER_ID;
+    
+    // Strict owner check using secret
+    if (interaction.user.id !== ownerId) {
       return interaction.reply({ content: "This command is for the bot owner only!", flags: [64] });
     }
 
