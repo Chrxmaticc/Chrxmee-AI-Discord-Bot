@@ -1,0 +1,34 @@
+[
+  {
+    "role": "user",
+    "content": "Wsg"
+  },
+  {
+    "role": "assistant",
+    "content": "It looks like you might be trying to say \"hi\" or \"hello\" but it got a bit jumbled. No worries, I'm here to chat and help with anything you need. How's your day going so far?"
+  },
+  {
+    "role": "user",
+    "content": "I’m good"
+  },
+  {
+    "role": "assistant",
+    "content": "That's great to hear! Sometimes just taking a moment to breathe and acknowledge that everything is okay can make a big difference. What's been the highlight of your day so far, or is there something you're looking forward to doing later?"
+  },
+  {
+    "role": "user",
+    "content": "I’m bored"
+  },
+  {
+    "role": "user",
+    "content": "I’m bored"
+  },
+  {
+    "role": "user",
+    "content": "Hi"
+  },
+  {
+    "role": "user",
+    "content": "Hi chrxmee ai"
+  }
+]

@@ -37,3 +37,7 @@ CLIENT_ID = "1458944258454065377"
 [deployment]
 deploymentTarget = "vm"
 run = ["bash", "-c", "cd chrxmee-ai && node index.js"]
+
+[[ports]]
+localPort = 3000
+externalPort = 80
