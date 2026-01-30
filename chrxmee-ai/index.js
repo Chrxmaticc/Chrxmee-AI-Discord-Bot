@@ -63,10 +63,10 @@ client.once('ready', () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   client.user.setPresence({
-    status: 'testing',
+    status: 'online',
     activities: [{
       name: "Discord World AI Competition",
-      type: 0, // Playing
+      type: 1, // Playing
       details: "All AIs show off their models and intelligence.",
       state: "Winning against Chatcord", // This is fine — state is allowed up to 128 chars
       application_id: "1458944258454065377", // Double-check this is correct
@@ -81,7 +81,7 @@ client.once('ready', () => {
         small_text: "Chrxmee Bot"
       },
       buttons: [
-        { label: "Invite Bot", url: "https://discord.com/invite/your-bot-invite" },
+        { label: "Join The Stream", url: "https://www.twitch.tv/chrxmee_ai_roast_session" },
         { label: "Join Server", url: "https://discord.gg/your-server" }
       ],
       timestamps: { start: Date.now() },
