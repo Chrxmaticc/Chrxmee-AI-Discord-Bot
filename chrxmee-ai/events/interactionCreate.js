@@ -17,13 +17,13 @@ module.exports = {
         }
 
         console.error(`Error executing ${interaction.commandName}:`, err);
-        const errorContent = "There was an error while executing this command!";
+        const errorContent = "There was an error while executing this command! Please try again in a moment.";
         
         try {
           if (interaction.replied || interaction.deferred) {
-            await interaction.followUp({ content: errorContent, flags: [64] });
+            await interaction.followUp({ content: errorContent, flags: [64] }).catch(() => {});
           } else {
-            await interaction.reply({ content: errorContent, flags: [64] });
+            await interaction.reply({ content: errorContent, flags: [64] }).catch(() => {});
           }
         } catch (e) {
           console.error("Failed to send error message:", e.message);

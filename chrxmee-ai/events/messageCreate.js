@@ -97,15 +97,18 @@ module.exports = {
         body: JSON.stringify({
           model: models[userData.model || "smart"],
           messages: [
-            { role: "system", content: "You are Chrxmee AI. Engage in a natural, friendly conversation." },
+            { role: "system", content: "You are Chrxmee AI, a helpful and friendly AI assistant. Keep responses natural and concise." },
             ...userData.history
           ],
+          temperature: 0.7,
+          max_tokens: 1024
         }),
       });
 
       const data = await response.json();
       
       if (!data.choices || !data.choices[0]) {
+        console.error("API Error Response:", JSON.stringify(data));
         throw new Error("Invalid API response from Groq");
       }
 
@@ -115,13 +118,16 @@ module.exports = {
 
       if (answer.length > 2000) {
         const chunks = answer.match(/[\s\S]{1,1900}/g);
-        for (const chunk of chunks) await message.reply(chunk);
+        for (const chunk of chunks) {
+          await message.reply(chunk).catch(console.error);
+        }
       } else {
-        await message.reply(answer);
+        await message.reply(answer).catch(console.error);
       }
     } catch (err) {
+      console.error("AI execution error:", err);
       if (!err.message.includes("Unknown interaction")) {
-        message.reply("Sorry, I hit a snag in our conversation.");
+        message.reply("Sorry, I hit a snag in our conversation. Please try saying that again!").catch(() => {});
       }
     }
   },
