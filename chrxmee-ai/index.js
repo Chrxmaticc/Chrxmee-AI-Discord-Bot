@@ -59,25 +59,25 @@ for (const file of eventFiles) {
   }
 }
 
-client.once('ready', () => {
+client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   client.user.setPresence({
     status: 'online',
     activities: [{
       name: "Discord World AI Competition",
-      type: 1, // Playing
+      type: 0, // 0 = Playing, 1 = Streaming, 2 = Listening, 3 = Watching, 5 = Competing
       details: "All AIs show off their models and intelligence.",
-      state: "Winning against Chatcord", // This is fine — state is allowed up to 128 chars
-      application_id: "1458944258454065377", // Double-check this is correct
+      state: "Winning against Chatcord", 
+      application_id: "1458944258454065377", 
       party: {
-        id: "chrxmee-party-" + Date.now(), // Unique ID fixes "state is wrong" for most users
-        size: [1, 1] // Current / max players (1/1 for single bot)
+        id: "chrxmee-party-" + Date.now(), 
+        size: [1, 1] 
       },
       assets: {
-        large_image: "play_button", // Your uploaded image name
+        large_image: "play_button", 
         large_text: "Chrxmee AI",
-        small_image: "snow_king", // Optional
+        small_image: "snow_king", 
         small_text: "Chrxmee Bot"
       },
       buttons: [
