@@ -31,8 +31,12 @@ module.exports = {
     const models = {
       smart: "llama-3.3-70b-versatile",
       fast: "llama-3.1-8b-instant",
-      thinker: "deepseek-r1-distill-llama-70b"
-
+      thinker: "deepseek-r1-distill-llama-70b",
+      creative: "mixtral-8x7b-32768",
+      efficient: "gemma2-9b-it",
+      visionary: "qwen-2.5-72b",
+      analyst: "llama-3.2-11b-text-preview",
+      classic: "llama-3.1-70b-versatile"
     };
     history.push({ role: "user", content: question });
     if (history.length > 10) history = history.slice(-10);
