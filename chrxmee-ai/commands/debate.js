@@ -3,7 +3,15 @@ const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, Butt
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('debate')
-    .setDescription('Start an interactive group debate with Chrxmee AI')
+    .setDescription('Start an interactive group or solo debate with Chrxmee AI')
+    .addStringOption(option =>
+      option.setName('mode')
+        .setDescription('Solo (just you vs AI) or Group (anyone can join)')
+        .setRequired(true)
+        .addChoices(
+          { name: 'Solo', value: 'solo' },
+          { name: 'Group', value: 'group' }
+        ))
     .addStringOption(option =>
       option.setName('topic')
         .setDescription('The debate topic')
@@ -21,6 +29,7 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply();
 
+    const mode = interaction.options.getString('mode');
     const topic = interaction.options.getString('topic');
     const starterSide = interaction.options.getString('side');
     const botSide = starterSide === 'pro' ? 'con' : 'pro';
@@ -31,7 +40,7 @@ module.exports = {
 
     try {
       const thread = await interaction.channel.threads.create({
-        name: `⚖️ Debate: ${topic.substring(0, 50)}`,
+        name: `⚖️ ${mode === 'solo' ? 'Solo' : 'Group'} Debate: ${topic.substring(0, 40)}`,
         autoArchiveDuration: 60,
       });
 
@@ -66,48 +75,56 @@ module.exports = {
         return data.choices?.[0]?.message?.content || "I'm lost in thought...";
       };
 
-      await interaction.editReply(`✅ **Debate thread created:** ${thread}\n👤 **You:** ${starterSide.toUpperCase()}\n🤖 **Bot:** ${botSide.toUpperCase()} (${model})\n\nParticipants have 1 minute to join!`);
-
-      const row = new ActionRowBuilder()
-        .addComponents(
-          new ButtonBuilder()
-            .setCustomId('join_pro')
-            .setLabel('Join PRO')
-            .setStyle(ButtonStyle.Success),
-          new ButtonBuilder()
-            .setCustomId('join_con')
-            .setLabel('Join CON')
-            .setStyle(ButtonStyle.Danger)
-        );
-
-      const joinMsg = await thread.send({
-        content: `⚖️ **Debate Topic:** ${topic}\n\nClick below to join a side! (Ends in 60s)`,
-        components: [row]
-      });
+      await interaction.editReply(`✅ **${mode === 'solo' ? 'Solo' : 'Group'} Debate thread created:** ${thread}\n👤 **You:** ${starterSide.toUpperCase()}\n🤖 **Bot:** ${botSide.toUpperCase()} (${model})`);
 
       const sides = new Map();
       sides.set(starter.id, starterSide);
 
-      const filter = i => i.customId.startsWith('join_');
-      const collector = joinMsg.createMessageComponentCollector({ filter, time: 60000 });
+      if (mode === 'group') {
+        const row = new ActionRowBuilder()
+          .addComponents(
+            new ButtonBuilder()
+              .setCustomId('debate_join_pro')
+              .setLabel('Join PRO')
+              .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+              .setCustomId('debate_join_con')
+              .setLabel('Join CON')
+              .setStyle(ButtonStyle.Danger)
+          );
 
-      collector.on('collect', async i => {
-        const side = i.customId === 'join_pro' ? 'pro' : 'con';
-        sides.set(i.user.id, side);
-        await i.reply({ content: `You joined the **${side.toUpperCase()}** side!`, ephemeral: true });
-        await thread.send(`📢 **${i.user.username}** joined side **${side.toUpperCase()}**!`);
-      });
+        const joinMsg = await thread.send({
+          content: `⚖️ **Debate Topic:** ${topic}\n\nClick below to join a side! (Ends in 60s)`,
+          components: [row]
+        });
 
-      collector.on('end', async () => {
-        await joinMsg.edit({ components: [] });
-        await thread.send('🏁 **Recruitment ended! The debate begins.**');
+        const filter = i => i.customId.startsWith('debate_join_');
+        const collector = joinMsg.createMessageComponentCollector({ filter, time: 60000 });
+
+        collector.on('collect', async i => {
+          const side = i.customId === 'debate_join_pro' ? 'pro' : 'con';
+          sides.set(i.user.id, side);
+          await i.reply({ content: `You joined the **${side.toUpperCase()}** side!`, flags: [64] });
+          await thread.send(`📢 **${i.user.username}** joined side **${side.toUpperCase()}**!`);
+        });
+
+        collector.on('end', async () => {
+          await joinMsg.edit({ components: [] });
+          await startDebate();
+        });
+      } else {
+        await startDebate();
+      }
+
+      async function startDebate() {
+        await thread.send(`🏁 **The debate begins!**\nTopic: *${topic}*`);
 
         const opening = await getGroqResponse(`Debate Topic: "${topic}". You are on the ${botSide.toUpperCase()} side. Provide a powerful opening argument.`, model);
         await thread.send(`🎙️ **Chrxmee AI (${botSide.toUpperCase()}):** ${opening}`);
 
         const debateCollector = thread.createMessageCollector({
           filter: m => !m.author.bot && sides.has(m.author.id),
-          idle: 120000
+          idle: 300000 // 5 mins
         });
 
         debateCollector.on('collect', async m => {
@@ -129,9 +146,9 @@ module.exports = {
         });
 
         debateCollector.on('end', () => {
-          thread.send('🛑 **Debate concluded due to inactivity.** Well played, everyone!');
+          thread.send('🛑 **Debate concluded.** Thanks for the discussion!');
         });
-      });
+      }
 
     } catch (err) {
       console.error("Debate command error:", err);

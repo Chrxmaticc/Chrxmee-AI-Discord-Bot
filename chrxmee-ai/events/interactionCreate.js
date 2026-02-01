@@ -30,6 +30,8 @@ module.exports = {
         }
       }
     } else if (interaction.isButton()) {
+      if (interaction.customId.startsWith('debate_join_')) return; // Handled within debate command collector
+
       const [action, userId, prompt] = interaction.customId.split("|");
       if (interaction.user.id !== userId) {
         return interaction.reply({ content: "This is not for you!", flags: [64] });
