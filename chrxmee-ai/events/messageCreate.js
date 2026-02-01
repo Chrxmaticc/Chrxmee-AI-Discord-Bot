@@ -68,7 +68,9 @@ module.exports = {
     client.memory.set(activeSessionUser, userData);
 
     try {
-      message.channel.sendTyping();
+      if (message.guild) {
+        message.channel.sendTyping();
+      }
     } catch (e) { }
 
     const models = {

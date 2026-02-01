@@ -14,6 +14,20 @@ module.exports = {
     const text = interaction.options.getString("text");
 
     try {
+      const starterData = interaction.client.memory.get(interaction.user.id) || { model: "smart" };
+      const userModel = starterData.model || "smart";
+
+      const models = {
+        smart: "llama-3.3-70b-versatile",
+        fast: "llama-3.1-8b-instant",
+        thinker: "deepseek-r1-distill-llama-70b",
+        creative: "mixtral-8x7b-32768",
+        efficient: "gemma2-9b-it",
+        visionary: "qwen-2.5-72b",
+        analyst: "llama-3.2-11b-text-preview",
+        classic: "llama-3.1-70b-versatile"
+      };
+
       const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -21,7 +35,7 @@ module.exports = {
           Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
         },
         body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
+          model: models[userModel] || models.smart,
           messages: [
             { role: "system", content: "Summarize the following text concisely." },
             { role: "user", content: text }
