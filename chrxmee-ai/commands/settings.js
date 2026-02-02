@@ -11,11 +11,11 @@ module.exports = {
           { name: "Genius (Llama 3.3 70B)", value: "smart" },
           { name: "Speedster (Llama 3.1 8B)", value: "fast" },
           { name: "Philosopher (DeepSeek R1)", value: "thinker" },
-          { name: "Artist (Mixtral 8x7B)", value: "creative" },
-          { name: "Specialist (Gemma 2 9B)", value: "efficient" },
-          { name: "Visionary (Qwen 2.5 72B)", value: "visionary" },
-          { name: "Analyst (Llama 3.2 11B)", value: "analyst" },
-          { name: "Classic (Llama 3.1 70B)", value: "classic" }
+          { name: "Creative (Llama 3.3 70B)", value: "creative" },
+          { name: "Efficient (Llama 3.1 8B)", value: "efficient" },
+          { name: "Visionary (Llama 3.3 70B)", value: "visionary" },
+          { name: "Analyst (Llama 3.1 8B)", value: "analyst" },
+          { name: "Classic (Llama 3.3 70B)", value: "classic" }
         ))
     .setContexts([0, 1, 2])
     .setIntegrationTypes([0, 1]),
