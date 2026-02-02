@@ -14,6 +14,20 @@ module.exports = {
     const prompt = interaction.options.getString("prompt");
 
     try {
+      const starterData = interaction.client.memory.get(interaction.user.id) || { model: "smart" };
+      const userModel = starterData.model || "smart";
+
+      const models = {
+        smart: "llama-3.3-70b-versatile",
+        fast: "llama-3.1-8b-instant",
+        thinker: "deepseek-r1-distill-llama-70b",
+        creative: "llama-3.3-70b-versatile",
+        efficient: "llama-3.1-8b-instant",
+        visionary: "llama-3.3-70b-versatile",
+        analyst: "llama-3.1-8b-instant",
+        classic: "llama-3.3-70b-versatile"
+      };
+
       const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -21,7 +35,7 @@ module.exports = {
           Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
         },
         body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
+          model: models[userModel] || models.smart,
           messages: [
             { role: "system", content: "You are an expert software engineer. Provide clean, well-commented code." },
             { role: "user", content: prompt }
