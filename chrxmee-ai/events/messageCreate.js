@@ -27,6 +27,44 @@ module.exports = {
     const client = message.client;
     const userId = message.author.id;
     const channelId = message.channelId;
+    const guildId = message.guildId;
+
+    // Check Guild Wake-up Settings
+    if (guildId) {
+      try {
+        const settingsRes = await db.query("SELECT wake_up_mode FROM guild_settings WHERE guild_id = $1", [guildId]);
+        const mode = settingsRes.rows[0]?.wake_up_mode || 'ping';
+
+        if (mode === 'off') return;
+        
+        if (mode === 'ping') {
+          const isMentioned = message.mentions.has(client.user) && !message.mentions.everyone;
+          // If not mentioned AND not in a continuous chat session, ignore
+          let isInSession = false;
+          for (const [id, data] of client.memory.entries()) {
+            if (data.inChat && data.chatChannelId === channelId && (data.chatMode === "group" || id === userId)) {
+              isInSession = true;
+              break;
+            }
+          }
+          if (!isMentioned && !isInSession) return;
+        }
+        
+        if (mode === 'commands') {
+          // In 'commands' mode, we only respond to messages if they are part of an active /chat session
+          let isInSession = false;
+          for (const [id, data] of client.memory.entries()) {
+            if (data.inChat && data.chatChannelId === channelId && (data.chatMode === "group" || id === userId)) {
+              isInSession = true;
+              break;
+            }
+          }
+          if (!isInSession) return;
+        }
+      } catch (err) {
+        console.error("Check Guild Settings Error:", err);
+      }
+    }
 
     let activeSessionUser = null;
     let userData = null;
