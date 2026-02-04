@@ -35,10 +35,11 @@ module.exports = {
         const settingsRes = await db.query("SELECT wake_up_mode FROM guild_settings WHERE guild_id = $1", [guildId]);
         const mode = settingsRes.rows[0]?.wake_up_mode || 'ping';
 
+        const isMentioned = message.mentions.has(client.user) && !message.mentions.everyone;
+        
         if (mode === 'off') return;
         
         if (mode === 'ping') {
-          const isMentioned = message.mentions.has(client.user) && !message.mentions.everyone;
           // If not mentioned AND not in a continuous chat session, ignore
           let isInSession = false;
           for (const [id, data] of client.memory.entries()) {
@@ -60,6 +61,53 @@ module.exports = {
             }
           }
           if (!isInSession) return;
+        }
+
+        // IMPORTANT: If we are here, and it's NOT a chat session, but it WAS a ping, we need to handle it.
+        // Currently, the logic below checks "if (!userData || !userData.inChat) return;"
+        // We need to allow pings to trigger a one-off response.
+        
+        if (isMentioned) {
+          // Handle one-off ping response if not in session
+          let currentSession = null;
+          for (const [id, data] of client.memory.entries()) {
+            if (data.inChat && data.chatChannelId === channelId && (data.chatMode === "group" || id === userId)) {
+              currentSession = data;
+              break;
+            }
+          }
+
+          if (!currentSession) {
+            // It's a one-off ping. Let's process it like an /ask command but in the channel.
+            const cleanContent = message.content.replace(/<@!?[0-9]+>/g, "").trim();
+            if (!cleanContent) return message.reply("Yes? How can I help? (Use `/chat` for long conversations!)");
+
+            try {
+              message.channel.sendTyping();
+              const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+                },
+                body: JSON.stringify({
+                  model: "llama-3.3-70b-versatile",
+                  messages: [
+                    { role: "system", content: "You are Chrxmee AI, a helpful and friendly AI assistant. Keep responses natural and concise." },
+                    { role: "user", content: cleanContent }
+                  ],
+                  temperature: 0.7,
+                  max_tokens: 1024
+                }),
+              });
+              const data = await response.json();
+              const answer = data.choices?.[0]?.message?.content || "I'm a bit lost in thought...";
+              return message.reply(answer);
+            } catch (err) {
+              console.error("Ping Response Error:", err);
+              return message.reply("Sorry, I hit a snag! Try again in a moment.");
+            }
+          }
         }
       } catch (err) {
         console.error("Check Guild Settings Error:", err);
