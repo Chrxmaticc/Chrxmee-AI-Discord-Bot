@@ -45,6 +45,12 @@ module.exports = {
       });
 
       const data = await response.json();
+      
+      if (!data.choices || !data.choices[0]) {
+        console.error("Imagine API Error Response:", JSON.stringify(data));
+        throw new Error(data.error?.message || "Invalid API response from Groq");
+      }
+
       let result = data.choices[0].message.content;
 
       if (result.length > 1900) {

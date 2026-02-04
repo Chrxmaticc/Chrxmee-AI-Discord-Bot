@@ -61,12 +61,13 @@ for (const file of eventFiles) {
 
 client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
+  console.log(`Chrxmee AI ready as ${client.user.tag}`);
 
   client.user.setPresence({
     status: 'online',
     activities: [{
       name: "Discord World AI Competition",
-      type: 0, // 0 = Playing, 1 = Streaming, 2 = Listening, 3 = Watching, 5 = Competing
+      type: 0,
       details: "All AIs show off their models and intelligence.",
       state: "Winning against Chatcord", 
       application_id: "1458944258454065377", 
@@ -88,8 +89,7 @@ client.once('clientReady', () => {
       instance: true
     }]
   });
-    
-  });
+});
 
 
 client.login(process.env.BOT_TOKEN);
