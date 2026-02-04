@@ -120,7 +120,13 @@ module.exports = {
         await thread.send(`🏁 **The debate begins!**\nTopic: *${topic}*`);
 
         const opening = await getGroqResponse(`Debate Topic: "${topic}". You are on the ${botSide.toUpperCase()} side. Provide a powerful opening argument.`, model);
-        await thread.send(`🎙️ **Chrxmee AI (${botSide.toUpperCase()}):** ${opening}`);
+        
+        if (opening.length > 2000) {
+          const chunks = opening.match(/[\s\S]{1,1900}/g);
+          for (const chunk of chunks) await thread.send(`🎙️ **Chrxmee AI (${botSide.toUpperCase()}):** ${chunk}`);
+        } else {
+          await thread.send(`🎙️ **Chrxmee AI (${botSide.toUpperCase()}):** ${opening}`);
+        }
 
         const debateCollector = thread.createMessageCollector({
           filter: m => !m.author.bot && sides.has(m.author.id),
