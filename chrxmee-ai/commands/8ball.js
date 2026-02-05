@@ -25,7 +25,6 @@ module.exports = {
     const array8 = ["❄️", "🚀", "💀", "🔥", "😭"];
     const array9 = ["Chrxmee AI has spoken.", "The snow has decided.", "Chrxmee approves... maybe.", "The void is laughing.", "Good luck lol."];
 
-    // Pick one random item from each array
     const pickRandom = arr => arr[Math.floor(Math.random() * arr.length)];
 
     const response = [
@@ -41,11 +40,16 @@ module.exports = {
     ].join(' ');
 
     const embed = {
-      color: 0xFF69B4, // Hot pink for chaos
+      color: 0xFF69B4,
       title: '🎱 The Magic 8-Ball Speaks...',
       description: `**Question:** ${question}\n\n**Answer:** ${response}`,
       footer: { text: 'Chrxmee AI - Chaos Level 9000 ❄️' }
     };
+
+    if (Math.random() > 0.8) {
+      embed.description += "\n\n**Bonus Chaos:** I'm feeling extra spicy today. Don't take this advice seriously... or do, I'm just an AI.";
+      embed.color = 0xFF0000;
+    }
 
     await interaction.editReply({ embeds: [embed] });
   },

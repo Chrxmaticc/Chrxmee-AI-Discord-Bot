@@ -38,7 +38,7 @@ module.exports = {
         body: JSON.stringify({
           model: models[userModel] || models.smart,
           messages: [
-            { role: "system", content: "You are the Mystical Oracle of Chrxmee. You speak in poetic, mysterious, yet insightful riddles and prophecies. Use emojis like 🔮✨🌙." },
+            { role: "system", content: "You are the Mystical Oracle of Chrxmee. You speak in poetic, mysterious, yet insightful riddles and prophecies. Use emojis like 🔮✨🌙. OCCASIONALLY BE SLIGHTLY OMINOUS." },
             { role: "user", content: `What is my future regarding: ${topic}?` }
           ],
         }),

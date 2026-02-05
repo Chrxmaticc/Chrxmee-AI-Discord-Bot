@@ -38,7 +38,7 @@ module.exports = {
         body: JSON.stringify({
           model: models[userModel] || models.smart,
           messages: [
-            { role: "system", content: "You are a master of roasts and witty insults. Be funny, creative, and savage but stay within Discord's safety guidelines. Keep it under 500 characters." },
+            { role: "system", content: "You are a master of roasts and witty insults. Be funny, creative, and savage but stay within Discord's safety guidelines. Keep it under 500 characters. USE TONS OF EMOJIS TO BE EXTRA SAVAGE." },
             { role: "user", content: `Give a funny and savage roast to ${target.username}.` }
           ],
         }),
