@@ -40,8 +40,14 @@ module.exports = {
 
     if (choice === "create") {
       if (!interaction.guild) return interaction.reply("This option is only available in servers.");
-      if (!interaction.member.permissions.has(PermissionFlagsBits.ManageChannels)) {
-        return interaction.reply("You need 'Manage Channels' permission to use this option.");
+      
+      // RESTRICTION: Only moderators/owners can create the auto-respond channel
+      const isModerator = interaction.member.permissions.has(PermissionFlagsBits.ManageChannels) || 
+                          interaction.member.permissions.has(PermissionFlagsBits.Administrator) ||
+                          interaction.guild.ownerId === userId;
+
+      if (!isModerator) {
+        return interaction.reply("❌ Only server moderators or the owner can create a dedicated auto-respond channel.");
       }
 
       try {
@@ -54,7 +60,7 @@ module.exports = {
         let userData = interaction.client.memory.get(userId) || { history: [], model: "smart" };
         userData.inChat = true;
         userData.chatChannelId = newChannel.id;
-        userData.chatMode = "group"; // Group mode so anyone can talk to it there
+        userData.chatMode = "group"; 
         userData.lastActivity = Date.now();
         interaction.client.memory.set(userId, userData);
 

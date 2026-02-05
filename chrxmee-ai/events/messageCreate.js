@@ -175,6 +175,22 @@ module.exports = {
     userData.history.push({ role: "user", content: msgContent });
     if (userData.history.length > 15) userData.history = userData.history.slice(-15);
 
+    // Fetch custom behavior from DB if not in memory
+    if (!userData.customPrompt) {
+      try {
+        const customRes = await db.query("SELECT custom_prompt FROM user_interactions WHERE user_id = $1", [userId]);
+        if (customRes.rows[0]) {
+          userData.customPrompt = customRes.rows[0].custom_prompt;
+        }
+      } catch (err) {
+        console.error("Error fetching custom prompt:", err);
+      }
+    }
+
+    const systemPrompt = userData.customPrompt 
+      ? `You are Chrxmee AI. ${userData.customPrompt}. Keep responses natural and concise.`
+      : "You are Chrxmee AI, a helpful and friendly AI assistant. Keep responses natural and concise.";
+
     try {
       const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
@@ -185,7 +201,7 @@ module.exports = {
         body: JSON.stringify({
           model: models[userData.model || "smart"],
           messages: [
-            { role: "system", content: "You are Chrxmee AI, a helpful and friendly AI assistant. Keep responses natural and concise." },
+            { role: "system", content: systemPrompt },
             ...userData.history
           ],
           temperature: 0.7,
