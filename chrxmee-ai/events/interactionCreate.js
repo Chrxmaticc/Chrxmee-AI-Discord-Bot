@@ -3,6 +3,8 @@ module.exports = {
   async execute(interaction) {
     const client = interaction.client;
     
+    if (interaction.user.bot) return;
+
     if (interaction.isChatInputCommand()) {
       const command = client.commands.get(interaction.commandName);
       if (!command) return;

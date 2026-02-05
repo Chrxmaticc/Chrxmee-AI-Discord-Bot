@@ -91,5 +91,13 @@ client.once('clientReady', () => {
   });
 });
 
+// AUTO-RESTART ON ERRORS (Anti-Crash Logic)
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception thrown:', err);
+});
 
 client.login(process.env.BOT_TOKEN);
