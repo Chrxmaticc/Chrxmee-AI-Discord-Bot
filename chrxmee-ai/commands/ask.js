@@ -129,3 +129,4 @@ module.exports = {
       }
     }
   },
+}
