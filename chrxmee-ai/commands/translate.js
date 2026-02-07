@@ -18,8 +18,24 @@ module.exports = {
     const language = interaction.options.getString("language");
 
     try {
-      const starterData = interaction.client.memory.get(interaction.user.id) || { model: "smart" };
+      const userId = interaction.user.id;
+      const starterData = interaction.client.memory.get(userId) || { model: "smart" };
       const userModel = starterData.model || "smart";
+
+      // Fetch custom behavior
+      let customPrompt = "";
+      const { Client } = require("pg");
+      const db = new Client({ connectionString: process.env.DATABASE_URL });
+      try {
+        await db.connect();
+        const customRes = await db.query("SELECT custom_prompt FROM user_interactions WHERE user_id = $1", [userId]);
+        if (customRes.rows[0]) customPrompt = customRes.rows[0].custom_prompt;
+      } catch (err) { console.error("Translate DB error:", err); }
+      finally { await db.end(); }
+
+      const systemPrompt = customPrompt 
+        ? `You are a translator. Translate the following text into ${language}. Only provide the translation. Adhere to this behavior style if possible: ${customPrompt}`
+        : `You are a translator. Translate the following text into ${language}. Only provide the translation.`;
 
       const models = {
         smart: "llama-3.3-70b-versatile",
@@ -41,7 +57,7 @@ module.exports = {
         body: JSON.stringify({
           model: models[userModel] || models.smart,
           messages: [
-            { role: "system", content: `You are a translator. Translate the following text into ${language}. Only provide the translation.` },
+            { role: "system", content: systemPrompt },
             { role: "user", content: text }
           ],
           temperature: 0.3,

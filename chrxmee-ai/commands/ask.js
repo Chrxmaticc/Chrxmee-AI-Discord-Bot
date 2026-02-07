@@ -22,11 +22,37 @@ module.exports = {
     let history = userData.history || [];
     const modelPreference = userData.model || "smart";
 
-    // PERSONALIZATION ADDITION (only this block added)
+    // PERSONALIZATION ADDITION
     let personalInfo = '';
     if (userData.personal) {
       personalInfo = `User personal info: ${Object.entries(userData.personal).map(([k, v]) => `${k.replace('_', ' ')}: ${v}`).join(', ')}. Use this naturally if relevant to the question.`;
     }
+
+    // CUSTOM INTERACTION ADDITION
+    let customPrompt = "";
+    if (userData.customPrompt) {
+      customPrompt = userData.customPrompt;
+    } else {
+      const { Client } = require("pg");
+      const db = new Client({ connectionString: process.env.DATABASE_URL });
+      try {
+        await db.connect();
+        const customRes = await db.query("SELECT custom_prompt FROM user_interactions WHERE user_id = $1", [userId]);
+        if (customRes.rows[0]) {
+          customPrompt = customRes.rows[0].custom_prompt;
+          userData.customPrompt = customPrompt; // Cache it
+          interaction.client.memory.set(userId, userData);
+        }
+      } catch (err) {
+        console.error("Ask custom prompt error:", err);
+      } finally {
+        await db.end();
+      }
+    }
+
+    const systemContent = customPrompt 
+      ? `You are Chrxmee AI acting as the '${modelPreference}' personality. ${customPrompt}. If the user says something too wild, dangerous, or inappropriate, start your response with 'WILD_CONTENT_DETECTED'. ${personalInfo}`
+      : `You are Chrxmee AI acting as the '${modelPreference}' personality. If the user says something too wild, dangerous, or inappropriate, start your response with 'WILD_CONTENT_DETECTED'. ${personalInfo}`;
 
     const models = {
       smart: "llama-3.3-70b-versatile",
@@ -50,7 +76,7 @@ module.exports = {
         body: JSON.stringify({
           model: models[modelPreference],
           messages: [
-            { role: "system", content: `You are Chrxmee AI acting as the '${modelPreference}' personality. If the user says something too wild, dangerous, or inappropriate, start your response with 'WILD_CONTENT_DETECTED'. ${personalInfo}` },
+            { role: "system", content: systemContent },
             ...history
           ],
           temperature: 0.7,

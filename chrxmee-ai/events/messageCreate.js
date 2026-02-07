@@ -84,6 +84,18 @@ module.exports = {
 
             try {
               message.channel.sendTyping();
+              
+              // Fetch custom behavior for pings too
+              let customPrompt = "";
+              try {
+                const customRes = await db.query("SELECT custom_prompt FROM user_interactions WHERE user_id = $1", [userId]);
+                if (customRes.rows[0]) customPrompt = customRes.rows[0].custom_prompt;
+              } catch (err) { console.error("Ping DB Error:", err); }
+
+              const systemPrompt = customPrompt 
+                ? `You are Chrxmee AI. ${customPrompt}. Keep responses natural and concise.`
+                : "You are Chrxmee AI, a helpful and friendly AI assistant. Keep responses natural and concise.";
+
               const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
                 method: "POST",
                 headers: {
@@ -93,7 +105,7 @@ module.exports = {
                 body: JSON.stringify({
                   model: "llama-3.3-70b-versatile",
                   messages: [
-                    { role: "system", content: "You are Chrxmee AI, a helpful and friendly AI assistant. Keep responses natural and concise." },
+                    { role: "system", content: systemPrompt },
                     { role: "user", content: cleanContent }
                   ],
                   temperature: 0.7,

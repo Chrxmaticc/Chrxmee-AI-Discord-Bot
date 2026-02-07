@@ -14,8 +14,24 @@ module.exports = {
     const text = interaction.options.getString("text");
 
     try {
-      const starterData = interaction.client.memory.get(interaction.user.id) || { model: "smart" };
+      const userId = interaction.user.id;
+      const starterData = interaction.client.memory.get(userId) || { model: "smart" };
       const userModel = starterData.model || "smart";
+
+      // Fetch custom behavior
+      let customPrompt = "";
+      const { Client } = require("pg");
+      const db = new Client({ connectionString: process.env.DATABASE_URL });
+      try {
+        await db.connect();
+        const customRes = await db.query("SELECT custom_prompt FROM user_interactions WHERE user_id = $1", [userId]);
+        if (customRes.rows[0]) customPrompt = customRes.rows[0].custom_prompt;
+      } catch (err) { console.error("Summarize DB error:", err); }
+      finally { await db.end(); }
+
+      const systemPrompt = customPrompt 
+        ? `Summarize the following text concisely. Adhere to this behavior: ${customPrompt}`
+        : "Summarize the following text concisely.";
 
       const models = {
         smart: "llama-3.3-70b-versatile",
@@ -37,7 +53,7 @@ module.exports = {
         body: JSON.stringify({
           model: models[userModel] || models.smart,
           messages: [
-            { role: "system", content: "Summarize the following text concisely." },
+            { role: "system", content: systemPrompt },
             { role: "user", content: text }
           ],
           temperature: 0.5,
