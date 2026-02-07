@@ -85,16 +85,30 @@ module.exports = {
             try {
               message.channel.sendTyping();
               
-              // Fetch custom behavior for pings too
+              // Fetch custom behavior and personal info for pings too
               let customPrompt = "";
+              let personalContext = "";
               try {
-                const customRes = await db.query("SELECT custom_prompt FROM user_interactions WHERE user_id = $1", [userId]);
+                const [customRes, personalRes] = await Promise.all([
+                  db.query("SELECT custom_prompt FROM user_interactions WHERE user_id = $1", [userId]),
+                  db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId]).catch(() => ({ rows: [] }))
+                ]);
+                
                 if (customRes.rows[0]) customPrompt = customRes.rows[0].custom_prompt;
+                
+                if (personalRes.rows[0]?.personal_info) {
+                  try {
+                    const personalData = JSON.parse(personalRes.rows[0].personal_info);
+                    personalContext = `User personal info: ${Object.entries(personalData).map(([k, v]) => `${k}: ${v}`).join(', ')}. Use this naturally if relevant.`;
+                  } catch (e) {
+                    personalContext = `User personal info: ${personalRes.rows[0].personal_info}. Use this naturally if relevant.`;
+                  }
+                }
               } catch (err) { console.error("Ping DB Error:", err); }
 
               const systemPrompt = customPrompt 
-                ? `You are Chrxmee AI. ${customPrompt}. Keep responses natural and concise.`
-                : "You are Chrxmee AI, a helpful and friendly AI assistant. Keep responses natural and concise.";
+                ? `You are Chrxmee AI. ${customPrompt}. ${personalContext} Keep responses natural and concise.`
+                : `You are Chrxmee AI, a helpful and friendly AI assistant. ${personalContext} Keep responses natural and concise.`;
 
               const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
                 method: "POST",
@@ -187,21 +201,39 @@ module.exports = {
     userData.history.push({ role: "user", content: msgContent });
     if (userData.history.length > 15) userData.history = userData.history.slice(-15);
 
-    // Fetch custom behavior from DB if not in memory
-    if (!userData.customPrompt) {
+    // Fetch custom behavior and personal info from DB if not in memory
+    if (!userData.customPrompt || !userData.personal) {
       try {
-        const customRes = await db.query("SELECT custom_prompt FROM user_interactions WHERE user_id = $1", [userId]);
+        const [customRes, personalRes] = await Promise.all([
+          db.query("SELECT custom_prompt FROM user_interactions WHERE user_id = $1", [userId]),
+          db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId]).catch(() => ({ rows: [] })) // Fallback in case table name differs
+        ]);
+
         if (customRes.rows[0]) {
           userData.customPrompt = customRes.rows[0].custom_prompt;
         }
+        
+        // Handle personal info from database if available
+        if (personalRes.rows[0]?.personal_info) {
+          try {
+            userData.personal = JSON.parse(personalRes.rows[0].personal_info);
+          } catch (e) {
+            userData.personal = { info: personalRes.rows[0].personal_info };
+          }
+        }
       } catch (err) {
-        console.error("Error fetching custom prompt:", err);
+        console.error("Error fetching user data from DB:", err);
       }
     }
 
+    let personalContext = "";
+    if (userData.personal) {
+      personalContext = `User personal info: ${Object.entries(userData.personal).map(([k, v]) => `${k}: ${v}`).join(', ')}. Use this naturally if relevant.`;
+    }
+
     const systemPrompt = userData.customPrompt 
-      ? `You are Chrxmee AI. ${userData.customPrompt}. Keep responses natural and concise.`
-      : "You are Chrxmee AI, a helpful and friendly AI assistant. Keep responses natural and concise.";
+      ? `You are Chrxmee AI. ${userData.customPrompt}. ${personalContext} Keep responses natural and concise.`
+      : `You are Chrxmee AI, a helpful and friendly AI assistant. ${personalContext} Keep responses natural and concise.`;
 
     try {
       const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
