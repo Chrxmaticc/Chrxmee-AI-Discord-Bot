@@ -3,27 +3,41 @@ const { Client, GatewayIntentBits, Collection } = require("discord.js");
 const fs = require("fs");
 const path = require("path");
 // KEEP-ALIVE SERVER (forced on port 3000 for Replit/UptimeRobot pings)
-// This keeps the repl awake by responding to HTTP requests
 const http = require('http');
 console.log("Starting keep-alive server...");
 const server = http.createServer((req, res) => {
-  console.log("Ping received on keep-alive server from:", req.url);
   res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Chrxmee AI is alive! Ping received. 🚀');
+  res.end('Chrxmee AI is alive and kicking! 🚀');
 });
-const PORT = 3000; // Forced to Replit's default port
-server.listen(PORT, () => {
+
+const PORT = 3000;
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Keep-alive server listening on port ${PORT}`);
 });
-// Server error logging (helps debug if it fails)
+
+// Robust presence rotation and heartbeat
+setInterval(() => {
+  if (client.user) {
+    const activities = [
+      "Discord World AI Competition",
+      "Winning against Chatcord",
+      "Smarter than your average bot",
+      "Analyzing the void ❄️"
+    ];
+    const activity = activities[Math.floor(Math.random() * activities.length)];
+    client.user.setPresence({
+      activities: [{ name: activity, type: 0 }],
+      status: 'online'
+    });
+    console.log(`[HEARTBEAT] Presence updated to: ${activity}`);
+  }
+}, 300000); // Every 5 minutes
+
+// Self-healing: restart server if it dies
 server.on('error', (err) => {
   console.error('Keep-alive server error:', err.message);
+  setTimeout(() => server.listen(PORT, '0.0.0.0'), 5000);
 });
-// END KEEP-ALIVE
-// Keep Replit session alive even when tab is backgrounded
-setInterval(() => {
-  console.log("Heartbeat - keeping session active");
-}, 5 * 60 * 1000); // Every 5 minutes
 
 const client = new Client({
   intents: [

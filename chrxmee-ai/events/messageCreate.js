@@ -88,27 +88,39 @@ module.exports = {
               // Fetch custom behavior and personal info for pings too
               let customPrompt = "";
               let personalContext = "";
+              let userData = client.memory.get(userId) || { history: [], model: "smart" };
+
               try {
                 const [customRes, personalRes] = await Promise.all([
                   db.query("SELECT custom_prompt FROM user_interactions WHERE user_id = $1", [userId]),
-                  db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId]).catch(() => ({ rows: [] }))
+                  db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId])
                 ]);
                 
-                if (customRes.rows[0]) customPrompt = customRes.rows[0].custom_prompt;
+                if (customRes.rows[0]) {
+                  customPrompt = customRes.rows[0].custom_prompt;
+                  userData.customPrompt = customPrompt;
+                }
                 
                 if (personalRes.rows[0]?.personal_info) {
                   try {
-                    const personalData = JSON.parse(personalRes.rows[0].personal_info);
-                    personalContext = `User personal info: ${Object.entries(personalData).map(([k, v]) => `${k.replace('_', ' ')}: ${v}`).join(', ')}. Use this naturally if relevant.`;
+                    userData.personal = JSON.parse(personalRes.rows[0].personal_info);
                   } catch (e) {
-                    personalContext = `User personal info: ${personalRes.rows[0].personal_info}. Use this naturally if relevant.`;
+                    userData.personal = { info: personalRes.rows[0].personal_info };
                   }
                 }
               } catch (err) { console.error("Ping DB Error:", err); }
 
+              if (userData.personal) {
+                personalContext = `User personal info: ${Object.entries(userData.personal).map(([k, v]) => `${k.replace('_', ' ')}: ${v}`).join(', ')}. Use this naturally if relevant.`;
+              }
+
               const systemPrompt = customPrompt 
                 ? `You are Chrxmee AI. ${customPrompt}. ${personalContext} Keep responses natural and concise.`
                 : `You are Chrxmee AI, a helpful and friendly AI assistant. ${personalContext} Keep responses natural and concise.`;
+
+              // Maintain history for pings too
+              userData.history.push({ role: "user", content: cleanContent });
+              if (userData.history.length > 20) userData.history = userData.history.slice(-20);
 
               const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
                 method: "POST",
@@ -120,7 +132,7 @@ module.exports = {
                   model: "llama-3.3-70b-versatile",
                   messages: [
                     { role: "system", content: systemPrompt },
-                    { role: "user", content: cleanContent }
+                    ...userData.history
                   ],
                   temperature: 0.7,
                   max_tokens: 1024
@@ -128,6 +140,10 @@ module.exports = {
               });
               const data = await response.json();
               const answer = data.choices?.[0]?.message?.content || "I'm a bit lost in thought...";
+              
+              userData.history.push({ role: "assistant", content: answer });
+              client.memory.set(userId, userData);
+
               return message.reply(answer);
             } catch (err) {
               console.error("Ping Response Error:", err);
