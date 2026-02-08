@@ -199,7 +199,7 @@ module.exports = {
     const msgContent = userData.chatMode === "group" ? `${message.author.username}: ${message.content}` : message.content;
     
     userData.history.push({ role: "user", content: msgContent });
-    if (userData.history.length > 15) userData.history = userData.history.slice(-15);
+    if (userData.history.length > 30) userData.history = userData.history.slice(-30);
 
     // Fetch custom behavior and personal info from DB if not in memory
     if (!userData.customPrompt || !userData.personal) {

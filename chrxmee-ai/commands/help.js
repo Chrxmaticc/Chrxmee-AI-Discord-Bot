@@ -10,21 +10,20 @@ module.exports = {
     const embed = new EmbedBuilder()
       .setColor(0x00FF00)
       .setTitle("Chrxmee AI - Help Menu")
-      .setDescription("I am your smart AI friend, available everywhere in Discord! Here is what i can do! Please know this is Update 1.25, the Personalization & Security Update!")
+      .setDescription("I am your smart AI friend, available everywhere in Discord! Update 1.30: Extended Brain & Polls Update!")
       .addFields(
-        { name: "🤖 /ask [question]", value: "Chat with me! I have a 'brain' and remember our conversation history. You can also set personal info about yourself with `/setpersonal`." },
-        { name: "💬 /chat", value: "Start a continuous conversation session. No /commands needed!" },
-        { name: "⚙️ /custom-interactions", value: "Set a permanent custom personality for me! E.g., 'act sarcastic and natural'. I will remember this across all commands!" },
-        { name: "📡 /auto-respond", value: "Enable auto-replies in a channel, or let a moderator create a dedicated AI chat room!" },
-        { name: "💻 /code-generate [prompt]", value: "Generate professional code snippets in any language." },
-        { name: "🎭 /model [type]", value: "Change my personality: **Smart**, **Fast**, or **Thinker**." },
-        { name: "🔄 /translate [text] [language]", value: "Translate any text into your desired language instantly." },
-        { name: "📝 /summarize [text]", value: "Get a concise summary of long paragraphs or articles." },
-        { name: "📊 /status", value: "Check my current state, your active model, and memory usage." },
-        { name: "🧠 /clear-brain", value: "Wipe my memory of our current conversation to start fresh." },
-        { name: "🛡️ /guild-settings", value: "Server owners can set how I wake up (pings, commands, or off)." }
+        { name: "🤖 /ask [question]", value: "Chat with me! Now with 2.5x larger memory (25 messages)!" },
+        { name: "💬 /chat", value: "Continuous conversation! Auto-responds now remember 30 messages!" },
+        { name: "⚙️ /custom-interactions", value: "Set personality OR type 'reset' to go back to basic models." },
+        { name: "📊 /poll", value: "Create quick react-polls in the channel! (Max 5 options)" },
+        { name: "📡 /auto-respond", value: "Automatic replies with full personal info recall!" },
+        { name: "💻 /code-generate", value: "Professional code snippets." },
+        { name: "🔄 /translate", value: "Translate text while keeping your custom personality style!" },
+        { name: "📝 /summarize", value: "Concise summaries of any text." },
+        { name: "📊 /status", value: "View latency, history depth, and active personality." },
+        { name: "🧠 /forgetpersonal", value: "Wipe your info from the bot and the database." }
       ) 
-      .setFooter({ text: "Installed as a User App - use me in DMs, Groups, and any Server!" })
+      .setFooter({ text: "Chrxmee AI - Smarter, Faster, More Personal. ❄️" })
       .setTimestamp();
 
     await interaction.reply({ embeds: [embed] });

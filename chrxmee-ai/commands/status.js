@@ -21,9 +21,10 @@ module.exports = {
       .setTitle("Chrxmee AI Status")
       .addFields(
         { name: "Your Active Model", value: modelNames[userData.model] || "Smart", inline: true },
-        { name: "Brain Size", value: `${userData.history.length}/10 messages`, inline: true },
-        { name: "Bot Version", value: "1.2.0", inline: true },
-        { name: "Provider", value: "Groq Cloud", inline: true }
+        { name: "Brain Size", value: `${userData.history.length}/30 messages`, inline: true },
+        { name: "Bot Version", value: "1.3.0", inline: true },
+        { name: "Provider", value: "Groq Cloud", inline: true },
+        { name: "Personality", value: userData.customPrompt || "Standard", inline: true }
       )
       .setTimestamp();
 

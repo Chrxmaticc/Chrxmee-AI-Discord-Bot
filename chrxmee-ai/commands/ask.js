@@ -82,7 +82,7 @@ module.exports = {
       classic: "llama-3.3-70b-versatile"
     };
     history.push({ role: "user", content: question });
-    if (history.length > 10) history = history.slice(-10);
+    if (history.length > 25) history = history.slice(-25);
     try {
       const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
