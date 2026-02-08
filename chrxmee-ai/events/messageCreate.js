@@ -99,7 +99,7 @@ module.exports = {
                 if (personalRes.rows[0]?.personal_info) {
                   try {
                     const personalData = JSON.parse(personalRes.rows[0].personal_info);
-                    personalContext = `User personal info: ${Object.entries(personalData).map(([k, v]) => `${k}: ${v}`).join(', ')}. Use this naturally if relevant.`;
+                    personalContext = `User personal info: ${Object.entries(personalData).map(([k, v]) => `${k.replace('_', ' ')}: ${v}`).join(', ')}. Use this naturally if relevant.`;
                   } catch (e) {
                     personalContext = `User personal info: ${personalRes.rows[0].personal_info}. Use this naturally if relevant.`;
                   }
@@ -206,14 +206,13 @@ module.exports = {
       try {
         const [customRes, personalRes] = await Promise.all([
           db.query("SELECT custom_prompt FROM user_interactions WHERE user_id = $1", [userId]),
-          db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId]).catch(() => ({ rows: [] })) // Fallback in case table name differs
+          db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId])
         ]);
 
         if (customRes.rows[0]) {
           userData.customPrompt = customRes.rows[0].custom_prompt;
         }
         
-        // Handle personal info from database if available
         if (personalRes.rows[0]?.personal_info) {
           try {
             userData.personal = JSON.parse(personalRes.rows[0].personal_info);
@@ -221,6 +220,7 @@ module.exports = {
             userData.personal = { info: personalRes.rows[0].personal_info };
           }
         }
+        client.memory.set(userId, userData);
       } catch (err) {
         console.error("Error fetching user data from DB:", err);
       }
@@ -228,7 +228,7 @@ module.exports = {
 
     let personalContext = "";
     if (userData.personal) {
-      personalContext = `User personal info: ${Object.entries(userData.personal).map(([k, v]) => `${k}: ${v}`).join(', ')}. Use this naturally if relevant.`;
+      personalContext = `User personal info: ${Object.entries(userData.personal).map(([k, v]) => `${k.replace('_', ' ')}: ${v}`).join(', ')}. Use this naturally if relevant.`;
     }
 
     const systemPrompt = userData.customPrompt 

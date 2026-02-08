@@ -30,24 +30,41 @@ module.exports = {
 
     // CUSTOM INTERACTION ADDITION
     let customPrompt = "";
-    if (userData.customPrompt) {
+    if (userData.customPrompt && userData.personal) {
       customPrompt = userData.customPrompt;
     } else {
       const { Client } = require("pg");
       const db = new Client({ connectionString: process.env.DATABASE_URL });
       try {
         await db.connect();
-        const customRes = await db.query("SELECT custom_prompt FROM user_interactions WHERE user_id = $1", [userId]);
+        const [customRes, personalRes] = await Promise.all([
+          db.query("SELECT custom_prompt FROM user_interactions WHERE user_id = $1", [userId]),
+          db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId])
+        ]);
+
         if (customRes.rows[0]) {
           customPrompt = customRes.rows[0].custom_prompt;
-          userData.customPrompt = customPrompt; // Cache it
-          interaction.client.memory.set(userId, userData);
+          userData.customPrompt = customPrompt;
         }
+        
+        if (personalRes.rows[0]?.personal_info) {
+          try {
+            userData.personal = JSON.parse(personalRes.rows[0].personal_info);
+          } catch (e) {
+            userData.personal = { info: personalRes.rows[0].personal_info };
+          }
+        }
+        interaction.client.memory.set(userId, userData);
       } catch (err) {
-        console.error("Ask custom prompt error:", err);
+        console.error("Ask DB error:", err);
       } finally {
         await db.end();
       }
+    }
+
+    // Refresh personalInfo after DB fetch
+    if (userData.personal) {
+      personalInfo = `User personal info: ${Object.entries(userData.personal).map(([k, v]) => `${k.replace('_', ' ')}: ${v}`).join(', ')}. Use this naturally if relevant to the question.`;
     }
 
     const systemContent = customPrompt 
