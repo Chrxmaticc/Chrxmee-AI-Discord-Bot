@@ -14,12 +14,12 @@ module.exports = {
         .addChoices(
           { name: "Genius (Llama 3.3 70B)", value: "smart" },
           { name: "Speedster (Llama 3.1 8B)", value: "fast" },
-          { name: "Philosopher (DeepSeek R1)", value: "thinker" },
-          { name: "Artist (Mixtral 8x7B)", value: "creative" },
+          { name: "Deep Thinker (DeepSeek R1)", value: "thinker" },
+          { name: "Creative (Llama 3.3 70B)", value: "creative" },
           { name: "Specialist (Gemma 2 9B)", value: "efficient" },
-          { name: "Visionary (Qwen 2.5 72B)", value: "visionary" },
+          { name: "Visionary (Llama 3.3 70B)", value: "visionary" },
           { name: "Analyst (Llama 3.2 11B)", value: "analyst" },
-          { name: "Classic (Llama 3.1 70B)", value: "classic" }
+          { name: "Classic (Llama 3.3 70B)", value: "classic" }
         )
     ),
   async execute(interaction) {
@@ -33,12 +33,12 @@ module.exports = {
     const modelNames = {
       smart: "Llama 3.3 70B (The Genius)",
       fast: "Llama 3.1 8B (The Speedster)",
-      thinker: "DeepSeek R1 (The Philosopher)",
-      creative: "Mixtral 8x7B (The Artist)",
+      thinker: "DeepSeek R1 (The Deep Thinker)",
+      creative: "Llama 3.3 70B (The Creative)",
       efficient: "Gemma 2 9B (The Specialist)",
-      visionary: "Qwen 2.5 72B (The Visionary)",
+      visionary: "Llama 3.3 70B (The Visionary)",
       analyst: "Llama 3.2 11B (The Analyst)",
-      classic: "Llama 3.1 70B (The Classic)"
+      classic: "Llama 3.3 70B (The Classic)"
     };
 
     await interaction.reply(`Personality switched to: **${modelNames[type]}**! I'll use this for our future chats.`);

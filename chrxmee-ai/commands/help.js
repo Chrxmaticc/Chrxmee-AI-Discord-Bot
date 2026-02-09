@@ -10,18 +10,15 @@ module.exports = {
     const embed = new EmbedBuilder()
       .setColor(0x00FF00)
       .setTitle("Chrxmee AI - Help Menu")
-      .setDescription("I am your smart AI friend, available everywhere! Update 1.50: The 'Cool & Smart' Overhaul!")
+      .setDescription("I am your smart AI friend, available everywhere! Update 1.60: The Model Refresh & Identity Update!")
       .addFields(
-        { name: "🧠 /brain-dump", value: "See a summary of everything I've learned about you!" },
-        { name: "✨ /vibe-check", value: "AI analyzes the current mood of the channel!" },
-        { name: "🤖 /ask [question]", value: "Chat with me! Now with even faster response times." },
-        { name: "💬 /chat", value: "Continuous conversation with deep context recall." },
-        { name: "📜 /quote", value: "Personalized AI philosophy." },
-        { name: "🌐 /news", value: "AI-generated breaking tech news." },
-        { name: "📊 /poll", value: "Instant reaction-based voting." },
-        { name: "⚙️ /custom-interactions", value: "Deep personality customization." }
+        { name: "🔍 /whois", value: "Generate a cool AI intelligence profile for anyone!" },
+        { name: "🧠 /brain-dump", value: "Summary of everything I've learned about you." },
+        { name: "✨ /vibe-check", value: "AI analyzes the channel's current mood." },
+        { name: "🤖 /model", value: "Switch between 8 freshly updated AI personalities!" },
+        { name: "💬 /chat", value: "Continuous conversation with deep recall." }
       ) 
-      .setFooter({ text: "Chrxmee AI v1.50 - Smarter, Cooler, Better. ❄️" })
+      .setFooter({ text: "Chrxmee AI v1.60 - New Models, New Identity. ❄️" })
       .setTimestamp();
 
     await interaction.reply({ embeds: [embed] });

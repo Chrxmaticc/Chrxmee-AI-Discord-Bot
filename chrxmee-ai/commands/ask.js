@@ -76,9 +76,9 @@ module.exports = {
       fast: "llama-3.1-8b-instant",
       thinker: "deepseek-r1-distill-llama-70b",
       creative: "llama-3.3-70b-versatile",
-      efficient: "llama-3.1-8b-instant",
+      efficient: "gemma2-9b-it",
       visionary: "llama-3.3-70b-versatile",
-      analyst: "llama-3.1-8b-instant",
+      analyst: "llama-3.2-11b-vision-preview",
       classic: "llama-3.3-70b-versatile"
     };
     history.push({ role: "user", content: question });
