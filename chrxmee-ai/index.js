@@ -21,8 +21,8 @@ setInterval(() => {
     const activities = [
       "Discord World AI Competition",
       "Winning against Chatcord",
-      "Smarter than your average bot",
-      "Analyzing the void ❄️"
+      "Smarter than your average bot.",
+      "Analyzing the void of existence."
     ];
     const activity = activities[Math.floor(Math.random() * activities.length)];
     client.user.setPresence({
