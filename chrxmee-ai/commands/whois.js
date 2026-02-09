@@ -2,7 +2,7 @@ const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName("whois")
+    .setName("server-persence-generate")
     .setDescription("AI research on a user (or yourself) based on server presence")
     .addUserOption(option => option.setName("target").setDescription("The user to research")),
   async execute(interaction) {
@@ -34,12 +34,12 @@ module.exports = {
         .setTitle(`🔍 Intelligence File: ${target.username}`)
         .setDescription(profile)
         .setThumbnail(target.displayAvatarURL())
-        .setFooter({ text: "Profile generated via Neural Network ❄️" });
+        .setFooter({ text: "Profile generated via Neural Network Analysis." });
 
       await interaction.editReply({ embeds: [embed] });
     } catch (err) {
       console.error(err);
-      await interaction.editReply("Investigation failed. The target is too well hidden!");
+      await interaction.editReply("Investigation failed. The target is too well hidden! Maybe stop being so sneaky?");
     }
   },
 };

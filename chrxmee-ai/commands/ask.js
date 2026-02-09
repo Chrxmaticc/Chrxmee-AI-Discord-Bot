@@ -129,7 +129,7 @@ module.exports = {
               .setStyle(ButtonStyle.Danger),
           );
         const replyOptions = {
-          content: "Okay, too wild but I can explain it in a different way. Would you like me to?",
+          content: `> **Q:** ${question}\nOkay, too wild but I can explain it in a different way. Would you like me to?`,
           components: [row]
         };
         if (isButtonSim) {
@@ -143,19 +143,22 @@ module.exports = {
       history.push({ role: "assistant", content: answer });
       userData.history = history;
       interaction.client.memory.set(userId, userData);
+      
+      const responseHeader = `> **Q:** ${question}\n**Chrxmee AI (Groq - ${modelPreference}):**`;
+
       if (answer.length > 2000) {
         const chunks = answer.match(/[\s\S]{1,1900}/g);
-        const replyText = `**Chrxmee AI (Groq - ${modelPreference}):** ${chunks[0]}...`;
+        const firstReply = `${responseHeader} ${chunks[0]}...`;
         if (isButtonSim) {
-          await interaction.followUp(replyText);
+          await interaction.followUp(firstReply);
         } else {
-          await interaction.editReply(replyText);
+          await interaction.editReply(firstReply);
         }
         for (let i = 1; i < chunks.length; i++) {
           await interaction.followUp(chunks[i]);
         }
       } else {
-        const replyText = `**Chrxmee AI (Groq - ${modelPreference}):** ${answer}`;
+        const replyText = `${responseHeader} ${answer}`;
         if (isButtonSim) {
           await interaction.followUp(replyText);
         } else {

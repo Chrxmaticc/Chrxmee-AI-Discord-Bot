@@ -16,20 +16,24 @@ server.listen(PORT, '0.0.0.0', () => {
 });
 
 // Robust presence rotation and heartbeat
+let heartbeatCount = 0;
 setInterval(() => {
+  heartbeatCount++;
   if (client.user) {
     const activities = [
       "Discord World AI Competition",
       "Winning against Chatcord",
       "Smarter than your average bot.",
-      "Analyzing the void of existence."
+      "Analyzing the void of existence.",
+      `Active for ${Math.floor(process.uptime() / 3600)}h | ${client.guilds.cache.size} Servers`,
+      `Handling ${heartbeatCount} heartbeats | High Traffic Mode 🚀`
     ];
     const activity = activities[Math.floor(Math.random() * activities.length)];
     client.user.setPresence({
       activities: [{ name: activity, type: 0 }],
       status: 'online'
     });
-    console.log(`[HEARTBEAT] Presence updated to: ${activity}`);
+    console.log(`[HEARTBEAT #${heartbeatCount}] Traffic normal. Presence: ${activity}`);
   }
 }, 300000); // Every 5 minutes
 

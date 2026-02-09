@@ -10,15 +10,16 @@ module.exports = {
     const embed = new EmbedBuilder()
       .setColor(0x00FF00)
       .setTitle("Chrxmee AI - Help Menu")
-      .setDescription("I am your smart AI friend, available everywhere! Update 1.60: The Model Refresh & Identity Update!")
+      .setDescription("I am your smart AI friend, available everywhere! Update 1.70: The 'Transparency & Utility' Update!")
       .addFields(
-        { name: "🔍 /whois", value: "Generate a cool AI intelligence profile for anyone!" },
+        { name: "🤖 /ask [question]", value: "Now shows your question in the response!" },
+        { name: "⏰ /remind-me", value: "Set a quick timer/reminder for yourself." },
+        { name: "🎲 /dice", value: "Roll a standard 6-sided die." },
+        { name: "🔍 /whois", value: "AI intelligence profile for anyone." },
         { name: "🧠 /brain-dump", value: "Summary of everything I've learned about you." },
-        { name: "✨ /vibe-check", value: "AI analyzes the channel's current mood." },
-        { name: "🤖 /model", value: "Switch between 8 freshly updated AI personalities!" },
-        { name: "💬 /chat", value: "Continuous conversation with deep recall." }
+        { name: "✨ /vibe-check", value: "AI analyzes the channel's current mood." }
       ) 
-      .setFooter({ text: "Chrxmee AI v1.60 - New Models, New Identity. ❄️" })
+      .setFooter({ text: "Chrxmee AI v1.70 - Smarter, Faster, Stronger. ❄️" })
       .setTimestamp();
 
     await interaction.reply({ embeds: [embed] });
