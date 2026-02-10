@@ -120,7 +120,7 @@ module.exports = {
         await thread.send(`🏁 **The debate begins!**\nTopic: *${topic}*`);
 
         const opening = await getGroqResponse(`Debate Topic: "${topic}". You are on the ${botSide.toUpperCase()} side. Provide a powerful opening argument.`, model);
-        
+
         if (opening.length > 2000) {
           const chunks = opening.match(/[\s\S]{1,1900}/g);
           for (const chunk of chunks) await thread.send(`🎙️ **Chrxmee AI (${botSide.toUpperCase()}):** ${chunk}`);
@@ -136,13 +136,13 @@ module.exports = {
         debateCollector.on('collect', async m => {
           const userSide = sides.get(m.author.id);
           await thread.sendTyping();
-          
+
           let instruction = userSide === botSide 
             ? "They are your teammate. Support their point and add a new layer of argument." 
             : "They are your opponent. Counter their specific point with logic and evidence.";
 
           const response = await getGroqResponse(`Topic: "${topic}". User (${userSide.toUpperCase()}) said: "${m.content}". You are ${botSide.toUpperCase()}. ${instruction}`, model);
-          
+
           if (response.length > 2000) {
             const chunks = response.match(/[\s\S]{1,1900}/g);
             for (const chunk of chunks) await thread.send(`🎙️ **Chrxmee AI:** ${chunk}`);

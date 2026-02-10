@@ -14,10 +14,10 @@ module.exports = {
       .addFields(
         { name: "🤖 /ask [question]", value: "Now shows your question in the response!" },
         { name: "⏰ /remind-me", value: "Set a quick timer/reminder for yourself." },
+        { name: "🪙 /coinflip", value: "Flip a coin! Heads or Tails?" },
         { name: "🎲 /dice", value: "Roll a standard 6-sided die." },
         { name: "🔍 /whois", value: "AI intelligence profile for anyone." },
-        { name: "🧠 /brain-dump", value: "Summary of everything I've learned about you." },
-        { name: "✨ /vibe-check", value: "AI analyzes the channel's current mood." }
+        { name: "🧠 /brain-dump", value: "Summary of everything I've learned about you." }
       ) 
       .setFooter({ text: "Chrxmee AI v1.70 - Smarter, Faster, Stronger. ❄️" })
       .setTimestamp();
