@@ -2,9 +2,9 @@ require("dotenv").config();
 const { Client, GatewayIntentBits, Collection } = require("discord.js");
 const fs = require("fs");
 const path = require("path");
-const { Pool } = require('pg'); // Using Pool for better serverless handling
+const { Pool } = require('pg');
 
-// KEEP-ALIVE SERVER (your original, untouched)
+// KEEP-ALIVE SERVER (your original)
 const http = require('http');
 console.log("Starting keep-alive server...");
 const server = http.createServer((req, res) => {
@@ -16,7 +16,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`Keep-alive server listening on port ${PORT}`);
 });
 
-// Robust presence rotation and heartbeat (your original, untouched)
+// Robust presence rotation and heartbeat (your original)
 let heartbeatCount = 0;
 setInterval(() => {
   heartbeatCount++;
@@ -38,52 +38,12 @@ setInterval(() => {
   }
 }, 300000); // Every 5 minutes
 
-// Self-healing: restart server if it dies (your original)
+// Self-healing: restart server if it dies
 server.on('error', (err) => {
   console.error('Keep-alive server error:', err.message);
   setTimeout(() => server.listen(PORT, '0.0.0.0'), 5000);
 });
 
-// Postgres Pool (Render managed DB — no local port)
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false } // Needed for Render Postgres on starter/free tier
-});
-
-// Startup connection test + table check/create
-(async () => {
-  try {
-    const client = await pool.connect();
-    console.log('Render Postgres connected successfully on startup!');
-
-    // Auto-create guild-settings table if missing
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS guild_settings (
-        guild_id BIGINT PRIMARY KEY,
-        wake_up_mode TEXT DEFAULT 'default',
-        auto_respond BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-    `);
-    console.log('guild_settings table created or already exists');
-
-    // Quick existence check
-    const res = await client.query(
-      'SELECT table_name FROM information_schema.tables WHERE table_name = $1',
-      ['guild_settings']
-    );
-    console.log('guild_settings exists:', res.rowCount > 0 ? 'YES' : 'NO');
-
-    client.release();
-  } catch (err) {
-    console.error('Startup Postgres error:', err.message);
-  }
-})();
-
-// Make pool globally available (your guild-settings / advanced commands use this)
-client.pool = pool;
-
-// Your original bot setup
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -93,6 +53,7 @@ const client = new Client({
   ],
   partials: [1, 3], // CHANNEL, MESSAGE for DMs
 });
+
 client.commands = new Collection();
 client.memory = new Map(); // The "brain" storage
 
@@ -120,9 +81,48 @@ for (const file of eventFiles) {
   }
 }
 
-client.once('clientReady', () => {
+// PG Pool (Render / Neon Postgres) — created early, but only used after ready
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false } // Required for Render/Neon free tier certs
+});
+
+// Make pool available globally **after** ready
+client.pool = null; // placeholder until ready
+
+// DB setup + table creation — runs **inside** clientReady (after login)
+client.once('clientReady', async () => {
   console.log(`Logged in as ${client.user.tag}`);
   console.log(`Chrxmee AI ready as ${client.user.tag}`);
+
+  // Attach pool once bot is ready
+  client.pool = pool;
+
+  try {
+    const pgClient = await pool.connect();
+    console.log('Postgres connected successfully on ready!');
+
+    // Auto-create guild_settings table if missing
+    await pgClient.query(`
+      CREATE TABLE IF NOT EXISTS guild_settings (
+        guild_id BIGINT PRIMARY KEY,
+        wake_up_mode TEXT DEFAULT 'default',
+        auto_respond BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    console.log('guild_settings table created or already exists');
+
+    // Quick confirmation query
+    const res = await pgClient.query('SELECT 1');
+    console.log('Test query worked:', res.rows);
+
+    pgClient.release();
+  } catch (err) {
+    console.error('Postgres setup failed in clientReady:', err.message);
+  }
+
+  // Your original presence
   client.user.setPresence({
     status: 'online',
     activities: [{
