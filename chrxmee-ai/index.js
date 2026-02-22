@@ -2,9 +2,9 @@ require("dotenv").config();
 const { Client, GatewayIntentBits, Collection } = require("discord.js");
 const fs = require("fs");
 const path = require("path");
-const { Client: PgClient } = require('pg'); // Your existing pg client
+const { Pool } = require('pg'); // Using Pool for better serverless handling
 
-// KEEP-ALIVE SERVER (your original, kept intact)
+// KEEP-ALIVE SERVER (your original, untouched)
 const http = require('http');
 console.log("Starting keep-alive server...");
 const server = http.createServer((req, res) => {
@@ -15,7 +15,8 @@ const PORT = 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Keep-alive server listening on port ${PORT}`);
 });
-// Robust presence rotation and heartbeat
+
+// Robust presence rotation and heartbeat (your original, untouched)
 let heartbeatCount = 0;
 setInterval(() => {
   heartbeatCount++;
@@ -36,11 +37,53 @@ setInterval(() => {
     console.log(`[HEARTBEAT #${heartbeatCount}] Traffic normal. Presence: ${activity}`);
   }
 }, 300000); // Every 5 minutes
-// Self-healing: restart server if it dies
+
+// Self-healing: restart server if it dies (your original)
 server.on('error', (err) => {
   console.error('Keep-alive server error:', err.message);
   setTimeout(() => server.listen(PORT, '0.0.0.0'), 5000);
 });
+
+// Postgres Pool (Render managed DB — no local port)
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false } // Needed for Render Postgres on starter/free tier
+});
+
+// Startup connection test + table check/create
+(async () => {
+  try {
+    const client = await pool.connect();
+    console.log('Render Postgres connected successfully on startup!');
+
+    // Auto-create guild-settings table if missing
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS guild_settings (
+        guild_id BIGINT PRIMARY KEY,
+        wake_up_mode TEXT DEFAULT 'default',
+        auto_respond BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    console.log('guild_settings table created or already exists');
+
+    // Quick existence check
+    const res = await client.query(
+      'SELECT table_name FROM information_schema.tables WHERE table_name = $1',
+      ['guild_settings']
+    );
+    console.log('guild_settings exists:', res.rowCount > 0 ? 'YES' : 'NO');
+
+    client.release();
+  } catch (err) {
+    console.error('Startup Postgres error:', err.message);
+  }
+})();
+
+// Make pool globally available (your guild-settings / advanced commands use this)
+client.pool = pool;
+
+// Your original bot setup
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -52,6 +95,7 @@ const client = new Client({
 });
 client.commands = new Collection();
 client.memory = new Map(); // The "brain" storage
+
 // Load commands
 const commandsPath = path.join(__dirname, "commands");
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith(".js"));
@@ -62,6 +106,7 @@ for (const file of commandFiles) {
     client.commands.set(command.data.name, command);
   }
 }
+
 // Load events
 const eventsPath = path.join(__dirname, "events");
 const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith(".js"));
@@ -74,6 +119,7 @@ for (const file of eventFiles) {
     client.on(event.name, (...args) => event.execute(...args));
   }
 }
+
 client.once('clientReady', () => {
   console.log(`Logged in as ${client.user.tag}`);
   console.log(`Chrxmee AI ready as ${client.user.tag}`);
@@ -104,44 +150,13 @@ client.once('clientReady', () => {
     }]
   });
 });
-// AUTO-RESTART ON ERRORS (Anti-Crash Logic)
+
+// AUTO-RESTART ON ERRORS (your original)
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception thrown:', err);
 });
+
 client.login(process.env.BOT_TOKEN);
-
-// PG CONNECTION UPGRADE (forced pooling for Neon on Vercel — no local port)
-// Uses DATABASE_URL env var (your Neon string — direct or pooled works with this)
-// Adds pooling hints + SSL handshake for free tier
-const pgClient = new PgClient({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false // Handshake for Neon's self-signed cert
-  },
-  // Pooling hints for serverless (max connections, timeouts)
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000
-});
-
-// Startup test connection
-pgClient.connect((err) => {
-  if (err) {
-    console.error('PG connection error on startup:', err.message);
-  } else {
-    console.log('PG connected successfully on startup!');
-    pgClient.query('SELECT NOW()', (err, res) => {
-      if (err) {
-        console.error('PG test query error:', err.message);
-      } else {
-        console.log('PG test query time:', res.rows[0].now);
-      }
-    });
-  }
-});
-
-// Make pgClient available globally for your guild settings/chat code
-client.pg = pgClient;
