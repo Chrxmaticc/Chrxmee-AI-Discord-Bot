@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require("discord.js");
+const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -13,54 +13,24 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply();
     const prompt = interaction.options.getString("prompt");
-
+    
     try {
-      const starterData = interaction.client.memory.get(interaction.user.id) || { model: "smart" };
-      const userModel = starterData.model || "smart";
+      // Using Pollinations AI - a free, high-quality image generation API
+      const encodedPrompt = encodeURIComponent(prompt);
+      const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&nologo=true&enhance=true&seed=${Math.floor(Math.random() * 1000000)}`;
 
-      const models = {
-        smart: "llama-3.3-70b-versatile",
-        fast: "llama-3.1-8b-instant",
-        thinker: "deepseek-r1-distill-llama-70b",
-        creative: "llama-3.3-70b-versatile",
-        efficient: "llama-3.1-8b-instant",
-        visionary: "llama-3.3-70b-versatile",
-        analyst: "llama-3.1-8b-instant",
-        classic: "llama-3.3-70b-versatile"
-      };
+      const embed = new EmbedBuilder()
+        .setColor(0x00FFFF)
+        .setTitle("🎨 Chrxmee AI - Ultra Image Gen")
+        .setDescription(`**Prompt:** ${prompt}\n\n*Generating high-definition visual...*`)
+        .setImage(imageUrl)
+        .setFooter({ text: "Powered by Pollinations AI & Flux Architecture ❄️" })
+        .setTimestamp();
 
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: models[userModel] || models.smart,
-          messages: [
-            { role: "system", content: "You are an expert AI image prompt engineer. Create a highly detailed, cinematic, and professional image generation prompt based on the user's idea. KEEP YOUR RESPONSE UNDER 1800 CHARACTERS." },
-            { role: "user", content: `Create a detailed image prompt for: ${prompt}` }
-          ],
-        }),
-      });
-
-      const data = await response.json();
-      
-      if (!data.choices || !data.choices[0]) {
-        console.error("Imagine API Error Response:", JSON.stringify(data));
-        throw new Error(data.error?.message || "Invalid API response from Groq");
-      }
-
-      let result = data.choices[0].message.content;
-
-      if (result.length > 1900) {
-        result = result.substring(0, 1900) + "... (truncated)";
-      }
-
-      await interaction.editReply(`🎨 **Image Concept Generated:**\n\n${result}`);
+      await interaction.editReply({ embeds: [embed] });
     } catch (err) {
-      console.error("Imagine Error:", err);
-      await interaction.editReply("Sorry, I couldn't imagine that right now.");
+      console.error("Image generation error:", err);
+      await interaction.editReply("The canvas is frozen! I couldn't generate your image right now.");
     }
   },
 };
