@@ -20,7 +20,7 @@ module.exports = {
         .setName('set-ping')
         .setDescription('Ping role on birthday')
         .addUserOption(opt => opt.setName('user').setDescription('User').setRequired(true))
-        .addRoleOption(opt => opt.setName('role').setDescription('Ping role').setRequired(true)))
+        .addRoleOption(opt => opt.setName('role').setDescription('Ping role (@everyone, @here, custom)').setRequired(true)))
     .addSubcommand(subcommand =>
       subcommand
         .setName('remove-ping')
@@ -28,7 +28,9 @@ module.exports = {
         .addUserOption(opt => opt.setName('user').setDescription('User').setRequired(true))),
 
   async execute(interaction, client) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral: true }); // FIRST LINE – must be here to prevent expired
+
+    console.log(`[DEBUG] Birthday-configure deferred for ${interaction.user.tag} - sub: ${interaction.options.getSubcommand() || 'none'}`);
 
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
       return interaction.editReply('Only mods can configure birthdays');
@@ -42,7 +44,7 @@ module.exports = {
     try {
       if (sub === 'add-role') {
         await client.pool.query('UPDATE user_birthdays SET birthday_role_id = $2 WHERE user_id = $1', [userId, role.id]);
-        return interaction.editReply(`Birthday role set for ${user.tag} to ${role.name}`);
+        return interaction.editReply(`Birthday role set for ${user.tag} to ${role.name}. Glow-up incoming`);
       }
 
       if (sub === 'remove-role') {
