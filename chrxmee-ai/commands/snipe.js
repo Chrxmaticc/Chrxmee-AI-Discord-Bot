@@ -49,7 +49,7 @@ module.exports = {
         .setColor('#ff4444')
         .setTitle('Snipe: Deleted Messages')
         .setDescription(deleted.map(s => `**${s.author.tag}** (${s.timestamp.toLocaleTimeString()}): ${s.content || '[empty/attachment]'}`).join('\n\n'))
-        .setFooter({ text: 'Sniped by Chrxmee AI ❄️' });
+        .setFooter({ text: 'Sniped by Chrxmee AI' });
 
       return interaction.editReply({ embeds: [embed] });
     }
@@ -62,7 +62,7 @@ module.exports = {
         .setColor('#ffaa00')
         .setTitle('Snipe: Edited Messages')
         .setDescription(edited.map(s => `**${s.author.tag}** (${s.timestamp.toLocaleTimeString()}):\n**Before:** ${s.oldContent || '[empty]'}\n**After:** ${s.content || '[empty]'}`).join('\n\n'))
-        .setFooter({ text: 'Sniped by Chrxmee AI ❄️' });
+        .setFooter({ text: 'Sniped by Chrxmee AI' });
 
       return interaction.editReply({ embeds: [embed] });
     }
@@ -75,7 +75,7 @@ module.exports = {
         .setColor('#44ff44')
         .setTitle(`Last ${recent.length} Messages`)
         .setDescription(recent.map(s => `**${s.author.tag}** (${s.timestamp.toLocaleTimeString()}): ${s.content || '[attachment/media]'}`).join('\n\n'))
-        .setFooter({ text: 'Sniped by Chrxmee AI ❄️' });
+        .setFooter({ text: 'Sniped by Chrxmee AI' });
 
       return interaction.editReply({ embeds: [embed] });
     }
@@ -91,7 +91,7 @@ module.exports = {
       const embed = new EmbedBuilder()
         .setColor('#ff0000')
         .setTitle('INSANE MODE ACTIVATED')
-        .setDescription(heavy.map(s => `**${s.author.tag}** said: ${s.content}\nI’m watching you... ❄️`).join('\n\n'))
+        .setDescription(heavy.map(s => `**${s.author.tag}** said: ${s.content}\nI’m watching you..`).join('\n\n'))
         .setFooter({ text: 'Chrxmee AI remembers everything' });
 
       return interaction.editReply({ embeds: [embed] });
