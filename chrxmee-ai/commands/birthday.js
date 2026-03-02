@@ -14,7 +14,7 @@ const CITY_TIMEZONES = {
   'toronto': 'America/Toronto',
   'seoul': 'Asia/Seoul',
   'mumbai': 'Asia/Kolkata',
-  // Add more cities your users might actually say
+  // Feel free to add 2–3 more cities you actually see people from
 };
 
 module.exports = {
@@ -26,7 +26,7 @@ module.exports = {
         .setName('set')
         .setDescription('Set your birthday')
         .addStringOption(opt => opt.setName('date').setDescription('YYYY-MM-DD').setRequired(true))
-        .addStringOption(opt => opt.setName('city').setDescription('City for timezone (autocomplete)').setRequired(true).setAutocomplete(true)))
+        .addStringOption(opt => opt.setName('city').setDescription('City for timezone').setRequired(true).setAutocomplete(true)))
     .addSubcommand(subcommand =>
       subcommand
         .setName('view')
@@ -54,12 +54,20 @@ module.exports = {
       const dateStr = interaction.options.getString('date');
       const city = interaction.options.getString('city').toLowerCase();
       const tz = CITY_TIMEZONES[city];
-      if (!tz) return interaction.editReply(`No timezone for "${city}" yet — try a bigger city ❄️`);
 
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return interaction.editReply('Use YYYY-MM-DD please ❄️');
+      if (!tz) {
+        return interaction.editReply(
+          `No timezone match for "${city}" — try a bigger city like New York, Tokyo, London, etc. ❄️ ` +
+          `Your birthday wasn't saved yet, but you can try again!`
+        );
+      }
+
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        return interaction.editReply('Date must be YYYY-MM-DD (e.g. 1995-12-25) ❄️');
+      }
 
       const date = new Date(dateStr);
-      if (isNaN(date)) return interaction.editReply('Date looks broken ❄️');
+      if (isNaN(date)) return interaction.editReply('That date looks broken. Try again ❄️');
 
       try {
         await client.pool.query(`
@@ -68,7 +76,10 @@ module.exports = {
           ON CONFLICT (user_id) DO UPDATE SET birthday_date = $2, timezone = $3, set_at = NOW()
         `, [userId, dateStr, tz]);
 
-        return interaction.editReply(`Birthday locked in: **${dateStr}** (${city} time). I’ll remember... and roast extra on the day ❄️`);
+        return interaction.editReply(
+          `Birthday locked in: **${dateStr}** (${city} time). ` +
+          `I’ll remember... and probably roast you extra hard when the day comes ❄️`
+        );
       } catch (err) {
         console.error('Birthday set error:', err);
         return interaction.editReply('Something broke on my end. Try again later? ❄️');
@@ -78,7 +89,10 @@ module.exports = {
     if (sub === 'view') {
       try {
         const res = await client.pool.query('SELECT birthday_date, timezone FROM user_birthdays WHERE user_id = $1', [userId]);
-        if (res.rowCount === 0) return interaction.editReply('No birthday set yet. Use /birthday set ❄️');
+        if (res.rowCount === 0) {
+          return interaction.editReply('No birthday set yet. Use /birthday set to fix that ❄️');
+        }
+
         const { birthday_date, timezone } = res.rows[0];
         return interaction.editReply(`Your birthday: **${birthday_date}** (${timezone}) ❄️ Counting down already.`);
       } catch (err) {
