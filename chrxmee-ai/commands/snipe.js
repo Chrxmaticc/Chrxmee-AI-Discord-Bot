@@ -20,7 +20,9 @@ module.exports = {
         .setRequired(false)),
 
   async execute(interaction, client) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral: true }); // FIRST LINE — must be here to prevent expired
+
+    console.log(`[DEBUG] Snipe deferred for ${interaction.user.tag} - mode: ${interaction.options.getString('mode')}`);
 
     const mode = interaction.options.getString('mode');
     const count = Math.min(interaction.options.getInteger('count') || 5, mode === 'last50' ? 50 : 10);
@@ -29,9 +31,7 @@ module.exports = {
 
     if (mode === 'removed') {
       const deleted = snipes.filter(s => s.type === 'delete').slice(-count);
-      if (deleted.length === 0) {
-        return interaction.editReply('Snipe: Deleted. No insanity for me to deal with today.');
-      }
+      if (deleted.length === 0) return interaction.editReply('Snipe: Deleted. No insanity for me to deal with today.');
 
       const embed = new EmbedBuilder()
         .setColor('#ff4444')
@@ -44,9 +44,7 @@ module.exports = {
 
     if (mode === 'edit') {
       const edited = snipes.filter(s => s.type === 'edit').slice(-count);
-      if (edited.length === 0) {
-        return interaction.editReply('Snipe: Edit. No one’s changing their mind today... boring.');
-      }
+      if (edited.length === 0) return interaction.editReply('Snipe: Edit. No one’s changing their mind today... boring.');
 
       const embed = new EmbedBuilder()
         .setColor('#ffaa00')
@@ -59,9 +57,7 @@ module.exports = {
 
     if (mode === 'last50') {
       const recent = snipes.slice(-count);
-      if (recent.length === 0) {
-        return interaction.editReply('Snipe: Last50. Channel’s so dead even ghosts left.');
-      }
+      if (recent.length === 0) return interaction.editReply('Snipe: Last50. Channel’s so dead even ghosts left.');
 
       const embed = new EmbedBuilder()
         .setColor('#44ff44')
@@ -78,9 +74,7 @@ module.exports = {
         return t.includes('fuck') || t.includes('bitch') || t.includes('kill') || t.includes('die') || t.includes('ugly') || t.includes('hate') || t.includes('loser');
       }).slice(-5);
 
-      if (heavy.length === 0) {
-        return interaction.editReply('Snipe: Insane. Everyone’s too chill today... disappointing.');
-      }
+      if (heavy.length === 0) return interaction.editReply('Snipe: Insane. Everyone’s too chill today... disappointing.');
 
       const embed = new EmbedBuilder()
         .setColor('#ff0000')
