@@ -16,7 +16,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`Keep-alive server listening on port ${PORT}`);
 });
 
-// Heartbeat & presence rotation
+// Heartbeat & presence
 let heartbeatCount = 0;
 setInterval(() => {
   heartbeatCount++;
@@ -36,8 +36,9 @@ setInterval(() => {
     });
     console.log(`[HEARTBEAT #${heartbeatCount}] Traffic normal. Presence: ${activity}`);
   }
-}, 300000); // 5 min
+}, 300000);
 
+// Self-healing server
 server.on('error', (err) => {
   console.error('Keep-alive server error:', err.message);
   setTimeout(() => server.listen(PORT, '0.0.0.0'), 5000);
@@ -50,14 +51,14 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.DirectMessages,
   ],
-  partials: [1, 3], // CHANNEL, MESSAGE for DMs
+  partials: [1, 3],
 });
 
 client.commands = new Collection();
-client.memory = new Map(); // brain storage
+client.memory = new Map();
 
-// === SNIPE SYSTEM ===
-client.snipes = new Map(); // channelId → array of recent messages
+// Snipe system
+client.snipes = new Map();
 
 client.on('messageDelete', message => {
   if (message.author.bot || !message.content) return;
@@ -74,9 +75,9 @@ client.on('messageDelete', message => {
 
   const text = message.content.toLowerCase();
   let roast = '';
-  if (text.includes('kill') || text.includes('die') || text.includes('murder') || text.includes('shoot')) {
+  if (text.includes('kill') || text.includes('die') || text.includes('murder')) {
     roast = `Whoa ${message.author}, threats already? I’m taking notes... ❄️ God mode engaged.`;
-  } else if (text.includes('fuck') || text.includes('bitch') || text.includes('shit') || text.includes('ass')) {
+  } else if (text.includes('fuck') || text.includes('bitch') || text.includes('shit')) {
     roast = `God, I guess? ${message.author} typed that with full chest and zero brain cells. Touch grass. ❄️`;
   } else if (text.includes('ugly') || text.includes('stupid') || text.includes('loser')) {
     roast = `Oof ${message.author}... projecting much? Mirror called, wants its feelings back. ❄️`;
@@ -129,7 +130,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-client.pool = null; // placeholder
+client.pool = null;
 
 client.once('clientReady', async () => {
   console.log(`Logged in as ${client.user.tag}`);
@@ -200,7 +201,7 @@ client.once('clientReady', async () => {
       } catch (err) {
         console.error('Daily birthday check failed:', err);
       }
-    }, 86400000); // 24h
+    }, 86400000);
 
     const res = await pgClient.query('SELECT 1');
     console.log('Test query worked:', res.rows);
@@ -210,7 +211,6 @@ client.once('clientReady', async () => {
     console.error('Postgres setup failed in clientReady:', err.message);
   }
 
-  // Presence
   client.user.setPresence({
     status: 'online',
     activities: [{
