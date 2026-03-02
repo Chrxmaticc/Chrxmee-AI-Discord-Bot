@@ -57,6 +57,56 @@ const client = new Client({
 client.commands = new Collection();
 client.memory = new Map(); // The "brain" storage
 
+// Snipe mechanism — stores deleted/edited messages in memory (channelId → array)
+client.snipes = new Map();
+
+// Capture deleted messages + auto-roast on keywords
+client.on('messageDelete', message => {
+  if (message.author.bot || !message.content) return;
+
+  const channelSnipes = client.snipes.get(message.channelId) || [];
+  channelSnipes.push({
+    author: message.author,
+    content: message.content,
+    timestamp: new Date(),
+    type: 'delete'
+  });
+  if (channelSnipes.length > 100) channelSnipes.shift(); // keep last 100 max
+  client.snipes.set(message.channelId, channelSnipes);
+
+  // Auto-insane roast on heavy keywords (public reply)
+  const text = (message.content || '').toLowerCase();
+  let roast = '';
+
+  if (text.includes('kill') || text.includes('die') || text.includes('murder') || text.includes('shoot')) {
+    roast = `Whoa, ${message.author}, calm down with the threats before I start remembering your sins... and reporting them. ❄️ God mode activated.`;
+  } else if (text.includes('fuck') || text.includes('bitch') || text.includes('shit') || text.includes('ass')) {
+    roast = `God, I guess? ${message.author} out here typing with their whole chest and still missing the point. Touch grass before you touch me again. ❄️`;
+  } else if (text.includes('ugly') || text.includes('stupid') || text.includes('no one likes') || text.includes('loser')) {
+    roast = `Oof, ${message.author}... projecting much? The mirror called — it wants its feelings back. ❄️ Keep going tho, I'm taking notes.`;
+  }
+
+  if (roast) {
+    message.channel.send(roast).catch(() => {}); // silent fail if permissions block
+  }
+});
+
+// Capture edited messages
+client.on('messageUpdate', (oldMessage, newMessage) => {
+  if (oldMessage.author.bot || oldMessage.content === newMessage.content) return;
+
+  const channelSnipes = client.snipes.get(oldMessage.channelId) || [];
+  channelSnipes.push({
+    author: oldMessage.author,
+    content: newMessage.content,
+    oldContent: oldMessage.content,
+    timestamp: new Date(),
+    type: 'edit'
+  });
+  if (channelSnipes.length > 100) channelSnipes.shift();
+  client.snipes.set(oldMessage.channelId, channelSnipes);
+});
+
 // Load commands
 const commandsPath = path.join(__dirname, "commands");
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith(".js"));
