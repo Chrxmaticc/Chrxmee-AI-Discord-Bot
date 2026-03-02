@@ -9,7 +9,7 @@ const http = require('http');
 console.log("Starting keep-alive server...");
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Chrxmee AI is alive and kicking! 🚀');
+  res.end('Chrxmee AI is alive and kicking!');
 });
 const PORT = 3000;
 server.listen(PORT, '0.0.0.0', () => {
@@ -27,18 +27,17 @@ setInterval(() => {
       "Smarter than your average bot.",
       "Analyzing the void of existence.",
       `Active for ${Math.floor(process.uptime() / 3600)}h | ${client.guilds.cache.size} Servers`,
-      `Handling ${heartbeatCount} heartbeats | High Traffic Mode 🚀`
+      `Handling ${heartbeatCount} heartbeats | High Traffic Mode`
     ];
     const activity = activities[Math.floor(Math.random() * activities.length)];
     client.user.setPresence({
       activities: [{ name: activity, type: 0 }],
       status: 'online'
     });
-    console.log(`[HEARTBEAT #${heartbeatCount}] Traffic normal. Presence: ${activity}`);
+    console.log(`[HEARTBEAT #${heartbeatCount}] Presence: ${activity}`);
   }
 }, 300000);
 
-// Self-healing server
 server.on('error', (err) => {
   console.error('Keep-alive server error:', err.message);
   setTimeout(() => server.listen(PORT, '0.0.0.0'), 5000);
@@ -76,11 +75,11 @@ client.on('messageDelete', message => {
   const text = message.content.toLowerCase();
   let roast = '';
   if (text.includes('kill') || text.includes('die') || text.includes('murder')) {
-    roast = `Whoa ${message.author}, threats already? I’m taking notes... ❄️ God mode engaged.`;
+    roast = `Whoa ${message.author}, threats already? Taking notes... God mode engaged.`;
   } else if (text.includes('fuck') || text.includes('bitch') || text.includes('shit')) {
-    roast = `God, I guess? ${message.author} typed that with full chest and zero brain cells. Touch grass. ❄️`;
+    roast = `God, I guess? ${message.author} typed that with full chest and zero brain cells. Touch grass.`;
   } else if (text.includes('ugly') || text.includes('stupid') || text.includes('loser')) {
-    roast = `Oof ${message.author}... projecting much? Mirror called, wants its feelings back. ❄️`;
+    roast = `Oof ${message.author}... projecting much? Mirror called, wants its feelings back.`;
   }
 
   if (roast) message.channel.send(roast).catch(() => {});
@@ -193,7 +192,7 @@ client.once('clientReady', async () => {
             if (row.ping_role_id) {
               const channel = guild.systemChannel || guild.channels.cache.find(ch => ch.isTextBased());
               if (channel) {
-                await channel.send(`<@&${row.ping_role_id}> Happy birthday to ${member}! 🎂 ❄️`).catch(console.error);
+                await channel.send(`<@&${row.ping_role_id}> Happy birthday to ${member}! 🎂`).catch(console.error);
               }
             }
           }
