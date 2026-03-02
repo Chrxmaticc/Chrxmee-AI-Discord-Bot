@@ -31,7 +31,7 @@ module.exports = {
     await interaction.deferReply({ ephemeral: true });
 
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
-      return interaction.editReply('Only mods can configure birthdays ❄️');
+      return interaction.editReply('Only mods can configure birthdays');
     }
 
     const sub = interaction.options.getSubcommand();
@@ -42,26 +42,26 @@ module.exports = {
     try {
       if (sub === 'add-role') {
         await client.pool.query('UPDATE user_birthdays SET birthday_role_id = $2 WHERE user_id = $1', [userId, role.id]);
-        return interaction.editReply(`Added birthday role ${role.name} for ${user.tag} ❄️`);
+        return interaction.editReply(`Birthday role set for ${user.tag} to ${role.name}`);
       }
 
       if (sub === 'remove-role') {
         await client.pool.query('UPDATE user_birthdays SET birthday_role_id = NULL WHERE user_id = $1', [userId]);
-        return interaction.editReply(`Birthday role config removed for ${user.tag} ❄️`);
+        return interaction.editReply(`Birthday role config removed for ${user.tag}`);
       }
 
       if (sub === 'set-ping') {
         await client.pool.query('UPDATE user_birthdays SET ping_role_id = $2 WHERE user_id = $1', [userId, role.id]);
-        return interaction.editReply(`Birthday ping set to ${role.name} for ${user.tag} ❄️`);
+        return interaction.editReply(`Birthday ping set to ${role.name} for ${user.tag}`);
       }
 
       if (sub === 'remove-ping') {
         await client.pool.query('UPDATE user_birthdays SET ping_role_id = NULL WHERE user_id = $1', [userId]);
-        return interaction.editReply(`Birthday ping removed for ${user.tag} ❄️`);
+        return interaction.editReply(`Birthday ping removed for ${user.tag}`);
       }
     } catch (err) {
       console.error('Birthday configure error:', err);
-      return interaction.editReply('Something broke. Try again? ❄️');
+      return interaction.editReply('Something broke. Try again?');
     }
   }
 };
