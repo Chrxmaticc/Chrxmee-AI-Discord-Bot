@@ -3,10 +3,10 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('snipe')
-    .setDescription('Snipe deleted/edited messages or make me deal insanity.')
+    .setDescription('Snipe deleted/edited messages or go insane mode')
     .addStringOption(option =>
       option.setName('mode')
-        .setDescription('What to snipe?')
+        .setDescription('What to snipe')
         .setRequired(true)
         .addChoices(
           { name: 'removed (deleted)', value: 'removed' },
@@ -29,36 +29,45 @@ module.exports = {
 
     if (mode === 'removed') {
       const deleted = snipes.filter(s => s.type === 'delete').slice(-count);
-      if (deleted.length === 0) return interaction.editReply('No deleted messages to snipe ❄️');
+      if (deleted.length === 0) {
+        return interaction.editReply('Snipe: Deleted. No insanity for me to deal with today.');
+      }
 
       const embed = new EmbedBuilder()
         .setColor('#ff4444')
         .setTitle('Snipe: Deleted')
-        .setDescription(deleted.map(s => `**${s.author.tag}**: ${s.content || '[empty]'}`).join('\n\n'));
+        .setDescription(deleted.map(s => `**${s.author.tag}** (${s.timestamp.toLocaleTimeString()}): ${s.content || '[empty/attachment]'}`).join('\n\n'))
+        .setFooter({ text: 'Sniped by Chrxmee AI' });
 
       return interaction.editReply({ embeds: [embed] });
     }
 
     if (mode === 'edit') {
       const edited = snipes.filter(s => s.type === 'edit').slice(-count);
-      if (edited.length === 0) return interaction.editReply('No edits to snipe, no secrets.');
+      if (edited.length === 0) {
+        return interaction.editReply('Snipe: Edit. No one’s changing their mind today... boring.');
+      }
 
       const embed = new EmbedBuilder()
         .setColor('#ffaa00')
         .setTitle('Snipe: Edited')
-        .setDescription(edited.map(s => `**${s.author.tag}**\nBefore: ${s.oldContent}\nAfter: ${s.content}`).join('\n\n'));
+        .setDescription(edited.map(s => `**${s.author.tag}** (${s.timestamp.toLocaleTimeString()}):\n**Before:** ${s.oldContent || '[empty]'}\n**After:** ${s.content || '[empty]'}`).join('\n\n'))
+        .setFooter({ text: 'Sniped by Chrxmee AI' });
 
       return interaction.editReply({ embeds: [embed] });
     }
 
     if (mode === 'last50') {
       const recent = snipes.slice(-count);
-      if (recent.length === 0) return interaction.editReply('Nothing recent to snipe, no insanity for me to deal with.');
+      if (recent.length === 0) {
+        return interaction.editReply('Snipe: Last50. Channel’s so dead even ghosts left.');
+      }
 
       const embed = new EmbedBuilder()
         .setColor('#44ff44')
         .setTitle(`Last ${recent.length} Messages`)
-        .setDescription(recent.map(s => `**${s.author.tag}**: ${s.content || '[empty]'}`).join('\n\n'));
+        .setDescription(recent.map(s => `**${s.author.tag}** (${s.timestamp.toLocaleTimeString()}): ${s.content || '[attachment/media]'}`).join('\n\n'))
+        .setFooter({ text: 'Sniped by Chrxmee AI' });
 
       return interaction.editReply({ embeds: [embed] });
     }
@@ -66,15 +75,18 @@ module.exports = {
     if (mode === 'insane') {
       const heavy = snipes.filter(s => {
         const t = (s.content || '').toLowerCase();
-        return t.includes('fuck') || t.includes('bitch') || t.includes('kill') || t.includes('die') || t.includes('ugly');
+        return t.includes('fuck') || t.includes('bitch') || t.includes('kill') || t.includes('die') || t.includes('ugly') || t.includes('hate') || t.includes('loser');
       }).slice(-5);
 
-      if (heavy.length === 0) return interaction.editReply('No spicy messages lately ❄️');
+      if (heavy.length === 0) {
+        return interaction.editReply('Snipe: Insane. Everyone’s too chill today... disappointing.');
+      }
 
       const embed = new EmbedBuilder()
         .setColor('#ff0000')
-        .setTitle('Insane snipe, wild.')
-        .setDescription(heavy.map(s => `**${s.author.tag}**: ${s.content}`).join('\n\n'));
+        .setTitle('INSANE SNIPE MODE')
+        .setDescription(heavy.map(s => `**${s.author.tag}** said: ${s.content}`).join('\n\n'))
+        .setFooter({ text: 'Chrxmee AI remembers everything' });
 
       return interaction.editReply({ embeds: [embed] });
     }
