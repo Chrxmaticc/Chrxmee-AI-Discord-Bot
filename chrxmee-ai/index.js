@@ -4,7 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const { Pool } = require('pg');
 
-// KEEP-ALIVE SERVER (your original)
+// KEEP-ALIVE SERVER
 const http = require('http');
 console.log("Starting keep-alive server...");
 const server = http.createServer((req, res) => {
@@ -16,7 +16,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`Keep-alive server listening on port ${PORT}`);
 });
 
-// Robust presence rotation and heartbeat (your original)
+// Heartbeat & presence rotation
 let heartbeatCount = 0;
 setInterval(() => {
   heartbeatCount++;
@@ -36,9 +36,8 @@ setInterval(() => {
     });
     console.log(`[HEARTBEAT #${heartbeatCount}] Traffic normal. Presence: ${activity}`);
   }
-}, 300000); // Every 5 minutes
+}, 300000); // 5 min
 
-// Self-healing: restart server if it dies
 server.on('error', (err) => {
   console.error('Keep-alive server error:', err.message);
   setTimeout(() => server.listen(PORT, '0.0.0.0'), 5000);
@@ -55,59 +54,53 @@ const client = new Client({
 });
 
 client.commands = new Collection();
-client.memory = new Map(); // The "brain" storage
+client.memory = new Map(); // brain storage
 
-// Snipe mechanism — stores deleted/edited messages in memory (channelId → array)
-client.snipes = new Map();
+// === SNIPE SYSTEM ===
+client.snipes = new Map(); // channelId → array of recent messages
 
-// Capture deleted messages + auto-roast on keywords
 client.on('messageDelete', message => {
   if (message.author.bot || !message.content) return;
 
-  const channelSnipes = client.snipes.get(message.channelId) || [];
-  channelSnipes.push({
+  const snipes = client.snipes.get(message.channelId) || [];
+  snipes.push({
     author: message.author,
     content: message.content,
     timestamp: new Date(),
     type: 'delete'
   });
-  if (channelSnipes.length > 100) channelSnipes.shift(); // keep last 100 max
-  client.snipes.set(message.channelId, channelSnipes);
+  if (snipes.length > 100) snipes.shift();
+  client.snipes.set(message.channelId, snipes);
 
-  // Auto-insane roast on heavy keywords (public reply)
-  const text = (message.content || '').toLowerCase();
+  const text = message.content.toLowerCase();
   let roast = '';
-
   if (text.includes('kill') || text.includes('die') || text.includes('murder') || text.includes('shoot')) {
-    roast = `Whoa, ${message.author}, calm down with the threats before I start remembering your sins... and reporting them. ❄️ God mode activated.`;
+    roast = `Whoa ${message.author}, threats already? I’m taking notes... ❄️ God mode engaged.`;
   } else if (text.includes('fuck') || text.includes('bitch') || text.includes('shit') || text.includes('ass')) {
-    roast = `God, I guess? ${message.author} out here typing with their whole chest and still missing the point. Touch grass before you touch me again. ❄️`;
-  } else if (text.includes('ugly') || text.includes('stupid') || text.includes('no one likes') || text.includes('loser')) {
-    roast = `Oof, ${message.author}... projecting much? The mirror called — it wants its feelings back. ❄️ Keep going tho, I'm taking notes.`;
+    roast = `God, I guess? ${message.author} typed that with full chest and zero brain cells. Touch grass. ❄️`;
+  } else if (text.includes('ugly') || text.includes('stupid') || text.includes('loser')) {
+    roast = `Oof ${message.author}... projecting much? Mirror called, wants its feelings back. ❄️`;
   }
 
-  if (roast) {
-    message.channel.send(roast).catch(() => {}); // silent fail if permissions block
-  }
+  if (roast) message.channel.send(roast).catch(() => {});
 });
 
-// Capture edited messages
-client.on('messageUpdate', (oldMessage, newMessage) => {
-  if (oldMessage.author.bot || oldMessage.content === newMessage.content) return;
+client.on('messageUpdate', (oldMsg, newMsg) => {
+  if (oldMsg.author.bot || oldMsg.content === newMsg.content) return;
 
-  const channelSnipes = client.snipes.get(oldMessage.channelId) || [];
-  channelSnipes.push({
-    author: oldMessage.author,
-    content: newMessage.content,
-    oldContent: oldMessage.content,
+  const snipes = client.snipes.get(oldMsg.channelId) || [];
+  snipes.push({
+    author: oldMsg.author,
+    content: newMsg.content,
+    oldContent: oldMsg.content,
     timestamp: new Date(),
     type: 'edit'
   });
-  if (channelSnipes.length > 100) channelSnipes.shift();
-  client.snipes.set(oldMessage.channelId, channelSnipes);
+  if (snipes.length > 100) snipes.shift();
+  client.snipes.set(oldMsg.channelId, snipes);
 });
 
-// Load commands
+// Load commands & events
 const commandsPath = path.join(__dirname, "commands");
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith(".js"));
 for (const file of commandFiles) {
@@ -118,7 +111,6 @@ for (const file of commandFiles) {
   }
 }
 
-// Load events
 const eventsPath = path.join(__dirname, "events");
 const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith(".js"));
 for (const file of eventFiles) {
@@ -131,28 +123,24 @@ for (const file of eventFiles) {
   }
 }
 
-// PG Pool (Render / Neon Postgres) — created early, but only used after ready
+// PG Pool
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false } // Required for Render/Neon free tier certs
+  ssl: { rejectUnauthorized: false }
 });
 
-// Make pool available globally **after** ready
-client.pool = null; // placeholder until ready
+client.pool = null; // placeholder
 
-// DB setup + table creation — runs **inside** clientReady (after login)
 client.once('clientReady', async () => {
   console.log(`Logged in as ${client.user.tag}`);
   console.log(`Chrxmee AI ready as ${client.user.tag}`);
 
-  // Attach pool once bot is ready
   client.pool = pool;
 
   try {
     const pgClient = await pool.connect();
     console.log('Postgres connected successfully on ready!');
 
-    // Auto-create guild_settings table if missing
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS guild_settings (
         guild_id BIGINT PRIMARY KEY,
@@ -161,9 +149,8 @@ client.once('clientReady', async () => {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
-    console.log('guild_settings table created or already exists');
+    console.log('guild_settings table ready');
 
-    // Birthday table (user-level)
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS user_birthdays (
         user_id BIGINT PRIMARY KEY,
@@ -176,7 +163,7 @@ client.once('clientReady', async () => {
     `);
     console.log('user_birthdays table ready');
 
-    // Daily birthday role/ping checker (runs once per day)
+    // Daily birthday checker
     setInterval(async () => {
       try {
         const today = new Date();
@@ -188,31 +175,24 @@ client.once('clientReady', async () => {
         for (const row of res.rows) {
           const bday = new Date(row.birthday_date);
           if (bday.getMonth() === today.getMonth() && bday.getDate() === today.getDate()) {
-            // It's their birthday!
-            // Rough single-guild assumption — refine later for multi-guild
             const guild = client.guilds.cache.first();
             if (!guild) continue;
 
             const member = await guild.members.fetch(row.user_id).catch(() => null);
             if (!member) continue;
 
-            // Assign birthday role if set
             if (row.birthday_role_id) {
               const role = guild.roles.cache.get(row.birthday_role_id);
               if (role) {
                 await member.roles.add(role).catch(console.error);
-                // Auto-remove after 24 hours
-                setTimeout(async () => {
-                  await member.roles.remove(role).catch(console.error);
-                }, 24 * 60 * 60 * 1000);
+                setTimeout(() => member.roles.remove(role).catch(console.error), 86400000);
               }
             }
 
-            // Send ping if set
             if (row.ping_role_id) {
               const channel = guild.systemChannel || guild.channels.cache.find(ch => ch.isTextBased());
               if (channel) {
-                await channel.send(`<@&${row.ping_role_id}> Happy birthday to ${member}! 🎂 ❄️ Let's make it a day to remember.`).catch(console.error);
+                await channel.send(`<@&${row.ping_role_id}> Happy birthday to ${member}! 🎂 ❄️`).catch(console.error);
               }
             }
           }
@@ -220,9 +200,8 @@ client.once('clientReady', async () => {
       } catch (err) {
         console.error('Daily birthday check failed:', err);
       }
-    }, 24 * 60 * 60 * 1000); // 24 hours in ms
+    }, 86400000); // 24h
 
-    // Quick confirmation query
     const res = await pgClient.query('SELECT 1');
     console.log('Test query worked:', res.rows);
 
@@ -231,7 +210,7 @@ client.once('clientReady', async () => {
     console.error('Postgres setup failed in clientReady:', err.message);
   }
 
-  // Your original presence
+  // Presence
   client.user.setPresence({
     status: 'online',
     activities: [{
@@ -240,10 +219,7 @@ client.once('clientReady', async () => {
       details: "All AIs show off their models and intelligence.",
       state: "Winning against Chatcord",
       application_id: "1458944258454065377",
-      party: {
-        id: "chrxmee-party-" + Date.now(),
-        size: [1, 1]
-      },
+      party: { id: "chrxmee-party-" + Date.now(), size: [1, 1] },
       assets: {
         large_image: "play_button",
         large_text: "Chrxmee AI",
@@ -260,7 +236,6 @@ client.once('clientReady', async () => {
   });
 });
 
-// AUTO-RESTART ON ERRORS (your original)
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
