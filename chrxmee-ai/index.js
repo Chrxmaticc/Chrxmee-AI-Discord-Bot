@@ -163,6 +163,65 @@ client.once('clientReady', async () => {
     `);
     console.log('guild_settings table created or already exists');
 
+    // Birthday table (user-level)
+    await pgClient.query(`
+      CREATE TABLE IF NOT EXISTS user_birthdays (
+        user_id BIGINT PRIMARY KEY,
+        birthday_date DATE NOT NULL,
+        timezone TEXT NOT NULL,
+        birthday_role_id BIGINT,
+        ping_role_id BIGINT,
+        set_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    console.log('user_birthdays table ready');
+
+    // Daily birthday role/ping checker (runs once per day)
+    setInterval(async () => {
+      try {
+        const today = new Date();
+        const res = await pgClient.query(`
+          SELECT user_id, birthday_date, timezone, birthday_role_id, ping_role_id
+          FROM user_birthdays
+        `);
+
+        for (const row of res.rows) {
+          const bday = new Date(row.birthday_date);
+          if (bday.getMonth() === today.getMonth() && bday.getDate() === today.getDate()) {
+            // It's their birthday!
+            // Rough single-guild assumption — refine later for multi-guild
+            const guild = client.guilds.cache.first();
+            if (!guild) continue;
+
+            const member = await guild.members.fetch(row.user_id).catch(() => null);
+            if (!member) continue;
+
+            // Assign birthday role if set
+            if (row.birthday_role_id) {
+              const role = guild.roles.cache.get(row.birthday_role_id);
+              if (role) {
+                await member.roles.add(role).catch(console.error);
+                // Auto-remove after 24 hours
+                setTimeout(async () => {
+                  await member.roles.remove(role).catch(console.error);
+                }, 24 * 60 * 60 * 1000);
+              }
+            }
+
+            // Send ping if set
+            if (row.ping_role_id) {
+              const channel = guild.systemChannel || guild.channels.cache.find(ch => ch.isTextBased());
+              if (channel) {
+                await channel.send(`<@&${row.ping_role_id}> Happy birthday to ${member}! 🎂 ❄️ Let's make it a day to remember.`).catch(console.error);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Daily birthday check failed:', err);
+      }
+    }, 24 * 60 * 60 * 1000); // 24 hours in ms
+
     // Quick confirmation query
     const res = await pgClient.query('SELECT 1');
     console.log('Test query worked:', res.rows);
