@@ -3,7 +3,7 @@ const { SlashCommandBuilder, PermissionsBitField } = require('discord.js');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('birthday-configure')
-    .setDescription('Mod-only birthday configuration')
+    .setDescription('Mod-only birthday config')
     .addSubcommand(subcommand =>
       subcommand
         .setName('add-role')
@@ -18,9 +18,9 @@ module.exports = {
     .addSubcommand(subcommand =>
       subcommand
         .setName('set-ping')
-        .setDescription('Ping role on birthday (everyone/here/custom)')
+        .setDescription('Ping role on birthday')
         .addUserOption(opt => opt.setName('user').setDescription('User').setRequired(true))
-        .addRoleOption(opt => opt.setName('role').setDescription('Ping role').setRequired(true)))
+        .addRoleOption(opt => opt.setName('role').setDescription('Ping role (@everyone, @here, custom)').setRequired(true)))
     .addSubcommand(subcommand =>
       subcommand
         .setName('remove-ping')
@@ -53,7 +53,7 @@ module.exports = {
           'UPDATE user_birthdays SET birthday_role_id = NULL WHERE user_id = $1',
           [userId]
         );
-        return interaction.editReply(`Birthday role config removed for ${user.tag}`);
+        return interaction.editReply(`Birthday role config removed for ${user.tag} ❄️`);
       }
 
       if (sub === 'set-ping') {
@@ -61,7 +61,7 @@ module.exports = {
           'UPDATE user_birthdays SET ping_role_id = $2 WHERE user_id = $1',
           [userId, role.id]
         );
-        return interaction.editReply(`Birthday ping set for ${user.tag} to ${role.name}. Server will know`);
+        return interaction.editReply(`Birthday ping set for ${user.tag} to ${role.name}. Server will know ❄️`);
       }
 
       if (sub === 'remove-ping') {
@@ -69,11 +69,11 @@ module.exports = {
           'UPDATE user_birthdays SET ping_role_id = NULL WHERE user_id = $1',
           [userId]
         );
-        return interaction.editReply(`Birthday ping removed for ${user.tag} `);
+        return interaction.editReply(`Birthday ping removed for ${user.tag} ❄️`);
       }
     } catch (err) {
       console.error('Birthday configure error:', err);
-      return interaction.editReply('Something broke. Try again? ');
+      return interaction.editReply('Something broke. Try again? ❄️');
     }
   }
 };
