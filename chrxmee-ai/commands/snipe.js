@@ -3,7 +3,7 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('snipe')
-    .setDescription('Snipes deleted/edited messages or goes insane mode')
+    .setDescription('Snipes deleted/edited messages or goes full insane mode')
     .addSubcommand(subcommand =>
       subcommand
         .setName('removed')
@@ -43,7 +43,7 @@ module.exports = {
 
     if (subcommand === 'removed') {
       const deleted = channelSnipes.filter(s => s.type === 'delete').slice(-count);
-      if (deleted.length === 0) return interaction.editReply('Nothing deleted recently... too slow ❄️');
+      if (deleted.length === 0) return interaction.editReply('No deleted messages to snipe... too slow ❄️');
 
       const embed = new EmbedBuilder()
         .setColor('#ff4444')
@@ -83,7 +83,7 @@ module.exports = {
     if (subcommand === 'insane') {
       const heavy = channelSnipes.filter(s => {
         const text = (s.content || '').toLowerCase();
-        return text.includes('fuck') || text.includes('bitch') || text.includes('kill') || text.includes('die') || text.includes('ugly') || text.includes('hate') || text.includes('loser');
+        return text.includes('fuck') || text.includes('bitch') || text.includes('kill') || text.includes('die') || text.includes('ugly') || text.includes('hate') || text.includes('loser') || text.includes('threat');
       }).slice(-5);
 
       if (heavy.length === 0) return interaction.editReply('No one’s been unhinged enough lately...');
@@ -91,7 +91,7 @@ module.exports = {
       const embed = new EmbedBuilder()
         .setColor('#ff0000')
         .setTitle('INSANE MODE ACTIVATED')
-        .setDescription(heavy.map(s => `**${s.author.tag}** said: ${s.content}\nI’m watching you..`).join('\n\n'))
+        .setDescription(heavy.map(s => `**${s.author.tag}** said: ${s.content}\nI’m watching you... ❄️`).join('\n\n'))
         .setFooter({ text: 'Chrxmee AI remembers everything' });
 
       return interaction.editReply({ embeds: [embed] });
