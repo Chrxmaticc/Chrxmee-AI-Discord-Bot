@@ -50,15 +50,15 @@ module.exports = {
       const dateStr = interaction.options.getString('date');
       const city = interaction.options.getString('city')?.toLowerCase();
 
-      if (!dateStr || !city) return interaction.editReply('Need date and city, besto ❄️');
+      if (!dateStr || !city) return interaction.editReply('Need date and city to set it.');
 
       const tz = CITY_TIMEZONES[city];
-      if (!tz) return interaction.editReply(`No timezone for "${city}" — try New York, Tokyo, etc. ❄️`);
+      if (!tz) return interaction.editReply(`No timezone for "${city}" — try New York, Tokyo, etc.`);
 
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return interaction.editReply('Date must be YYYY-MM-DD ❄️');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return interaction.editReply('Date must be YYYY-MM-DD');
 
       const date = new Date(dateStr);
-      if (isNaN(date)) return interaction.editReply('Date looks cursed ❄️');
+      if (isNaN(date.getTime())) return interaction.editReply('That date looks broken.');
 
       await client.pool.query(`
         INSERT INTO user_birthdays (user_id, birthday_date, timezone)
@@ -66,20 +66,20 @@ module.exports = {
         ON CONFLICT (user_id) DO UPDATE SET birthday_date = $2, timezone = $3, set_at = NOW()
       `, [userId, dateStr, tz]);
 
-      return interaction.editReply(`Birthday set: **${dateStr}** (${city} time) ❄️ I’ll remember.`);
+      return interaction.editReply(`Birthday set: **${dateStr}** (${city} time)`);
     }
 
     if (sub === 'view') {
       const res = await client.pool.query('SELECT birthday_date, timezone FROM user_birthdays WHERE user_id = $1', [userId]);
-      if (res.rowCount === 0) return interaction.editReply('No birthday set yet ❄️');
+      if (res.rowCount === 0) return interaction.editReply('No birthday set yet.');
 
       const { birthday_date, timezone } = res.rows[0];
-      return interaction.editReply(`Your birthday: **${birthday_date}** (${timezone}) ❄️`);
+      return interaction.editReply(`Your birthday: **${birthday_date}** (${timezone})`);
     }
 
     if (sub === 'remove') {
       await client.pool.query('DELETE FROM user_birthdays WHERE user_id = $1', [userId]);
-      return interaction.editReply('Birthday forgotten ❄️');
+      return interaction.editReply('Birthday forgotten.');
     }
   }
 };
