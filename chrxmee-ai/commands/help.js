@@ -44,7 +44,7 @@ module.exports = {
           inline: true
         }
       )
-      .setFooter({ text: 'Chrxmee AI — underground just like breed, but with more soul' });
+      .setFooter({ text: 'Chrxmee AI — An average AI bot, but with more soul' });
 
     const selectMenu = new StringSelectMenuBuilder()
       .setCustomId('help_select')
