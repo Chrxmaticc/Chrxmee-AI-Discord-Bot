@@ -235,16 +235,17 @@ client.once('clientReady', async () => {
     }]
   });
 
-  // === HELP BUTTON HANDLER ===
+  // === HELP SELECT MENU HANDLER ===
   client.on('interactionCreate', async i => {
-    if (!i.isButton()) return;
+    if (!i.isStringSelectMenu()) return;
+    if (i.customId !== 'help_select') return;
 
     await i.deferReply({ ephemeral: true });
 
     let title = '';
     let desc = '';
 
-    switch (i.customId) {
+    switch (i.values[0]) {
       case 'help_ai':
         title = 'AI-Powered Commands';
         desc = 
