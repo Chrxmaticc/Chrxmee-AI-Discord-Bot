@@ -42,10 +42,12 @@ module.exports = {
   },
 
   async execute(interaction, client) {
-    // ABSOLUTE FIRST THING — defer immediately
+    // DEFER IS NOW LITERALLY THE FIRST LINE — BEFORE ANYTHING ELSE
     await interaction.deferReply({ ephemeral: true });
 
-    // Only now do anything else
+    // Debug log to confirm defer fired (check Render logs)
+    console.log(`[DEBUG] Birthday deferred for ${interaction.user.tag} - sub: ${interaction.options.getSubcommand() || 'none'}`);
+
     const userId = interaction.user.id;
     const sub = interaction.options.getSubcommand();
 
@@ -73,7 +75,7 @@ module.exports = {
         return interaction.editReply(`Birthday set: **${dateStr}** (${city} time)`);
       } catch (err) {
         console.error('Birthday set error:', err);
-        return interaction.editReply('DB took too long... try again in a sec.');
+        return interaction.editReply('DB is being slow... try again in a sec.');
       }
     }
 
