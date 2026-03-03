@@ -9,7 +9,7 @@ const http = require('http');
 console.log("Starting keep-alive server...");
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Chrxmee AI is alive and kicking!');
+  res.end('Chrxmee AI is alive and kicking! 🚀');
 });
 const PORT = 3000;
 server.listen(PORT, '0.0.0.0', () => {
@@ -27,17 +27,18 @@ setInterval(() => {
       "Smarter than your average bot.",
       "Analyzing the void of existence.",
       `Active for ${Math.floor(process.uptime() / 3600)}h | ${client.guilds.cache.size} Servers`,
-      `Handling ${heartbeatCount} heartbeats | High Traffic Mode`
+      `Handling ${heartbeatCount} heartbeats | High Traffic Mode 🚀`
     ];
     const activity = activities[Math.floor(Math.random() * activities.length)];
     client.user.setPresence({
       activities: [{ name: activity, type: 0 }],
       status: 'online'
     });
-    console.log(`[HEARTBEAT #${heartbeatCount}] Presence: ${activity}`);
+    console.log(`[HEARTBEAT #${heartbeatCount}] Traffic normal. Presence: ${activity}`);
   }
 }, 300000);
 
+// Self-healing server
 server.on('error', (err) => {
   console.error('Keep-alive server error:', err.message);
   setTimeout(() => server.listen(PORT, '0.0.0.0'), 5000);
@@ -232,6 +233,107 @@ client.once('clientReady', async () => {
       timestamps: { start: Date.now() },
       instance: true
     }]
+  });
+
+  // === HELP BUTTON HANDLER ===
+  client.on('interactionCreate', async i => {
+    if (!i.isButton()) return;
+
+    await i.deferReply({ ephemeral: true });
+
+    let title = '';
+    let desc = '';
+
+    switch (i.customId) {
+      case 'help_ai':
+        title = 'AI-Powered Commands';
+        desc = 
+          '`/ask` — Ask anything to the AI\n' +
+          '`/chat` — Chat with the bot (group or solo)\n' +
+          '`/summarize` — Summarize long text\n' +
+          '`/translate` — Translate text\n' +
+          '`/debate` — Debate with the bot\n' +
+          '`/debate-topic` — Generate debate topic\n' +
+          '`/dream` — Generate dream or image\n' +
+          '`/model` — Switch AI model\n' +
+          '`/news` — Get news\n' +
+          '`/oracle` — Oracle prediction\n' +
+          '`/code-generate` — Generate code';
+        break;
+
+      case 'help_birthday':
+        title = 'Birthday Commands';
+        desc = 
+          '`/birthday set` — Set your birthday\n' +
+          '`/birthday view` — See your birthday\n' +
+          '`/birthday remove` — Forget your birthday\n' +
+          '`/birthday-configure` — Mod-only (add/remove role, set/remove ping)';
+        break;
+
+      case 'help_visual':
+        title = 'Visual Imagination';
+        desc = 
+          '`/image` — Search for images\n' +
+          '`/imagine` — Generate or imagine something visual\n' +
+          '`/generate-qr` — Make QR code\n' +
+          '`/avatar` — Get user avatar';
+        break;
+
+      case 'help_fun':
+        title = 'Fun & Games';
+        desc = 
+          '`/roast` — Roast someone\n' +
+          '`/roastme` — Get roasted\n' +
+          '`/burn @user` — Burn someone\n' +
+          '`/ratio` — Ratio a message\n' +
+          '`/clapback` — Clap back to a message\n' +
+          '`/coinflip` — Coin flip\n' +
+          '`/dice` — Roll dice\n' +
+          '`/poll` — Create poll\n' +
+          '`/trivia` — Trivia game\n' +
+          '`/ship` — Ship two users\n' +
+          '`/8ball` — Magic 8-ball';
+        break;
+
+      case 'help_utility':
+        title = 'Utility';
+        desc = 
+          '`/snipe` — Snipe deleted/edited messages\n' +
+          '`/memorycheck` — See what bot remembers\n' +
+          '`/predict @user` — Predict something funny\n' +
+          '`/ping` — Ping bot\n' +
+          '`/serverinfo` — Server info\n' +
+          '`/user @user` — User info\n' +
+          '`/myinfo` — Your info\n' +
+          '`/remind-me` — Set reminder\n' +
+          '`/quote` — Random quote\n' +
+          '`/status` — Bot status\n' +
+          '`/history` — Conversation history';
+        break;
+
+      case 'help_mod':
+        title = 'Moderation & Advanced';
+        desc = 
+          '`/auto-respond` — Toggle auto-responses\n' +
+          '`/guild-settings` — Server settings\n' +
+          '`/dashboard` — Bot dashboard (owner)\n' +
+          '`/brain-dump` — Dump bot memory\n' +
+          '`/clear-brain` — Clear memory\n' +
+          '`/custom-interactions` — Custom interactions\n' +
+          '`/set` — Set something\n' +
+          '`/settings` — Bot settings';
+        break;
+
+      default:
+        return i.editReply('Unknown section... weird.');
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor('#2f3136')
+      .setTitle(title)
+      .setDescription(desc);
+
+    return i.editReply({ embeds: [embed] });
   });
 });
 
