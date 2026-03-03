@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ActionRowBuilder } = require('discord.js');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -11,7 +11,7 @@ module.exports = {
     const mainEmbed = new EmbedBuilder()
       .setColor('#2f3136')
       .setTitle('Chrxmee AI • Commands')
-      .setDescription('Underground bot energy. Click a category below to see what’s inside.')
+      .setDescription('Underground bot energy. Select a category below to see commands in that section.')
       .addFields(
         {
           name: 'AI-Powered Commands',
@@ -46,41 +46,41 @@ module.exports = {
       )
       .setFooter({ text: 'Chrxmee AI — underground just like breed, but with more soul' });
 
-    const row1 = new ActionRowBuilder()
-      .addComponents(
-        new ButtonBuilder()
-          .setCustomId('help_ai')
-          .setLabel('AI-Powered')
-          .setStyle(ButtonStyle.Primary),
-        new ButtonBuilder()
-          .setCustomId('help_birthday')
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId('help_select')
+      .setPlaceholder('Select a category...')
+      .addOptions(
+        new StringSelectMenuOptionBuilder()
+          .setLabel('AI-Powered Commands')
+          .setDescription('Chat, ask, summarize, translate, debate, etc.')
+          .setValue('help_ai'),
+        new StringSelectMenuOptionBuilder()
           .setLabel('Birthday')
-          .setStyle(ButtonStyle.Primary),
-        new ButtonBuilder()
-          .setCustomId('help_visual')
+          .setDescription('Set/view/remove + mod config')
+          .setValue('help_birthday'),
+        new StringSelectMenuOptionBuilder()
           .setLabel('Visual Imagination')
-          .setStyle(ButtonStyle.Primary)
+          .setDescription('Image search, QR, avatars, etc.')
+          .setValue('help_visual'),
+        new StringSelectMenuOptionBuilder()
+          .setLabel('Fun & Games')
+          .setDescription('Roasts, coinflip, dice, poll, trivia, ship, 8ball')
+          .setValue('help_fun'),
+        new StringSelectMenuOptionBuilder()
+          .setLabel('Utility')
+          .setDescription('Snipe, ping, server info, settings, reminders, etc.')
+          .setValue('help_utility'),
+        new StringSelectMenuOptionBuilder()
+          .setLabel('Moderation & Advanced')
+          .setDescription('Auto-respond, guild settings, dashboard, brain tools, etc.')
+          .setValue('help_mod')
       );
 
-    const row2 = new ActionRowBuilder()
-      .addComponents(
-        new ButtonBuilder()
-          .setCustomId('help_fun')
-          .setLabel('Fun & Games')
-          .setStyle(ButtonStyle.Primary),
-        new ButtonBuilder()
-          .setCustomId('help_utility')
-          .setLabel('Utility')
-          .setStyle(ButtonStyle.Primary),
-        new ButtonBuilder()
-          .setCustomId('help_mod')
-          .setLabel('Moderation & Advanced')
-          .setStyle(ButtonStyle.Primary)
-      );
+    const row = new ActionRowBuilder().addComponents(selectMenu);
 
     await interaction.editReply({
       embeds: [mainEmbed],
-      components: [row1, row2]
+      components: [row]
     });
   }
 };
