@@ -3,7 +3,7 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('snipe')
-    .setDescription('Snipe deleted/edited messages or go insane mode')
+    .setDescription('Snipe deleted/edited messages or go make me deal with insanity.')
     .addStringOption(option =>
       option.setName('mode')
         .setDescription('What to snipe')
@@ -20,9 +20,11 @@ module.exports = {
         .setRequired(false)),
 
   async execute(interaction, client) {
-    await interaction.deferReply({ ephemeral: true }); // FIRST LINE — must be here to prevent expired
+    // DEFER FIRST — literally line 1, no code before this
+    await interaction.deferReply({ ephemeral: true });
 
-    console.log(`[DEBUG] Snipe deferred for ${interaction.user.tag} - mode: ${interaction.options.getString('mode')}`);
+    // Debug log so you can see it in Render logs
+    console.log(`[SNIPE] Deferred for ${interaction.user.tag} - mode: ${interaction.options.getString('mode') || 'none'}`);
 
     const mode = interaction.options.getString('mode');
     const count = Math.min(interaction.options.getInteger('count') || 5, mode === 'last50' ? 50 : 10);
