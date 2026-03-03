@@ -15,7 +15,7 @@ const CITY_TIMEZONES = {
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('birthday-wip")
+    .setName('birthday')
     .setDescription('Manage your birthday')
     .addSubcommand(subcommand =>
       subcommand
@@ -42,9 +42,10 @@ module.exports = {
   },
 
   async execute(interaction, client) {
-    // DEFER IS NOW DEAD FIRST — BEFORE ANYTHING ELSE
+    // ABSOLUTE FIRST THING — defer immediately
     await interaction.deferReply({ ephemeral: true });
 
+    // Only now do anything else
     const userId = interaction.user.id;
     const sub = interaction.options.getSubcommand();
 
@@ -72,7 +73,7 @@ module.exports = {
         return interaction.editReply(`Birthday set: **${dateStr}** (${city} time)`);
       } catch (err) {
         console.error('Birthday set error:', err);
-        return interaction.editReply('DB is being slow... try again in a sec.');
+        return interaction.editReply('DB took too long... try again in a sec.');
       }
     }
 
