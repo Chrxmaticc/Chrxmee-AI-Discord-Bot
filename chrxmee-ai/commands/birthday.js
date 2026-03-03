@@ -15,7 +15,7 @@ const CITY_TIMEZONES = {
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('birthday')
+    .setName('birthday-wip")
     .setDescription('Manage your birthday')
     .addSubcommand(subcommand =>
       subcommand
