@@ -19,11 +19,6 @@ module.exports = {
           inline: true
         },
         {
-          name: 'Birthday',
-          value: 'Set/view/remove your birthday + mod config',
-          inline: true
-        },
-        {
           name: 'Visual Imagination',
           value: 'Image search, QR codes, avatars, etc.',
           inline: true
@@ -44,7 +39,7 @@ module.exports = {
           inline: true
         }
       )
-      .setFooter({ text: 'Chrxmee AI — An average AI bot, but with more soul' });
+      .setFooter({ text: 'Chrxmee AI — underground just like breed, but with more soul' });
 
     const selectMenu = new StringSelectMenuBuilder()
       .setCustomId('help_select')
@@ -54,10 +49,6 @@ module.exports = {
           .setLabel('AI-Powered Commands')
           .setDescription('Chat, ask, summarize, translate, debate, etc.')
           .setValue('help_ai'),
-        new StringSelectMenuOptionBuilder()
-          .setLabel('Birthday')
-          .setDescription('Set/view/remove + mod config')
-          .setValue('help_birthday'),
         new StringSelectMenuOptionBuilder()
           .setLabel('Visual Imagination')
           .setDescription('Image search, QR, avatars, etc.')
