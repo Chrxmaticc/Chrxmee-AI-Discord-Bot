@@ -250,34 +250,24 @@ client.once('clientReady', async () => {
         title = 'AI-Powered Commands';
         desc = 
           '`/ask` — Ask anything to the AI\n' +
-          '`/chat` — Chat with the bot (group or solo)\n' +
-          '`/summarize` — Summarize long text\n' +
+          '`/chat` — Chat with the bot\n' +
+          '`/summarize` — Summarize text\n' +
           '`/translate` — Translate text\n' +
           '`/debate` — Debate with the bot\n' +
-          '`/debate-topic` — Generate debate topic\n' +
-          '`/dream` — Generate dream or image\n' +
+          '`/dream` — Generate dream/image\n' +
           '`/model` — Switch AI model\n' +
           '`/news` — Get news\n' +
           '`/oracle` — Oracle prediction\n' +
           '`/code-generate` — Generate code';
         break;
 
-      case 'help_birthday':
-        title = 'Birthday Commands';
-        desc = 
-          '`/birthday set` — Set your birthday\n' +
-          '`/birthday view` — See your birthday\n' +
-          '`/birthday remove` — Forget your birthday\n' +
-          '`/birthday-configure` — Mod-only (add/remove role, set/remove ping)';
-        break;
-
       case 'help_visual':
         title = 'Visual Imagination';
         desc = 
-          '`/image` — Search for images\n' +
-          '`/imagine` — Generate or imagine something visual\n' +
-          '`/generate-qr` — Make QR code\n' +
-          '`/avatar` — Get user avatar';
+          '`/image` — Search images\n' +
+          '`/imagine` — Imagine something\n' +
+          '`/generate-qr` — QR code\n' +
+          '`/avatar` — User avatar';
         break;
 
       case 'help_fun':
@@ -299,14 +289,11 @@ client.once('clientReady', async () => {
       case 'help_utility':
         title = 'Utility';
         desc = 
-          '`/snipe` — Snipe deleted/edited messages\n' +
-          '`/memorycheck` — See what bot remembers\n' +
-          '`/predict @user` — Predict something funny\n' +
+          '`/snipe` — Snipe messages\n' +
           '`/ping` — Ping bot\n' +
           '`/serverinfo` — Server info\n' +
           '`/user @user` — User info\n' +
-          '`/myinfo` — Your info\n' +
-          '`/remind-me` — Set reminder\n' +
+          '`/remind-me` — Reminders\n' +
           '`/quote` — Random quote\n' +
           '`/status` — Bot status\n' +
           '`/history` — Conversation history';
@@ -317,16 +304,13 @@ client.once('clientReady', async () => {
         desc = 
           '`/auto-respond` — Toggle auto-responses\n' +
           '`/guild-settings` — Server settings\n' +
-          '`/dashboard` — Bot dashboard (owner)\n' +
-          '`/brain-dump` — Dump bot memory\n' +
-          '`/clear-brain` — Clear memory\n' +
-          '`/custom-interactions` — Custom interactions\n' +
-          '`/set` — Set something\n' +
-          '`/settings` — Bot settings';
+          '`/dashboard` — Bot dashboard\n' +
+          '`/brain-dump` — Memory dump\n' +
+          '`/clear-brain` — Clear memory';
         break;
 
       default:
-        return i.editReply('Unknown section... weird.');
+        return i.editReply({ content: 'Unknown section... weird.' });
     }
 
     const embed = new EmbedBuilder()
