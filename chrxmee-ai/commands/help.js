@@ -35,7 +35,7 @@ module.exports = {
         },
         {
           name: 'Moderation & Advanced',
-          value: 'Auto-respond, guild settings, dashboard, brain dump/clear, etc.',
+          value: 'Auto-respond, guild settings, brain dump/clear, etc.',
           inline: true
         }
       )
