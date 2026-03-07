@@ -55,7 +55,7 @@ const client = new Client({
 });
 
 client.commands = new Collection();
-client.memory = new Map();
+client.memory = new Map(); // Global in-memory storage (skill trees, temp data, etc.)
 
 // Snipe system
 client.snipes = new Map();
@@ -137,6 +137,9 @@ client.once('clientReady', async () => {
   console.log(`Chrxmee AI ready as ${client.user.tag}`);
 
   client.pool = pool;
+
+  // In-memory storage for things like skill trees, temp user data, etc. (fast, no DB lag)
+  client.memory = client.memory || new Map();
 
   try {
     const pgClient = await pool.connect();
@@ -233,92 +236,6 @@ client.once('clientReady', async () => {
       timestamps: { start: Date.now() },
       instance: true
     }]
-  });
-
-  // === HELP SELECT MENU HANDLER ===
-  client.on('interactionCreate', async i => {
-    if (!i.isStringSelectMenu()) return;
-    if (i.customId !== 'help_select') return;
-
-    await i.deferReply({ ephemeral: true });
-
-    let title = '';
-    let desc = '';
-
-    switch (i.values[0]) {
-      case 'help_ai':
-        title = 'AI-Powered Commands';
-        desc = 
-          '`/ask` — Ask anything to the AI\n' +
-          '`/chat` — Chat with the bot\n' +
-          '`/summarize` — Summarize text\n' +
-          '`/translate` — Translate text\n' +
-          '`/debate` — Debate with the bot\n' +
-          '`/dream` — Generate dream/image\n' +
-          '`/model` — Switch AI model\n' +
-          '`/news` — Get news\n' +
-          '`/oracle` — Oracle prediction\n' +
-          '`/code-generate` — Generate code';
-        break;
-
-      case 'help_visual':
-        title = 'Visual Imagination';
-        desc = 
-          '`/image` — Search images\n' +
-          '`/imagine` — Imagine something\n' +
-          '`/generate-qr` — QR code\n' +
-          '`/avatar` — User avatar';
-        break;
-
-      case 'help_fun':
-        title = 'Fun & Games';
-        desc = 
-          '`/roast` — Roast someone\n' +
-          '`/roastme` — Get roasted\n' +
-          '`/burn @user` — Burn someone\n' +
-          '`/ratio` — Ratio a message\n' +
-          '`/clapback` — Clap back to a message\n' +
-          '`/coinflip` — Coin flip\n' +
-          '`/dice` — Roll dice\n' +
-          '`/poll` — Create poll\n' +
-          '`/trivia` — Trivia game\n' +
-          '`/ship` — Ship two users\n' +
-          '`/8ball` — Magic 8-ball';
-        break;
-
-      case 'help_utility':
-        title = 'Utility';
-        desc = 
-          '`/snipe` — Snipe messages\n' +
-          '`/ping` — Ping bot\n' +
-          '`/serverinfo` — Server info\n' +
-          '`/user @user` — User info\n' +
-          '`/remind-me` — Reminders\n' +
-          '`/quote` — Random quote\n' +
-          '`/status` — Bot status\n' +
-          '`/history` — Conversation history';
-        break;
-
-      case 'help_mod':
-        title = 'Moderation & Advanced';
-        desc = 
-          '`/auto-respond` — Toggle auto-responses\n' +
-          '`/guild-settings` — Server settings\n' +
-          '`/dashboard` — Bot dashboard\n' +
-          '`/brain-dump` — Memory dump\n' +
-          '`/clear-brain` — Clear memory';
-        break;
-
-      default:
-        return i.editReply({ content: 'Unknown section... weird.' });
-    }
-
-    const embed = new EmbedBuilder()
-      .setColor('#2f3136')
-      .setTitle(title)
-      .setDescription(desc);
-
-    return i.editReply({ embeds: [embed] });
   });
 });
 
