@@ -55,7 +55,7 @@ const client = new Client({
 });
 
 client.commands = new Collection();
-client.memory = new Map(); // Global in-memory storage (skill trees, saved embeds, temp data, etc.)
+client.memory = new Map();
 
 // Snipe system
 client.snipes = new Map();
@@ -248,6 +248,93 @@ client.once('clientReady', async () => {
       timestamps: { start: Date.now() },
       instance: true
     }]
+  });
+
+  // HELP SELECT MENU HANDLER (updated with immediate defer + debug)
+  client.on('interactionCreate', async i => {
+    if (!i.isStringSelectMenu()) return;
+    if (i.customId !== 'help_select') return;
+
+    // Defer immediately to prevent "interaction failed" / expired
+    await i.deferReply({ ephemeral: true });
+
+    console.log(`Help category selected by ${i.user.tag}: ${i.values[0]}`);
+
+    let title = '';
+    let desc = '';
+
+    switch (i.values[0]) {
+      case 'help_ai':
+        title = 'AI-Powered Commands';
+        desc = 
+          '`/ask` — Ask anything to the AI\n' +
+          '`/chat` — Chat with the bot\n' +
+          '`/summarize` — Summarize text\n' +
+          '`/translate` — Translate text\n' +
+          '`/debate` — Debate with the bot\n' +
+          '`/dream` — Generate dream/image\n' +
+          '`/model` — Switch AI model\n' +
+          '`/news` — Get news\n' +
+          '`/oracle` — Oracle prediction\n' +
+          '`/code-generate` — Generate code';
+        break;
+
+      case 'help_visual':
+        title = 'Visual Imagination';
+        desc = 
+          '`/image` — Search images\n' +
+          '`/imagine` — Imagine something\n' +
+          '`/generate-qr` — QR code\n' +
+          '`/avatar` — User avatar';
+        break;
+
+      case 'help_fun':
+        title = 'Fun & Games';
+        desc = 
+          '`/roast` — Roast someone\n' +
+          '`/roastme` — Get roasted\n' +
+          '`/burn @user` — Burn someone\n' +
+          '`/coinflip` — Coin flip\n' +
+          '`/dice` — Roll dice\n' +
+          '`/poll` — Create poll\n' +
+          '`/trivia` — Trivia game\n' +
+          '`/ship` — Ship two users\n' +
+          '`/8ball` — Magic 8-ball';
+        break;
+
+      case 'help_utility':
+        title = 'Utility';
+        desc = 
+          '`/snipe` — Snipe messages\n' +
+          '`/ping` — Ping bot\n' +
+          '`/serverinfo` — Server info\n' +
+          '`/user @user` — User info\n' +
+          '`/remind-me` — Reminders\n' +
+          '`/quote` — Random quote\n' +
+          '`/status` — Bot status\n' +
+          '`/history` — Conversation history';
+        break;
+
+      case 'help_mod':
+        title = 'Moderation & Advanced';
+        desc = 
+          '`/auto-respond` — Toggle auto-responses\n' +
+          '`/guild-settings` — Server settings\n' +
+          '`/dashboard` — Bot dashboard\n' +
+          '`/brain-dump` — Memory dump\n' +
+          '`/clear-brain` — Clear memory';
+        break;
+
+      default:
+        return i.editReply({ content: 'Unknown section... weird.', ephemeral: true });
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor('#2f3136')
+      .setTitle(title)
+      .setDescription(desc);
+
+    return i.editReply({ embeds: [embed], ephemeral: true });
   });
 });
 
