@@ -2,25 +2,22 @@ module.exports = {
   name: "interactionCreate",
   async execute(interaction) {
     const client = interaction.client;
-    
+   
     if (interaction.user.bot) return;
-
     if (interaction.isChatInputCommand()) {
       const command = client.commands.get(interaction.commandName);
       if (!command) return;
-
       try {
-        await command.execute(interaction);
+        await command.execute(interaction, client); // ← ONLY CHANGE: added client as second argument
       } catch (err) {
         // Handle common interaction errors gracefully
         if (err.code === 10062 || err.code === 40060) {
           console.warn(`Interaction for ${interaction.commandName} expired before response.`);
           return;
         }
-
         console.error(`Error executing ${interaction.commandName}:`, err);
         const errorContent = "There was an error while executing this command! Please try again in a moment.";
-        
+       
         try {
           if (interaction.replied || interaction.deferred) {
             await interaction.followUp({ content: errorContent, flags: [64] }).catch(() => {});
@@ -33,12 +30,10 @@ module.exports = {
       }
     } else if (interaction.isButton()) {
       if (interaction.customId.startsWith('debate_join_')) return; // Handled within debate command collector
-
       const [action, userId, prompt] = interaction.customId.split("|");
       if (interaction.user.id !== userId) {
         return interaction.reply({ content: "This is not for you!", flags: [64] });
       }
-
       try {
         if (action === "explain_yes") {
           await interaction.update({ content: "Re-explaining in a different way...", components: [] });
