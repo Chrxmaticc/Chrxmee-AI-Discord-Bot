@@ -1,5 +1,5 @@
 require("dotenv").config();
-const { Client, GatewayIntentBits, Collection } = require("discord.js");
+const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require("discord.js");
 const fs = require("fs");
 const path = require("path");
 const { Pool } = require('pg');
@@ -250,7 +250,7 @@ client.once('clientReady', async () => {
     }]
   });
 
-  // HELP SELECT MENU HANDLER (fixed with immediate defer)
+  // HELP SELECT MENU HANDLER (now works because EmbedBuilder is imported)
   client.on('interactionCreate', async i => {
     if (!i.isStringSelectMenu()) return;
     if (i.customId !== 'help_select') return;
@@ -344,4 +344,4 @@ process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception thrown:', err);
 });
 
-client.login(process.env.BOT_TOKEN)
+client.login(process.env.BOT_TOKEN);
