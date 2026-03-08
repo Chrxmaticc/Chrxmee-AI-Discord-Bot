@@ -6,7 +6,11 @@ module.exports = {
     .setDescription('Show all commands with sections'),
 
   async execute(interaction) {
+    // Defer immediately — this is critical to prevent "interaction failed"
     await interaction.deferReply({ ephemeral: true });
+
+    // Optional debug log (remove later if you want)
+    console.log(`Help command started for ${interaction.user.tag}`);
 
     const mainEmbed = new EmbedBuilder()
       .setColor('#2f3136')
@@ -35,7 +39,7 @@ module.exports = {
         },
         {
           name: 'Moderation & Advanced',
-          value: 'Auto-respond, guild settings, brain dump/clear, etc.',
+          value: 'Auto-respond, guild settings, dashboard, brain dump/clear, etc.',
           inline: true
         }
       )
