@@ -250,12 +250,11 @@ client.once('clientReady', async () => {
     }]
   });
 
-  // HELP SELECT MENU HANDLER (updated with immediate defer + debug)
+  // HELP SELECT MENU HANDLER (fixed with immediate defer)
   client.on('interactionCreate', async i => {
     if (!i.isStringSelectMenu()) return;
     if (i.customId !== 'help_select') return;
 
-    // Defer immediately to prevent "interaction failed" / expired
     await i.deferReply({ ephemeral: true });
 
     console.log(`Help category selected by ${i.user.tag}: ${i.values[0]}`);
@@ -345,4 +344,4 @@ process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception thrown:', err);
 });
 
-client.login(process.env.BOT_TOKEN);
+client.login(process.env.BOT_TOKEN)
