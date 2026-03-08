@@ -40,7 +40,7 @@ module.exports = {
     .addSubcommand(subcommand =>
       subcommand
         .setName('advanced-paste')
-        .setDescription('Get a template to paste advanced code'))
+        .setDescription('Get a copyable template with usernames, channels, links, mentions'))
     .addSubcommand(subcommand =>
       subcommand
         .setName('system')
@@ -110,7 +110,7 @@ module.exports = {
       if (type === 'goodbye') embed.setAuthor({ name: 'Goodbye :(', iconURL: interaction.guild?.iconURL() || interaction.client.user.displayAvatarURL() });
       if (type === 'announcement') embed.setAuthor({ name: 'Announcement!', iconURL: interaction.client.user.displayAvatarURL() });
 
-      await interaction.channel.send({ embeds: [embed] }); // PUBLIC embed
+      await interaction.channel.send({ embeds: [embed] }); // public embed
       return interaction.editReply('Template sent.');
     }
 
@@ -119,18 +119,35 @@ module.exports = {
       try {
         const embedData = JSON.parse(code);
         const embed = new EmbedBuilder(embedData);
-        await interaction.channel.send({ embeds: [embed] }); // PUBLIC
+        await interaction.channel.send({ embeds: [embed] });
         return interaction.editReply('Advanced embed sent.');
       } catch (e) {
-        return interaction.editReply('Invalid JSON. Use /embed advanced-paste for help.');
+        return interaction.editReply(`Invalid JSON: ${e.message.slice(0, 100)}... Use /embed advanced-paste for help.`);
       }
     }
 
     if (sub === 'advanced-paste') {
-      const template = `title: Your Title\ndesc: Your description here\ncolor: #7289da\nfooter: Chrxmee AI`;
+      // Copyable template with placeholders for usernames, channels, mentions, links
+      const template = `
+title: Welcome to the server!
+desc: Hey {user.mention}! Glad you're here.\nCheck out [rules](https://discord.com/channels/SERVER_ID/CHANNEL_ID_RULES)\nHave fun in [general](https://discord.com/channels/SERVER_ID/CHANNEL_ID_GENERAL)!
+color: #7289da
+footer: Chrxmee AI • {timestamp}
+thumbnail: {user.avatar}
+image: https://i.imgur.com/your-cool-image.png   // optional
+
+// Copy this whole block → edit placeholders → paste into /embed advanced json:...
+// {user.mention} = @user
+// {user.avatar} = user's pfp URL
+// {timestamp} = current time
+// SERVER_ID / CHANNEL_ID = copy from Discord (right-click channel > Copy ID)
+      `.trim();
+
       return interaction.editReply({
-        content: 'Copy this, edit it, then paste into /embed advanced',
-        embeds: [new EmbedBuilder().setDescription(`\`\`\`\n${template}\n\`\`\``)]
+        content: 'Copy the code block below, replace placeholders, then paste into /embed advanced json:...',
+        embeds: [new EmbedBuilder()
+          .setColor('#2f3136')
+          .setDescription(`\`\`\`\n${template}\n\`\`\``)]
       });
     }
 
@@ -138,7 +155,7 @@ module.exports = {
       const type = interaction.options.getString('type');
       let embed = new EmbedBuilder().setFooter({ text: 'Chrxmee AI' }).setTimestamp();
 
-      if (type === 'welcome') embed.setColor('#00ff88').setTitle('Welcome!').setDescription('Welcome to the server!');
+      if (type === 'welcome') embed.setColor('#00ff88').setTitle('Welcome!').setDescription('Welcome to the server! Enjoy your stay.');
       if (type === 'goodbye') embed.setColor('#ff4444').setTitle('Goodbye').setDescription('Sad to see you go...');
       if (type === 'log-join') embed.setColor('#7289da').setTitle('Member Joined').setDescription('A new member joined.');
       if (type === 'log-leave') embed.setColor('#ff8800').setTitle('Member Left').setDescription('A member left.');
@@ -149,7 +166,7 @@ module.exports = {
       if (type === 'status') embed.setColor('#7289da').setTitle('Status Update').setDescription('Bot status.');
       if (type === 'fun') embed.setColor('#ff00ff').setTitle('Fun Message').setDescription('Just for fun!');
 
-      await interaction.channel.send({ embeds: [embed] }); // PUBLIC
+      await interaction.channel.send({ embeds: [embed] });
       return interaction.editReply('System embed sent.');
     }
 
@@ -163,7 +180,7 @@ module.exports = {
         client.memory.set(`embeds_${userId}`, savedEmbeds);
         return interaction.editReply(`Saved embed as **${name}**.`);
       } catch (e) {
-        return interaction.editReply('Invalid JSON. Use /embed advanced-paste for help.');
+        return interaction.editReply(`Invalid JSON: ${e.message.slice(0, 100)}... Use /embed advanced-paste for help.`);
       }
     }
 
