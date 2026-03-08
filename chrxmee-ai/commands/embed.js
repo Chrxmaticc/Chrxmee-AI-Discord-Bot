@@ -33,14 +33,14 @@ module.exports = {
     .addSubcommand(subcommand =>
       subcommand
         .setName('advanced')
-        .setDescription('Send custom embed (fully forgiving parser)')
+        .setDescription('Send custom embed (safe & limited fields only)')
         .addStringOption(opt => opt.setName('code')
-          .setDescription('Paste key:value lines or template')
+          .setDescription('Paste key:value lines (title:, desc:, color:, footer:, image:)')
           .setRequired(true)))
     .addSubcommand(subcommand =>
       subcommand
         .setName('advanced-paste')
-        .setDescription('Get short copyable template'))
+        .setDescription('Get safe, copyable template (no placeholders)'))
     .addSubcommand(subcommand =>
       subcommand
         .setName('system')
@@ -120,7 +120,7 @@ module.exports = {
 
       const embed = new EmbedBuilder();
 
-      // Fully forgiving line-by-line parser (no JSON.parse at all)
+      // Safe line-by-line parser — no JSON, no placeholders, no crashes
       const lines = code.split('\n').map(l => l.trim()).filter(line => line && !line.startsWith('//'));
       for (const line of lines) {
         if (!line.includes(':')) continue;
@@ -135,29 +135,35 @@ module.exports = {
           embed.setColor(COLORS[c] || parseInt(c.replace('#', '0x'), 16) || 0x2f3136);
         }
         if (key === 'footer') embed.setFooter({ text: value });
-        if (key === 'image') embed.setImage(value);
-        if (key === 'thumbnail') embed.setThumbnail(value);
+        if (key === 'image') {
+          if (value.startsWith('http')) embed.setImage(value); // safe check
+        }
       }
 
-      await interaction.channel.send({ embeds: [embed] });
-      return interaction.editReply({ content: 'Advanced embed sent (forgiving mode).', ephemeral: true });
+      try {
+        await interaction.channel.send({ embeds: [embed] });
+        return interaction.editReply({ content: 'Advanced embed sent (safe mode).', ephemeral: true });
+      } catch (sendErr) {
+        console.error('Send failed:', sendErr.message);
+        return interaction.editReply({ content: `Embed built but send failed: ${sendErr.message.slice(0, 100)}... Check format.`, ephemeral: true });
+      }
     }
 
     if (sub === 'advanced-paste') {
       const template = `
 title: Welcome!
-desc: Hey {user.mention}! Glad you're here. Check [rules](https://discord.com/channels/SERVER_ID/CHANNEL_ID_RULES)
+desc: Hey everyone! Glad you're here.
+Check rules channel.
 color: #7289da
-footer: Chrxmee AI • {timestamp}
-thumbnail: {user.avatar}
-// Edit SERVER_ID/CHANNEL_ID (right-click > Copy ID)
-// Paste edited version into /embed advanced code:...
+footer: Chrxmee AI
+// Paste this into /embed advanced code:...
+// Edit as needed — no placeholders allowed
       `.trim();
 
       return interaction.editReply({ content: template, ephemeral: true });
     }
 
     // ... rest of subcommands (system, save, view, send) unchanged ...
-    // (paste them from your current file if needed, or let me know if you want the full pasted version again)
+    // (keep them from your current file)
   }
 };
