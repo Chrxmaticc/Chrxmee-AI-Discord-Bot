@@ -33,14 +33,14 @@ module.exports = {
     .addSubcommand(subcommand =>
       subcommand
         .setName('advanced')
-        .setDescription('Send raw embed code (forgiving parser)')
-        .addStringOption(opt => opt.setName('json')
-          .setDescription('Paste your embed JSON or key:value lines')
+        .setDescription('Send custom embed (forgiving parser)')
+        .addStringOption(opt => opt.setName('code')
+          .setDescription('Paste JSON or key:value lines')
           .setRequired(true)))
     .addSubcommand(subcommand =>
       subcommand
         .setName('advanced-paste')
-        .setDescription('Get copyable template (regular message)'))
+        .setDescription('Get short copyable template'))
     .addSubcommand(subcommand =>
       subcommand
         .setName('system')
@@ -63,21 +63,21 @@ module.exports = {
     .addSubcommand(subcommand =>
       subcommand
         .setName('save')
-        .setDescription('Save a custom embed for later')
+        .setDescription('Save a custom embed')
         .addStringOption(opt => opt.setName('name')
           .setDescription('Name for this embed')
           .setRequired(true))
-        .addStringOption(opt => opt.setName('json')
-          .setDescription('Paste embed JSON or code')
+        .addStringOption(opt => opt.setName('code')
+          .setDescription('Paste JSON or key:value')
           .setRequired(true)))
     .addSubcommand(subcommand =>
       subcommand
         .setName('view')
-        .setDescription('View your saved embeds (ephemeral)'))
+        .setDescription('View your saved embeds'))
     .addSubcommand(subcommand =>
       subcommand
         .setName('send')
-        .setDescription('Send one of your saved embeds (dropdown)')),
+        .setDescription('Send a saved embed (dropdown)')),
 
   async execute(interaction, client) {
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
@@ -85,7 +85,7 @@ module.exports = {
     }
 
     await interaction.deferReply({ ephemeral: true });
-    console.log(`[${new Date().toISOString()}] EMBED COMMAND started for ${interaction.user.tag} | sub: ${interaction.options.getSubcommand()}`);
+    console.log(`[${new Date().toISOString()}] EMBED started for ${interaction.user.tag} | sub: ${interaction.options.getSubcommand()}`);
 
     const sub = interaction.options.getSubcommand();
     const userId = interaction.user.id;
@@ -110,84 +110,67 @@ module.exports = {
       if (type === 'goodbye') embed.setAuthor({ name: 'Goodbye :(', iconURL: interaction.guild?.iconURL() || interaction.client.user.displayAvatarURL() });
       if (type === 'announcement') embed.setAuthor({ name: 'Announcement!', iconURL: interaction.client.user.displayAvatarURL() });
 
-      await interaction.channel.send({ embeds: [embed] }); // public embed
+      await interaction.channel.send({ embeds: [embed] });
       return interaction.editReply({ content: 'Template sent.', ephemeral: true });
     }
 
     if (sub === 'advanced') {
-      let code = interaction.options.getString('json').trim();
-      console.log(`Advanced embed attempt - input length: ${code.length}`);
+      let code = interaction.options.getString('code').trim();
+      console.log(`Advanced attempt - length: ${code.length}`);
 
       try {
-        // Forgiving parser: clean line breaks/spaces, fallback to key:value if JSON fails
-        let embedData;
-        try {
-          code = code.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
-          embedData = JSON.parse(code);
-        } catch {
-          // Fallback: simple key:value lines
-          const embed = new EmbedBuilder();
-          const lines = code.split('\n').map(l => l.trim()).filter(Boolean);
-          for (const line of lines) {
-            const [key, ...valueParts] = line.split(':');
-            const value = valueParts.join(':').trim();
-            if (key === 'title') embed.setTitle(value);
-            if (key === 'desc') embed.setDescription(value);
-            if (key === 'color') {
-              const c = value.toLowerCase();
-              embed.setColor(COLORS[c] || parseInt(c.replace('#', '0x'), 16) || 0x2f3136);
-            }
-            if (key === 'footer') embed.setFooter({ text: value });
-            if (key === 'image') embed.setImage(value);
+        let embed = new EmbedBuilder();
+
+        // Forgiving fallback parser (line-by-line)
+        const lines = code.split('\n').map(l => l.trim()).filter(Boolean);
+        for (const line of lines) {
+          if (!line.includes(':')) continue;
+          const [key, ...valueParts] = line.split(':');
+          const value = valueParts.join(':').trim();
+          if (key === 'title') embed.setTitle(value);
+          if (key === 'desc') embed.setDescription(value);
+          if (key === 'color') {
+            const c = value.toLowerCase();
+            embed.setColor(COLORS[c] || parseInt(c.replace('#', '0x'), 16) || 0x2f3136);
           }
-          await interaction.channel.send({ embeds: [embed] });
-          return interaction.editReply({ content: 'Parsed & sent (simple fallback mode).', ephemeral: true });
+          if (key === 'footer') embed.setFooter({ text: value });
+          if (key === 'image') embed.setImage(value);
+          if (key === 'thumbnail') embed.setThumbnail(value);
         }
 
-        const embed = new EmbedBuilder(embedData);
         await interaction.channel.send({ embeds: [embed] });
-        return interaction.editReply({ content: 'Advanced embed sent.', ephemeral: true });
+        return interaction.editReply({ content: 'Advanced embed sent (forgiving mode).', ephemeral: true });
       } catch (e) {
-        return interaction.editReply({ content: `Parse failed: ${e.message.slice(0, 100)}... Use /embed advanced-paste for help.`, ephemeral: true });
+        return interaction.editReply({ content: `Parse failed: ${e.message.slice(0, 100)}... Use /embed advanced-paste for template.`, ephemeral: true });
       }
     }
 
     if (sub === 'advanced-paste') {
       const template = `
-title: Welcome to the server!
+title: Welcome!
 desc: Hey {user.mention}! Glad you're here.
-Check out [rules](https://discord.com/channels/SERVER_ID/CHANNEL_ID_RULES)
-Have fun in [general](https://discord.com/channels/SERVER_ID/CHANNEL_ID_GENERAL)!
+Check [rules](https://discord.com/channels/SERVER_ID/CHANNEL_ID_RULES)
 color: #7289da
 footer: Chrxmee AI • {timestamp}
 thumbnail: {user.avatar}
-image: https://i.imgur.com/your-cool-image.png   // optional
-
-Edit placeholders → SERVER_ID / CHANNEL_ID (right-click channel > Copy ID)
-{user.mention} = @user
-{user.avatar} = user's pfp URL
-{timestamp} = current time
-Paste the edited version into /embed advanced json:...
+// Edit SERVER_ID/CHANNEL_ID (right-click > Copy ID)
+// Paste into /embed advanced code:...
       `.trim();
 
-      // Regular text message — long-press anywhere to select/copy on mobile
-      return interaction.editReply({
-        content: template,
-        ephemeral: true
-      });
+      return interaction.editReply({ content: template, ephemeral: true });
     }
 
     if (sub === 'system') {
       const type = interaction.options.getString('type');
       let embed = new EmbedBuilder().setFooter({ text: 'Chrxmee AI' }).setTimestamp();
 
-      if (type === 'welcome') embed.setColor('#00ff88').setTitle('Welcome!').setDescription('Welcome to the server! Enjoy your stay.');
+      if (type === 'welcome') embed.setColor('#00ff88').setTitle('Welcome!').setDescription('Welcome to the server!');
       if (type === 'goodbye') embed.setColor('#ff4444').setTitle('Goodbye').setDescription('Sad to see you go...');
-      if (type === 'log-join') embed.setColor('#7289da').setTitle('Member Joined').setDescription('A new member joined.');
-      if (type === 'log-leave') embed.setColor('#ff8800').setTitle('Member Left').setDescription('A member left.');
+      if (type === 'log-join') embed.setColor('#7289da').setTitle('Member Joined').setDescription('New member joined.');
+      if (type === 'log-leave') embed.setColor('#ff8800').setTitle('Member Left').setDescription('Member left.');
       if (type === 'announcement') embed.setColor('#f1c40f').setTitle('Announcement').setDescription('Important message.');
       if (type === 'rule') embed.setColor('#9b59b6').setTitle('Rules Reminder').setDescription('Please follow the rules.');
-      if (type === 'event') embed.setColor('#00ffff').setTitle('Event').setDescription('New event happening!');
+      if (type === 'event') embed.setColor('#00ffff').setTitle('Event').setDescription('New event!');
       if (type === 'mod-alert') embed.setColor('#ff0000').setTitle('Mod Alert').setDescription('Staff attention needed.');
       if (type === 'status') embed.setColor('#7289da').setTitle('Status Update').setDescription('Bot status.');
       if (type === 'fun') embed.setColor('#ff00ff').setTitle('Fun Message').setDescription('Just for fun!');
@@ -204,25 +187,25 @@ Paste the edited version into /embed advanced json:...
         const embedData = JSON.parse(json);
         savedEmbeds[name] = embedData;
         client.memory.set(`embeds_${userId}`, savedEmbeds);
-        return interaction.editReply({ content: `Saved embed as **${name}**.`, ephemeral: true });
+        return interaction.editReply({ content: `Saved as **${name}**.`, ephemeral: true });
       } catch (e) {
-        return interaction.editReply({ content: `Invalid JSON: ${e.message.slice(0, 100)}... Use /embed advanced-paste for help.`, ephemeral: true });
+        return interaction.editReply({ content: `Invalid: ${e.message.slice(0, 100)}... Use /embed advanced-paste.`, ephemeral: true });
       }
     }
 
     if (sub === 'view') {
       if (Object.keys(savedEmbeds).length === 0) {
-        return interaction.editReply({ content: 'You have no saved embeds yet. Use /embed save first.', ephemeral: true });
+        return interaction.editReply({ content: 'No saved embeds. Use /embed save.', ephemeral: true });
       }
 
       let list = Object.keys(savedEmbeds).map(name => `**${name}**`).join('\n');
-      return interaction.editReply({ content: `Your saved embeds:\n${list}\n\nUse /embed send to send one.`, ephemeral: true });
+      return interaction.editReply({ content: `Saved embeds:\n${list}\n\nUse /embed send.`, ephemeral: true });
     }
 
     if (sub === 'send') {
       const selectMenu = new StringSelectMenuBuilder()
         .setCustomId('embed_send_select')
-        .setPlaceholder('Choose an embed to send...')
+        .setPlaceholder('Choose embed...')
         .addOptions(
           Object.keys(savedEmbeds).map(name => 
             new StringSelectMenuOptionBuilder()
@@ -234,7 +217,7 @@ Paste the edited version into /embed advanced json:...
       const row = new ActionRowBuilder().addComponents(selectMenu);
 
       return interaction.editReply({
-        content: 'Choose which saved embed to send:',
+        content: 'Select embed to send:',
         components: [row],
         ephemeral: true
       });
