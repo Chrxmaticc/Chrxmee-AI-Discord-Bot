@@ -87,12 +87,13 @@ module.exports = {
       return interaction.reply({ content: 'Mods only.', ephemeral: true });
     }
 
+    // DEBUG LOG — right after defer so we know if code starts
     await interaction.deferReply({ ephemeral: true });
+    console.log(`[${new Date().toISOString()}] EMBED COMMAND started for ${interaction.user.tag} in ${interaction.channelId || 'DM'} | sub: ${interaction.options.getSubcommand()}`);
 
     const sub = interaction.options.getSubcommand();
     const userId = interaction.user.id;
 
-    // Load user's saved embeds
     let savedEmbeds = client.memory.get(`embeds_${userId}`) || {};
 
     if (sub === 'template') {
@@ -109,19 +110,30 @@ module.exports = {
         .setFooter({ text: 'Chrxmee AI' })
         .setTimestamp();
 
+      if (type === 'welcome') {
+        embed.setAuthor({ name: 'Welcome!', iconURL: interaction.guild?.iconURL() || interaction.client.user.displayAvatarURL() });
+      } else if (type === 'goodbye') {
+        embed.setAuthor({ name: 'Goodbye :(', iconURL: interaction.guild?.iconURL() || interaction.client.user.displayAvatarURL() });
+      } else if (type === 'announcement') {
+        embed.setAuthor({ name: 'Announcement!', iconURL: interaction.client.user.displayAvatarURL() });
+      }
+
       await interaction.channel.send({ embeds: [embed] });
       return interaction.editReply('Template sent.');
     }
 
     if (sub === 'advanced') {
       let code = interaction.options.getString('json').trim();
+      console.log(`[${new Date().toISOString()}] Advanced embed attempt - JSON length: ${code.length}`);
+
       try {
         const embedData = JSON.parse(code);
         const embed = new EmbedBuilder(embedData);
         await interaction.channel.send({ embeds: [embed] });
         return interaction.editReply('Advanced embed sent.');
       } catch (e) {
-        return interaction.editReply('Invalid JSON. Use /embed advanced-paste for help.');
+        console.error('Advanced embed parse error:', e.message);
+        return interaction.editReply(`Invalid JSON or parse failed: ${e.message.slice(0, 100)}... Use /embed advanced-paste for help.`);
       }
     }
 
@@ -135,7 +147,7 @@ image: https://i.imgur.com/yourimage.png   // optional
       `.trim();
 
       return interaction.editReply({
-        content: 'Copy this, edit it, then paste into /embed advanced',
+        content: 'Copy → edit → paste into /embed advanced json:...',
         embeds: [new EmbedBuilder().setDescription(`\`\`\`\n${template}\n\`\`\``)]
       });
     }
@@ -180,7 +192,7 @@ image: https://i.imgur.com/yourimage.png   // optional
         client.memory.set(`embeds_${userId}`, savedEmbeds);
         return interaction.editReply(`Saved embed as **${name}**. Use /embed send name:${name} to use it.`);
       } catch (e) {
-        return interaction.editReply('Invalid JSON. Use /embed advanced-paste for help.');
+        return interaction.editReply(`Invalid JSON: ${e.message.slice(0, 100)}... Use /embed advanced-paste for help.`);
       }
     }
 
@@ -190,7 +202,10 @@ image: https://i.imgur.com/yourimage.png   // optional
       }
 
       let list = Object.keys(savedEmbeds).map(name => `**${name}**`).join('\n');
-      return interaction.editReply(`Your saved embeds:\n${list}\n\nUse /embed send name:NAME to send one.`);
+      return interaction.editReply({
+        content: `Your saved embeds (use /embed send name:NAME to send):\n${list}`,
+        ephemeral: true
+      });
     }
 
     if (sub === 'send') {
