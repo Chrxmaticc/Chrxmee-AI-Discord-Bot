@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionsBitField } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, PermissionsBitField, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ActionRowBuilder } = require('discord.js');
 
 const COLORS = {
   blue: 0x7289da,
@@ -44,7 +44,7 @@ module.exports = {
     .addSubcommand(subcommand =>
       subcommand
         .setName('system')
-        .setDescription('Use pre-made system embeds (logs, welcome, etc.)')
+        .setDescription('Use pre-made system embeds')
         .addStringOption(opt => opt.setName('type')
           .setDescription('Choose system embed')
           .setRequired(true)
@@ -77,38 +77,123 @@ module.exports = {
     .addSubcommand(subcommand =>
       subcommand
         .setName('send')
-        .setDescription('Send one of your saved embeds')
-        .addStringOption(opt => opt.setName('name')
-          .setDescription('Name of the saved embed')
-          .setRequired(true))),
+        .setDescription('Send one of your saved embeds (dropdown choice)')),
 
-  async execute(interaction, client) {  // <-- FIXED HERE: added client param
+  async execute(interaction, client) {
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
       return interaction.reply({ content: 'Mods only.', ephemeral: true });
     }
 
-    // DEBUG LOG — confirms if code starts executing
     await interaction.deferReply({ ephemeral: true });
-    console.log(`[${new Date().toISOString()}] EMBED COMMAND started for ${interaction.user.tag} in ${interaction.channelId || 'DM'} | sub: ${interaction.options.getSubcommand()}`);
+    console.log(`[${new Date().toISOString()}] EMBED COMMAND started for ${interaction.user.tag} | sub: ${interaction.options.getSubcommand()}`);
 
     const sub = interaction.options.getSubcommand();
     const userId = interaction.user.id;
 
     let savedEmbeds = client.memory.get(`embeds_${userId}`) || {};
 
-    // ... rest of your code (template, advanced, system, save, view, send) stays exactly the same ...
-    // (paste the rest from your current file here, or let me know if you want the full pasted version again)
+    if (sub === 'template') {
+      const type = interaction.options.getString('type');
+      const title = interaction.options.getString('title');
+      const desc = interaction.options.getString('description');
+      const colorName = interaction.options.getString('color') || 'default';
+      const color = COLORS[colorName] || COLORS.default;
 
-    // Example for 'view' subcommand (to confirm memory works)
+      const embed = new EmbedBuilder()
+        .setColor(color)
+        .setTitle(title)
+        .setDescription(desc)
+        .setFooter({ text: 'Chrxmee AI' })
+        .setTimestamp();
+
+      if (type === 'welcome') embed.setAuthor({ name: 'Welcome!', iconURL: interaction.guild?.iconURL() || interaction.client.user.displayAvatarURL() });
+      if (type === 'goodbye') embed.setAuthor({ name: 'Goodbye :(', iconURL: interaction.guild?.iconURL() || interaction.client.user.displayAvatarURL() });
+      if (type === 'announcement') embed.setAuthor({ name: 'Announcement!', iconURL: interaction.client.user.displayAvatarURL() });
+
+      await interaction.channel.send({ embeds: [embed] }); // PUBLIC embed
+      return interaction.editReply('Template sent.');
+    }
+
+    if (sub === 'advanced') {
+      let code = interaction.options.getString('json').trim();
+      try {
+        const embedData = JSON.parse(code);
+        const embed = new EmbedBuilder(embedData);
+        await interaction.channel.send({ embeds: [embed] }); // PUBLIC
+        return interaction.editReply('Advanced embed sent.');
+      } catch (e) {
+        return interaction.editReply('Invalid JSON. Use /embed advanced-paste for help.');
+      }
+    }
+
+    if (sub === 'advanced-paste') {
+      const template = `title: Your Title\ndesc: Your description here\ncolor: #7289da\nfooter: Chrxmee AI`;
+      return interaction.editReply({
+        content: 'Copy this, edit it, then paste into /embed advanced',
+        embeds: [new EmbedBuilder().setDescription(`\`\`\`\n${template}\n\`\`\``)]
+      });
+    }
+
+    if (sub === 'system') {
+      const type = interaction.options.getString('type');
+      let embed = new EmbedBuilder().setFooter({ text: 'Chrxmee AI' }).setTimestamp();
+
+      if (type === 'welcome') embed.setColor('#00ff88').setTitle('Welcome!').setDescription('Welcome to the server!');
+      if (type === 'goodbye') embed.setColor('#ff4444').setTitle('Goodbye').setDescription('Sad to see you go...');
+      if (type === 'log-join') embed.setColor('#7289da').setTitle('Member Joined').setDescription('A new member joined.');
+      if (type === 'log-leave') embed.setColor('#ff8800').setTitle('Member Left').setDescription('A member left.');
+      if (type === 'announcement') embed.setColor('#f1c40f').setTitle('Announcement').setDescription('Important message.');
+      if (type === 'rule') embed.setColor('#9b59b6').setTitle('Rules Reminder').setDescription('Please follow the rules.');
+      if (type === 'event') embed.setColor('#00ffff').setTitle('Event').setDescription('New event happening!');
+      if (type === 'mod-alert') embed.setColor('#ff0000').setTitle('Mod Alert').setDescription('Staff attention needed.');
+      if (type === 'status') embed.setColor('#7289da').setTitle('Status Update').setDescription('Bot status.');
+      if (type === 'fun') embed.setColor('#ff00ff').setTitle('Fun Message').setDescription('Just for fun!');
+
+      await interaction.channel.send({ embeds: [embed] }); // PUBLIC
+      return interaction.editReply('System embed sent.');
+    }
+
+    if (sub === 'save') {
+      const name = interaction.options.getString('name');
+      const json = interaction.options.getString('json');
+
+      try {
+        const embedData = JSON.parse(json);
+        savedEmbeds[name] = embedData;
+        client.memory.set(`embeds_${userId}`, savedEmbeds);
+        return interaction.editReply(`Saved embed as **${name}**.`);
+      } catch (e) {
+        return interaction.editReply('Invalid JSON. Use /embed advanced-paste for help.');
+      }
+    }
+
     if (sub === 'view') {
       if (Object.keys(savedEmbeds).length === 0) {
         return interaction.editReply('You have no saved embeds yet. Use /embed save first.');
       }
 
       let list = Object.keys(savedEmbeds).map(name => `**${name}**`).join('\n');
-      return interaction.editReply(`Your saved embeds:\n${list}\n\nUse /embed send name:NAME to send one.`);
+      return interaction.editReply(`Your saved embeds:\n${list}\n\nUse /embed send to send one.`);
     }
 
-    // ... other subcommands ...
+    if (sub === 'send') {
+      const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('embed_send_select')
+        .setPlaceholder('Choose an embed to send...')
+        .addOptions(
+          Object.keys(savedEmbeds).map(name => 
+            new StringSelectMenuOptionBuilder()
+              .setLabel(name)
+              .setValue(name)
+          )
+        );
+
+      const row = new ActionRowBuilder().addComponents(selectMenu);
+
+      return interaction.editReply({
+        content: 'Choose which saved embed to send:',
+        components: [row]
+      });
+    }
   }
 };
