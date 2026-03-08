@@ -55,7 +55,7 @@ const client = new Client({
 });
 
 client.commands = new Collection();
-client.memory = new Map(); // Global in-memory storage (skill trees, temp data, etc.)
+client.memory = new Map(); // Global in-memory storage (skill trees, saved embeds, temp data, etc.)
 
 // Snipe system
 client.snipes = new Map();
@@ -138,7 +138,7 @@ client.once('clientReady', async () => {
 
   client.pool = pool;
 
-  // In-memory storage for things like skill trees, temp user data, etc. (fast, no DB lag)
+  // In-memory storage for things like saved embeds, skill trees, temp user data, etc. (fast, no DB lag)
   client.memory = client.memory || new Map();
 
   try {
