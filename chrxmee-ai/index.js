@@ -138,6 +138,18 @@ client.once('clientReady', async () => {
 
   client.pool = pool;
 
+  // Pre-warm Postgres pool to avoid cold connect lag on first command
+  (async () => {
+    try {
+      const pgClient = await client.pool.connect();
+      await pgClient.query('SELECT 1');
+      pgClient.release();
+      console.log('Pool pre-warmed successfully');
+    } catch (err) {
+      console.error('Pool pre-warm failed:', err.message);
+    }
+  })();
+
   // In-memory storage for things like saved embeds, skill trees, temp user data, etc. (fast, no DB lag)
   client.memory = client.memory || new Map();
 
