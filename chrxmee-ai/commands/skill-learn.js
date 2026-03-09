@@ -1,13 +1,13 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, PermissionsBitField } = require('discord.js');
 
 const LEVEL_IMAGES = {
-  1: 'https://i.imgur.com/ivsMjnE.jpeg',   // Seed
-  2: 'https://i.imgur.com/Yet1dIp.jpeg',   // Small branch
-  3: 'https://i.imgur.com/Yet1dIp.jpeg',   // Young twigs
-  4: 'https://i.imgur.com/As6ia5r.jpeg',   // Morning sun fuller
-  5: 'https://i.imgur.com/mEmGhpu.jpeg',   // Mature trunks blue sky
-  6: 'https://i.imgur.com/sr5qw7S.jpeg',   // Morning sunshine
-  7: 'https://i.imgur.com/61nnoFM.jpeg'    // Mastery (full tree)
+  1: 'https://i.imgur.com/seedling-row.jpg',       // Level 1 - tiny sprouts
+  2: 'https://i.imgur.com/small-moss-sprout.jpg',  // Level 2 - small green sprout
+  3: 'https://i.imgur.com/young-single-tree.jpg',  // Level 3 - young tree
+  4: 'https://i.imgur.com/fig-tree-yard.jpg',      // Level 4 - small fig tree
+  5: 'https://i.imgur.com/large-oak-sunset.jpg',   // Level 5 - large oak sunset
+  6: 'https://i.imgur.com/big-oak-blue-sky.jpg',   // Level 6 - big oak in field
+  7: 'https://i.imgur.com/massive-old-oak.jpg'     // Level 7 - massive old oak (mastery)
 };
 
 module.exports = {
@@ -55,23 +55,29 @@ module.exports = {
 
     if (sub === 'tell') {
       if (!userData.focus) {
-        return interaction.editReply('Set a focus skill first: `/skill-learn focus <skill>`');
+        return interaction.editReply({ content: 'Set a focus skill first: `/skill-learn focus <skill>`', ephemeral: true });
       }
 
       const what = interaction.options.getString('what').trim();
       userData.learned.push({ date: new Date(), text: what });
 
+      // XP: +1 per report, level up every 5
       userData.xp = (userData.xp || 0) + 1;
       const newLevel = Math.min(7, Math.floor(userData.xp / 5) + 1);
 
+      let levelUpMessage = null;
       if (newLevel > userData.level) {
         userData.level = newLevel;
-        interaction.channel.send(`<@${userId}> reached **Level ${newLevel}** in ${userData.focus}! Tree growing... 🌳`);
+        levelUpMessage = `<@${userId}> reached **Level ${newLevel}** in ${userData.focus}! Tree growing... 🌳`;
+        interaction.channel.send(levelUpMessage);
       }
 
       client.memory.set(`skilltree_${userId}`, userData);
 
-      return interaction.editReply(`Logged: "${what}" for **${userData.focus}** (+1 XP)\n\nKeep going!`);
+      return interaction.editReply({
+        content: `Logged: "${what}" for **${userData.focus}** (+1 XP)\n\nKeep going!${levelUpMessage ? '\n' + levelUpMessage : ''}`,
+        ephemeral: false
+      });
     }
 
     if (sub === 'view') {
@@ -81,10 +87,10 @@ module.exports = {
       const progressBar = '█'.repeat(level) + '░'.repeat(7 - level);
 
       const embed = new EmbedBuilder()
-        .setColor('#2f3136') // Breed dark theme
+        .setColor('#2f3136') // Breed dark
         .setTitle(`${interaction.user.username}'s Skill Tree`)
-        .setDescription(`**Focus:** ${userData.focus || 'None set yet'}\n\n**Level ${level}/7** – ${level === 7 ? 'Mastery Unlocked 🌟' : 'Keep growing!'}\nProgress: [${progressBar}] ${level}/7`)
-        .setImage(img) // Main tree image (your Imgur links)
+        .setDescription(`**Focus:** ${userData.focus || 'None set yet'}\n\n**Level ${level}/7** – ${level === 7 ? 'Mastered! 🌟' : 'Keep growing!'}\nProgress: [${progressBar}] ${level}/7`)
+        .setImage(img) // Your image
         .addFields(
           { name: 'Learned Entries', value: `${userData.learned?.length || 0}`, inline: true },
           { name: 'XP', value: `${userData.xp || 0}`, inline: true }
