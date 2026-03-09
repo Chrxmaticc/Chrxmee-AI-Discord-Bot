@@ -8,7 +8,7 @@ const ROOM_THEMES = [
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('dungeon')
-    .setDescription('Infinite dungeon RPG – no more expired interactions')
+    .setDescription('Infinite dungeon RPG.')
     .addSubcommand(sub => sub.setName('start').setDescription('Begin a new run'))
     .addSubcommand(sub => sub.setName('view').setDescription('See current status'))
     .addSubcommand(sub => sub.setName('leave').setDescription('Escape the dungeon'))
