@@ -5,30 +5,14 @@ const ROOM_THEMES = [
   "❄️ Frozen Tundra", "🌊 Sunken Temple", "🏰 Abandoned Throne Room", "🕸️ Spider Nest"
 ];
 
-// Better, more visual mazes – one per room theme
 const MAZE_LAYOUTS = [
-  // 1. Enchanted Forest
   "```ansi\n🟩🟩🟩🟩🟩\n🟩🟡🟩🪙🟩\n🟩🌲👹🟩🟩\n🟩🟩🟩🟩🟩```",
-
-  // 2. Haunted Crypt
   "```ansi\n🪦🪦🪦🪦🪦\n🪦🟡🪦🪙🪦\n🪦🪦👹🪦🪦\n🪦🪦🪦🪦🪦```",
-
-  // 3. Ancient Ruins
   "```ansi\n🏛️🏛️🏛️🏛️🏛️\n🏛️🟡🏛️🪙🏛️\n🏛️🗿👹🏛️🏛️\n🏛️🏛️🏛️🏛️🏛️```",
-
-  // 4. Lava Cavern
   "```ansi\n🔥🔥🔥🔥🔥\n🔥🟡🔥🪙🔥\n🔥🌋👹🔥🔥\n🔥🔥🔥🔥🔥```",
-
-  // 5. Frozen Tundra
   "```ansi\n❄️❄️❄️❄️❄️\n❄️🟡❄️🪙❄️\n❄️🧊👹❄️❄️\n❄️❄️❄️❄️❄️```",
-
-  // 6. Sunken Temple
   "```ansi\n🌊🌊🌊🌊🌊\n🌊🟡🌊🪙🌊\n🌊🦑👹🌊🌊\n🌊🌊🌊🌊🌊```",
-
-  // 7. Abandoned Throne Room
   "```ansi\n👑👑👑👑👑\n👑🟡👑🪙👑\n👑🪑👹👑👑\n👑👑👑👑👑```",
-
-  // 8. Spider Nest (fallback / higher rooms)
   "```ansi\n🕸️🕸️🕸️🕸️🕸️\n🕸️🟡🕸️🪙🕸️\n🕸️🕷️👹🕸️🕸️\n🕸️🕸️🕸️🕸️🕸️```"
 ];
 
@@ -40,7 +24,7 @@ function getDieBar(hp) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('dungeon')
-    .setDescription('Dungeon RPG – one safe click per room')
+    .setDescription('Dungeon RPG – fixed "not for you" forever')
     .addSubcommand(sub => sub.setName('start').setDescription('Begin a new run'))
     .addSubcommand(sub => sub.setName('view').setDescription('See current status'))
     .addSubcommand(sub => sub.setName('leave').setDescription('Escape the dungeon'))
@@ -49,7 +33,6 @@ module.exports = {
   async execute(interaction, client) {
     try {
       await interaction.deferReply({ ephemeral: false });
-      console.log(`[${new Date().toISOString()}] DUNGEON deferred OK for ${interaction.user.tag}`);
     } catch (err) {
       console.error('Defer failed:', err);
       return interaction.reply({ content: 'Failed to start.', ephemeral: true }).catch(() => {});
@@ -62,14 +45,18 @@ module.exports = {
       inDungeon: false,
       currentRoom: 0,
       hp: 100,
-      gold: 0
+      gold: 0,
+      starterId: userId  // This is the key – we save who started it
     };
+
+    // Make sure starterId is always set
+    if (!data.starterId) data.starterId = userId;
 
     const sub = interaction.options.getSubcommand();
 
     if (sub === 'reset') {
       client.memory.delete(`dungeon_${guildId}_${userId}`);
-      return interaction.editReply('Dungeon fully reset. No more stuck/expired runs.');
+      return interaction.editReply('Dungeon fully reset. No more stuck or "not for you" issues.');
     }
 
     if (sub === 'leave') {
@@ -90,6 +77,7 @@ module.exports = {
       data.currentRoom = 1;
       data.hp = 100;
       data.gold = 0;
+      data.starterId = userId;  // Lock in who started it
 
       client.memory.set(`dungeon_${guildId}_${userId}`, data);
 
@@ -98,7 +86,6 @@ module.exports = {
   }
 };
 
-// One room = one safe click → auto next
 async function performRoom(interaction, client, data, guildId, userId) {
   const roomTheme = ROOM_THEMES[Math.floor(Math.random() * ROOM_THEMES.length)];
   const mazeIndex = Math.min(data.currentRoom - 1, MAZE_LAYOUTS.length - 1);
@@ -107,7 +94,7 @@ async function performRoom(interaction, client, data, guildId, userId) {
   const embed = new EmbedBuilder()
     .setColor('#2f3136')
     .setTitle(`Room ${data.currentRoom} — ${roomTheme}`)
-    .setDescription(`Maze:\n${maze}\n\nChoose **one** action (buttons lock after click):`)
+    .setDescription(`Maze:\n${maze}\n\nChoose one action (buttons lock after click):`)
     .addFields(
       { name: 'HP Bar', value: getDieBar(data.hp), inline: false },
       { name: 'Gold', value: `${data.gold}`, inline: true }
@@ -131,17 +118,19 @@ async function performRoom(interaction, client, data, guildId, userId) {
   const collector = msg.createMessageComponentCollector({ time: 45000, max: 1 });
 
   collector.on('collect', async btn => {
-    console.log(`Click: ${btn.customId} by ${btn.user.tag}`);
-
     try {
       await btn.deferUpdate();
     } catch (err) {
-      if (err.code === 10062) {
-        console.log('Click already expired – safe ignore');
-        return;
-      }
+      if (err.code === 10062) return console.log('Expired click ignored');
       console.error('deferUpdate failed:', err);
-      return btn.followUp({ content: 'Click expired.', ephemeral: true }).catch(() => {});
+      return btn.followUp({ content: 'Click timed out.', ephemeral: true }).catch(() => {});
+    }
+
+    // The fix: starter ALWAYS allowed, no exceptions
+    const isStarter = btn.user.id === data.starterId;
+
+    if (!isStarter) {
+      return btn.followUp({ content: 'This run is currently solo / invite-only.', ephemeral: true });
     }
 
     let result = '';
