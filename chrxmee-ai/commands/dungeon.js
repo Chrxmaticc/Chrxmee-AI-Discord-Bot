@@ -8,11 +8,11 @@ const ROOM_THEMES = [
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('dungeon')
-    .setDescription('Infinite dungeon RPG.')
+    .setDescription('Infinite dungeon RPG – fixed expired interactions')
     .addSubcommand(sub => sub.setName('start').setDescription('Begin a new run'))
     .addSubcommand(sub => sub.setName('view').setDescription('See current status'))
     .addSubcommand(sub => sub.setName('leave').setDescription('Escape the dungeon'))
-    .addSubcommand(sub => sub.setName('reset').setDescription('Force-reset your dungeon (fixes stuck/expired)'))
+    .addSubcommand(sub => sub.setName('reset').setDescription('Force-reset dungeon data (fixes stuck/expired)'))
     .addSubcommandGroup(group =>
       group.setName('party')
         .setDescription('Party options')
@@ -25,10 +25,15 @@ module.exports = {
         .addSubcommand(sub => sub.setName('allow').setDescription('Enable/disable dungeon'))),
 
   async execute(interaction, client) {
-    // Defer EVERYTHING immediately — this kills 99% of expired issues
-    await interaction.deferReply({ ephemeral: false });
+    // Defer IMMEDIATELY – this is the #1 fix for 10062
+    try {
+      await interaction.deferReply({ ephemeral: false });
+    } catch (err) {
+      console.error('Top-level defer failed:', err);
+      return interaction.reply({ content: 'Failed to start dungeon – try again.', ephemeral: true }).catch(() => {});
+    }
 
-    console.log(`[${new Date().toISOString()}] DUNGEON started by ${interaction.user.tag} | sub: ${interaction.options.getSubcommand()}`);
+    console.log(`[${new Date().toISOString()}] DUNGEON started by ${interaction.user.tag} | sub: ${interaction.options.getSubcommand() || 'unknown'}`);
 
     const userId = interaction.user.id;
     const guildId = interaction.guild.id;
@@ -45,10 +50,10 @@ module.exports = {
     const sub = interaction.options.getSubcommand();
     const group = interaction.options.getSubcommandGroup();
 
-    // ==================== RESET (emergency escape) ====================
+    // ==================== RESET ====================
     if (sub === 'reset') {
       client.memory.delete(`dungeon_${guildId}_${userId}`);
-      return interaction.editReply({ content: 'Dungeon data fully reset. No more stuck runs. Start fresh with /dungeon start.', ephemeral: false });
+      return interaction.editReply('Dungeon data fully reset. No more stuck runs. Start fresh with /dungeon start.');
     }
 
     // ==================== PARTY OPTIONS ====================
@@ -57,13 +62,13 @@ module.exports = {
         data.partyMode = 'solo';
         data.party = [userId];
         client.memory.set(`dungeon_${guildId}_${userId}`, data);
-        return interaction.editReply({ content: 'Party mode: **Solo**. Only you can interact.', ephemeral: false });
+        return interaction.editReply('Party mode: **Solo** (only you can click buttons).');
       }
 
       if (sub === 'open') {
         data.partyMode = 'open';
         client.memory.set(`dungeon_${guildId}_${userId}`, data);
-        return interaction.editReply({ content: 'Party mode: **Open**. Everyone in channel can click buttons.', ephemeral: false });
+        return interaction.editReply('Party mode: **Open** (everyone in channel can click).');
       }
 
       if (sub === 'invite') {
@@ -73,7 +78,7 @@ module.exports = {
         if (!data.party.includes(target.id)) data.party.push(target.id);
         data.partyMode = 'invite';
         client.memory.set(`dungeon_${guildId}_${userId}`, data);
-        return interaction.editReply({ content: `Invited **${target.username}**. They can now click buttons.`, ephemeral: false });
+        return interaction.editReply(`Invited **${target.username}** to your party.`);
       }
     }
 
@@ -109,10 +114,19 @@ module.exports = {
 
       const msg = await interaction.editReply({ embeds: [embed], components: [row] });
 
-      const collector = msg.createMessageComponentCollector({ time: 600000 });
+      const collector = msg.createMessageComponentCollector({ time: 300000 }); // 5 min
 
       collector.on('collect', async btn => {
-        await btn.deferUpdate(); // ← critical: prevents button timeout
+        try {
+          await btn.deferUpdate(); // ← critical fix for unknown interaction
+        } catch (err) {
+          if (err.code === 10062) {
+            console.log('Button expired before deferUpdate (10062) – ignoring');
+            return btn.followUp({ content: 'This button has expired.', ephemeral: true }).catch(() => {});
+          }
+          console.error('deferUpdate failed:', err);
+          return btn.followUp({ content: 'Button action failed.', ephemeral: true }).catch(() => {});
+        }
 
         const isAllowed = data.party.includes(btn.user.id) ||
                          (data.partyMode === 'open' && btn.channelId === interaction.channelId);
@@ -130,7 +144,7 @@ module.exports = {
           data.inDungeon = false;
         }
 
-        data.gold += 20; // simple reward example
+        data.gold += 20; // simple reward
         client.memory.set(`dungeon_${guildId}_${userId}`, data);
 
         const updatedEmbed = new EmbedBuilder()
@@ -139,13 +153,20 @@ module.exports = {
           .setDescription(result)
           .addFields({ name: 'Gold', value: `${data.gold}` });
 
-        await btn.editReply({ embeds: [updatedEmbed], components: [row] });
+        await btn.editReply({ embeds: [updatedEmbed], components: [row] }).catch(err => {
+          console.error('editReply failed:', err);
+        });
       });
 
       collector.on('end', async () => {
-        const disabledRow = row.components.map(b => b.setDisabled(true));
-        await msg.edit({ components: [new ActionRowBuilder().addComponents(disabledRow)] }).catch(() => {});
-        interaction.channel.send({ content: 'Dungeon run timed out. Use /dungeon start to begin again.', ephemeral: false });
+        try {
+          const disabledRow = new ActionRowBuilder().addComponents(
+            row.components.map(b => ButtonBuilder.from(b.data).setDisabled(true))
+          );
+          await msg.edit({ components: [disabledRow] }).catch(() => {});
+        } catch (err) {
+          console.error('Collector end cleanup failed:', err);
+        }
       });
     }
 
@@ -161,7 +182,6 @@ module.exports = {
       return interaction.editReply(`Current room: ${data.currentRoom} | HP: ${data.hp} | Gold: ${data.gold}`);
     }
 
-    // Fallback for other commands
     return interaction.editReply({ content: 'This feature is coming soon!', ephemeral: true });
   }
 };
