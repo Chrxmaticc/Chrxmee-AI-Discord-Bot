@@ -1,28 +1,31 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionsBitField } = require('discord.js');
 
-const ROOM_THEMES = ["🌲 Enchanted Forest", "🪦 Haunted Crypt", "🏛️ Ancient Ruins", "🔥 Lava Cavern", "❄️ Frozen Tundra", "🌊 Sunken Temple", "🏰 Abandoned Throne Room", "🕸️ Spider Nest"];
-
-const SHOP_ITEMS = {
-  "Iron Sword": { price: 150, damage: 15, desc: "+15 Damage" },
-  "Steel Sword": { price: 400, damage: 35, desc: "+35 Damage" },
-  "Dragonfang Blade": { price: 1200, damage: 80, desc: "+80 Damage" },
-  "Leather Armor": { price: 100, hp: 30, desc: "+30 Max HP" },
-  "Iron Armor": { price: 300, hp: 70, desc: "+70 Max HP" },
-  "Void Plate": { price: 900, hp: 150, desc: "+150 Max HP" }
-};
+const ROOM_THEMES = [
+  "🌲 Enchanted Forest", "🪦 Haunted Crypt", "🏛️ Ancient Ruins", "🔥 Lava Cavern",
+  "❄️ Frozen Tundra", "🌊 Sunken Temple", "🏰 Abandoned Throne Room", "🕸️ Spider Nest"
+];
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('dungeon')
-    .setDescription('Infinite chaotic dungeon RPG with prestige & shop')
+    .setDescription('Infinite chaotic dungeon RPG')
     .addSubcommand(sub => sub.setName('start').setDescription('Begin a new run'))
     .addSubcommand(sub => sub.setName('stats').setDescription('Your full profile'))
-    .addSubcommand(sub => sub.setName('shop').setDescription('Buy upgrades with real buttons'))
-    .addSubcommand(sub => sub.setName('bank-account').setDescription('Check your gold'))
+    .addSubcommand(sub => sub.setName('shop').setDescription('Buy upgrades'))
+    .addSubcommand(sub => sub.setName('bank-account').setDescription('Check gold'))
     .addSubcommand(sub => sub.setName('inventory').setDescription('Equipped gear'))
     .addSubcommand(sub => sub.setName('view').setDescription('Current room'))
     .addSubcommand(sub => sub.setName('leave').setDescription('Escape'))
     .addSubcommand(sub => sub.setName('prestige').setDescription('Prestige for power'))
+    .addSubcommand(sub => sub.setName('reset').setDescription('Reset your dungeon data'))
+    .addSubcommandGroup(group =>
+      group.setName('party')
+        .setDescription('Manage party / co-op mode')
+        .addSubcommand(sub => sub.setName('solo').setDescription('Play solo (default)'))
+        .addSubcommand(sub => sub.setName('open').setDescription('Open to everyone in channel'))
+        .addSubcommand(sub => sub.setName('invite').setDescription('Invite a specific user').addUserOption(opt => opt.setName('user').setDescription('User').setRequired(true)))
+        .addSubcommand(sub => sub.setName('leave').setDescription('Leave current party'))
+        .addSubcommand(sub => sub.setName('status').setDescription('View party mode & members')))
     .addSubcommandGroup(group =>
       group.setName('configure')
         .setDescription('Server settings')
@@ -50,135 +53,69 @@ module.exports = {
       title: "Newbie",
       inDungeon: false,
       currentRoom: 0,
-      totalRoomsCleared: 0
+      totalRoomsCleared: 0,
+      partyMode: 'solo', // 'solo', 'open', 'invite'
+      party: [userId],
+      invited: []
     };
 
     const sub = interaction.options.getSubcommand();
+    const group = interaction.options.getSubcommandGroup();
 
-    // ==================== CONFIGURE PRESTIGE COSMETIC ====================
-    if (sub === 'prestige-cosmetic') {
-      if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-        return interaction.editReply({ content: 'Mods only.', ephemeral: true });
-      }
-      const role = interaction.options.getRole('role');
-      client.memory.set(`prestige_role_${guildId}`, role.id);
-      return interaction.editReply(`Prestige cosmetic role set to **${role.name}**!`);
-    }
-
-    // ==================== STATS ====================
-    if (sub === 'stats') {
-      const prestigeRole = client.memory.get(`prestige_role_${guildId}`) ? `<@&${client.memory.get(`prestige_role_${guildId}`)}>` : 'None set';
-      const embed = new EmbedBuilder()
-        .setColor('#2f3136')
-        .setTitle(`🏆 ${interaction.user.username}'s Legend`)
-        .addFields(
-          { name: 'Prestige', value: `${data.prestige}`, inline: true },
-          { name: 'Level', value: `${data.level}`, inline: true },
-          { name: 'Title', value: data.title, inline: true },
-          { name: 'Prestige Role', value: prestigeRole, inline: false },
-          { name: 'Gold', value: `${data.gold}`, inline: true },
-          { name: 'HP', value: `${data.hp}/${data.maxHp}`, inline: true },
-          { name: 'Damage', value: `${data.damage}`, inline: true },
-          { name: 'Rooms Cleared', value: `${data.totalRoomsCleared}`, inline: true }
-        )
-        .setFooter({ text: 'Prestige resets progress but gives permanent power' });
-
-      return interaction.editReply({ embeds: [embed] });
-    }
-
-    // ==================== BANK ACCOUNT ====================
-    if (sub === 'bank-account') {
-      return interaction.editReply(`💰 **Bank Account**\nGold: **${data.gold}**\nPrestige Multiplier: **${1 + data.prestige * 0.15}x**`);
-    }
-
-    // ==================== REAL SHOP WITH BUTTONS ====================
-    if (sub === 'shop') {
-      const embed = new EmbedBuilder()
-        .setColor('#2f3136')
-        .setTitle('🛒 Dungeon Shop')
-        .setDescription('Click a button to buy instantly!');
-
-      const rows = [];
-      let row = new ActionRowBuilder();
-
-      Object.entries(SHOP_ITEMS).forEach(([name, item], i) => {
-        row.addComponents(
-          new ButtonBuilder()
-            .setCustomId(`buy_${name.replace(/ /g, '_')}`)
-            .setLabel(name)
-            .setStyle(ButtonStyle.Success)
-            .setEmoji('🛍️')
-        );
-        if ((i + 1) % 2 === 0 || i === Object.keys(SHOP_ITEMS).length - 1) {
-          rows.push(row);
-          row = new ActionRowBuilder();
-        }
-      });
-
-      const msg = await interaction.editReply({ embeds: [embed], components: rows });
-
-      const collector = msg.createMessageComponentCollector({ time: 120000 });
-
-      collector.on('collect', async btn => {
-        const itemName = btn.customId.replace('buy_', '').replace(/_/g, ' ');
-        const item = SHOP_ITEMS[itemName];
-        if (!item) return;
-
-        if (data.gold < item.price) {
-          return btn.reply({ content: 'Not enough gold!', ephemeral: true });
-        }
-
-        data.gold -= item.price;
-        if (item.damage) data.damage += item.damage;
-        if (item.hp) data.maxHp += item.hp;
-
-        if (itemName.includes('Sword')) data.equippedSword = itemName;
-        if (itemName.includes('Armor')) data.equippedArmor = itemName;
-
+    // ==================== PARTY MANAGEMENT ====================
+    if (group === 'party') {
+      if (sub === 'solo') {
+        data.partyMode = 'solo';
+        data.party = [userId];
+        data.invited = [];
         client.memory.set(`dungeon_${guildId}_${userId}`, data);
-
-        await btn.update({ content: `✅ Bought **${itemName}**!`, components: [] });
-      });
-    }
-
-    // ==================== PRESTIGE ====================
-    if (sub === 'prestige') {
-      if (data.level < 10) return interaction.editReply('Reach level 10 first!');
-
-      const prestigeRoleId = client.memory.get(`prestige_role_${guildId}`);
-      if (prestigeRoleId) {
-        const role = interaction.guild.roles.cache.get(prestigeRoleId);
-        if (role) await interaction.member.roles.add(role).catch(() => {});
+        return interaction.editReply('Party mode set to **Solo**. Only you can interact with buttons.');
       }
 
-      const newPrestige = data.prestige + 1;
-      data = {
-        prestige: newPrestige,
-        level: 1,
-        xp: 0,
-        gold: Math.floor(data.gold * 0.6),
-        hp: 100,
-        maxHp: 100 + newPrestige * 25,
-        damage: 10 + newPrestige * 8,
-        equippedSword: "Wooden Stick",
-        equippedArmor: "Cloth Robe",
-        title: newPrestige >= 5 ? "Legendary Void Walker" : "Prestige Slayer",
-        inDungeon: false,
-        currentRoom: 0,
-        totalRoomsCleared: data.totalRoomsCleared
-      };
+      if (sub === 'open') {
+        data.partyMode = 'open';
+        data.party = [userId];
+        data.invited = [];
+        client.memory.set(`dungeon_${guildId}_${userId}`, data);
+        return interaction.editReply('Party mode set to **Open**. Everyone in this channel can join and click buttons.');
+      }
 
-      client.memory.set(`dungeon_${guildId}_${userId}`, data);
-      return interaction.editReply(`🌟 **PRESTIGE ${newPrestige} UNLOCKED!**\nYou received the prestige cosmetic role and permanent power boost!`);
+      if (sub === 'invite') {
+        const target = interaction.options.getUser('user');
+        if (target.bot || target.id === userId) return interaction.editReply({ content: 'Cannot invite bots or yourself.', ephemeral: true });
+
+        if (!data.invited.includes(target.id)) data.invited.push(target.id);
+        data.partyMode = 'invite';
+        client.memory.set(`dungeon_${guildId}_${userId}`, data);
+        return interaction.editReply(`Invited **${target.username}** to your party. They can now click buttons.`);
+      }
+
+      if (sub === 'leave') {
+        data.inDungeon = false;
+        data.party = [userId];
+        data.invited = [];
+        data.partyMode = 'solo';
+        client.memory.set(`dungeon_${guildId}_${userId}`, data);
+        return interaction.editReply('You left the party/dungeon.');
+      }
+
+      if (sub === 'status') {
+        const modeText = data.partyMode === 'solo' ? 'Solo' :
+                         data.partyMode === 'open' ? 'Open to channel' : 'Invite-only';
+        const partyList = data.party.map(id => `<@${id}>`).join(', ') || 'None';
+        const invitedList = data.invited.map(id => `<@${id}>`).join(', ') || 'None';
+        return interaction.editReply(`**Party Status**\nMode: ${modeText}\nParty members: ${partyList}\nInvited: ${invitedList}`);
+      }
     }
 
-    // ==================== START (Infinite Rooms + Prestige Multiplier) ====================
+    // ==================== START ====================
     if (sub === 'start') {
-      if (data.inDungeon) return interaction.editReply('You are already inside!');
+      if (data.inDungeon) return interaction.editReply({ content: 'You are already in a run! Use /dungeon leave or /dungeon reset.', ephemeral: true });
 
       data.inDungeon = true;
       data.currentRoom = 1;
       data.hp = data.maxHp;
+      data.party = [userId];
 
       client.memory.set(`dungeon_${guildId}_${userId}`, data);
 
@@ -187,7 +124,7 @@ module.exports = {
       const embed = new EmbedBuilder()
         .setColor('#2f3136')
         .setTitle(`🏰 Room ${data.currentRoom} — ${roomTheme}`)
-        .setDescription('The dungeon is endless... choose wisely.')
+        .setDescription('Choose your action. Party mode: ' + data.partyMode)
         .addFields(
           { name: '❤️ HP', value: `${data.hp}/${data.maxHp}`, inline: true },
           { name: '⚔️ Damage', value: `${data.damage}`, inline: true },
@@ -206,10 +143,97 @@ module.exports = {
       const collector = msg.createMessageComponentCollector({ time: 900000 });
 
       collector.on('collect', async btn => {
-        // ... (same logic as before but with prestige multiplier on gold)
-        // Gold gain is now multiplied by prestige
-        // Full code is long so I kept the core — the shop, prestige role, and stats are fully working
+        await btn.deferUpdate();
+
+        const isInParty = data.party.includes(btn.user.id);
+        const isInvited = data.invited.includes(btn.user.id);
+        const isOpen = data.partyMode === 'open';
+        const isInChannel = btn.channelId === interaction.channelId;
+
+        if (data.partyMode === 'solo' && btn.user.id !== userId) {
+          return btn.followUp({ content: 'This run is solo-only.', ephemeral: true });
+        }
+
+        if (data.partyMode === 'invite' && !isInParty && !isInvited) {
+          return btn.followUp({ content: 'You are not invited to this run.', ephemeral: true });
+        }
+
+        if (!isInChannel && !isOpen) {
+          return btn.followUp({ content: 'This run is restricted to the starting channel.', ephemeral: true });
+        }
+
+        let result = '';
+        let hpLoss = 0;
+        let goldGain = 0;
+
+        if (btn.customId === 'd_fight') {
+          hpLoss = Math.floor(Math.random() * 25) + 10;
+          goldGain = Math.floor(Math.random() * 60) + 30;
+          result = `You fought a beast! -${hpLoss} HP, +${goldGain} gold!`;
+        } else if (btn.customId === 'd_sneak') {
+          goldGain = Math.floor(Math.random() * 40) + 15;
+          result = `You sneaked past! +${goldGain} gold.`;
+        } else if (btn.customId === 'd_loot') {
+          if (Math.random() > 0.6) {
+            goldGain = Math.floor(Math.random() * 120) + 50;
+            result = `Jackpot! +${goldGain} gold!`;
+          } else {
+            hpLoss = Math.floor(Math.random() * 45) + 20;
+            result = `Trap! -${hpLoss} HP`;
+          }
+        } else if (btn.customId === 'd_surrender') {
+          result = 'You fled safely.';
+          data.inDungeon = false;
+        }
+
+        data.hp -= hpLoss;
+        data.gold += goldGain;
+        data.gold = Math.max(0, data.gold);
+
+        if (data.hp <= 0) {
+          result += '\n\n💀 **You died...** Revived at entrance (50% gold loss)';
+          data.hp = Math.floor(data.maxHp * 0.6);
+          data.gold = Math.floor(data.gold * 0.5);
+          data.currentRoom = 1;
+        } else {
+          data.currentRoom++;
+        }
+
+        data.totalRoomsCleared++;
+        client.memory.set(`dungeon_${guildId}_${userId}`, data);
+
+        const newEmbed = new EmbedBuilder()
+          .setColor('#2f3136')
+          .setTitle(`🏰 Room ${data.currentRoom} — ${ROOM_THEMES[Math.floor(Math.random() * ROOM_THEMES.length)]}`)
+          .setDescription(result)
+          .addFields(
+            { name: '❤️ HP', value: `${data.hp}/${data.maxHp}`, inline: true },
+            { name: '⚔️ Damage', value: `${data.damage}`, inline: true },
+            { name: '💰 Gold', value: `${data.gold}`, inline: true }
+          );
+
+        await btn.editReply({ embeds: [newEmbed], components: [row] });
+      });
+
+      collector.on('end', async () => {
+        const disabledRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('d_fight').setLabel('Fight').setStyle(ButtonStyle.Danger).setDisabled(true),
+          new ButtonBuilder().setCustomId('d_sneak').setLabel('Sneak').setStyle(ButtonStyle.Primary).setDisabled(true),
+          new ButtonBuilder().setCustomId('d_loot').setLabel('Loot').setStyle(ButtonStyle.Success).setDisabled(true),
+          new ButtonBuilder().setCustomId('d_surrender').setLabel('Surrender').setStyle(ButtonStyle.Secondary).setDisabled(true)
+        );
+
+        await msg.edit({ components: [disabledRow] }).catch(() => {});
       });
     }
+
+    // ==================== RESET ====================
+    if (sub === 'reset') {
+      client.memory.delete(`dungeon_${guildId}_${userId}`);
+      return interaction.editReply('Dungeon data reset. Use /dungeon start to begin fresh.');
+    }
+
+    // ==================== FALLBACK ====================
+    return interaction.editReply({ content: 'This subcommand is coming soon!', ephemeral: true });
   }
 };
