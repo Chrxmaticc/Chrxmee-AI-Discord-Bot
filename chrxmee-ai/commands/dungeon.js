@@ -5,10 +5,42 @@ const ROOM_THEMES = [
   "❄️ Frozen Tundra", "🌊 Sunken Temple", "🏰 Abandoned Throne Room", "🕸️ Spider Nest"
 ];
 
+// Better, more visual mazes – one per room theme
+const MAZE_LAYOUTS = [
+  // 1. Enchanted Forest
+  "```ansi\n🟩🟩🟩🟩🟩\n🟩🟡🟩🪙🟩\n🟩🌲👹🟩🟩\n🟩🟩🟩🟩🟩```",
+
+  // 2. Haunted Crypt
+  "```ansi\n🪦🪦🪦🪦🪦\n🪦🟡🪦🪙🪦\n🪦🪦👹🪦🪦\n🪦🪦🪦🪦🪦```",
+
+  // 3. Ancient Ruins
+  "```ansi\n🏛️🏛️🏛️🏛️🏛️\n🏛️🟡🏛️🪙🏛️\n🏛️🗿👹🏛️🏛️\n🏛️🏛️🏛️🏛️🏛️```",
+
+  // 4. Lava Cavern
+  "```ansi\n🔥🔥🔥🔥🔥\n🔥🟡🔥🪙🔥\n🔥🌋👹🔥🔥\n🔥🔥🔥🔥🔥```",
+
+  // 5. Frozen Tundra
+  "```ansi\n❄️❄️❄️❄️❄️\n❄️🟡❄️🪙❄️\n❄️🧊👹❄️❄️\n❄️❄️❄️❄️❄️```",
+
+  // 6. Sunken Temple
+  "```ansi\n🌊🌊🌊🌊🌊\n🌊🟡🌊🪙🌊\n🌊🦑👹🌊🌊\n🌊🌊🌊🌊🌊```",
+
+  // 7. Abandoned Throne Room
+  "```ansi\n👑👑👑👑👑\n👑🟡👑🪙👑\n👑🪑👹👑👑\n👑👑👑👑👑```",
+
+  // 8. Spider Nest (fallback / higher rooms)
+  "```ansi\n🕸️🕸️🕸️🕸️🕸️\n🕸️🟡🕸️🪙🕸️\n🕸️🕷️👹🕸️🕸️\n🕸️🕸️🕸️🕸️🕸️```"
+];
+
+function getDieBar(hp) {
+  const full = Math.floor(hp / 11);
+  return '🎲'.repeat(full) + '⚪'.repeat(9 - full);
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('dungeon')
-    .setDescription('Dungeon RPG – safe one-click per room')
+    .setDescription('Dungeon RPG – one safe click per room')
     .addSubcommand(sub => sub.setName('start').setDescription('Begin a new run'))
     .addSubcommand(sub => sub.setName('view').setDescription('See current status'))
     .addSubcommand(sub => sub.setName('leave').setDescription('Escape the dungeon'))
@@ -19,7 +51,7 @@ module.exports = {
       await interaction.deferReply({ ephemeral: false });
       console.log(`[${new Date().toISOString()}] DUNGEON deferred OK for ${interaction.user.tag}`);
     } catch (err) {
-      console.error('Top defer failed:', err);
+      console.error('Defer failed:', err);
       return interaction.reply({ content: 'Failed to start.', ephemeral: true }).catch(() => {});
     }
 
@@ -37,13 +69,13 @@ module.exports = {
 
     if (sub === 'reset') {
       client.memory.delete(`dungeon_${guildId}_${userId}`);
-      return interaction.editReply('Dungeon reset. No more expired/stuck runs.');
+      return interaction.editReply('Dungeon fully reset. No more stuck/expired runs.');
     }
 
     if (sub === 'leave') {
       data.inDungeon = false;
       client.memory.set(`dungeon_${guildId}_${userId}`, data);
-      return interaction.editReply('Left the dungeon.');
+      return interaction.editReply('You left the dungeon.');
     }
 
     if (sub === 'view') {
@@ -51,7 +83,6 @@ module.exports = {
       return interaction.editReply(`Room: ${data.currentRoom} | HP: ${data.hp} | Gold: ${data.gold}`);
     }
 
-    // ==================== START ====================
     if (sub === 'start') {
       if (data.inDungeon) return interaction.editReply({ content: 'Already in run! Use /dungeon leave or reset.', ephemeral: true });
 
@@ -70,13 +101,15 @@ module.exports = {
 // One room = one safe click → auto next
 async function performRoom(interaction, client, data, guildId, userId) {
   const roomTheme = ROOM_THEMES[Math.floor(Math.random() * ROOM_THEMES.length)];
+  const mazeIndex = Math.min(data.currentRoom - 1, MAZE_LAYOUTS.length - 1);
+  const maze = MAZE_LAYOUTS[mazeIndex];
 
   const embed = new EmbedBuilder()
     .setColor('#2f3136')
     .setTitle(`Room ${data.currentRoom} — ${roomTheme}`)
-    .setDescription('Pick **one** action (buttons lock after click):')
+    .setDescription(`Maze:\n${maze}\n\nChoose **one** action (buttons lock after click):`)
     .addFields(
-      { name: 'HP', value: `${data.hp}/100`, inline: true },
+      { name: 'HP Bar', value: getDieBar(data.hp), inline: false },
       { name: 'Gold', value: `${data.gold}`, inline: true }
     );
 
@@ -92,24 +125,23 @@ async function performRoom(interaction, client, data, guildId, userId) {
     msg = await interaction.editReply({ embeds: [embed], components: [row] });
   } catch (err) {
     console.error('editReply failed:', err);
-    return interaction.followUp({ content: 'Room failed to load.', ephemeral: true }).catch(() => {});
+    return;
   }
 
-  const collector = msg.createMessageComponentCollector({ time: 45000, max: 1 }); // 45s, only 1 click allowed
+  const collector = msg.createMessageComponentCollector({ time: 45000, max: 1 });
 
   collector.on('collect', async btn => {
-    console.log(`[${new Date().toISOString()}] Click: ${btn.customId} by ${btn.user.tag}`);
+    console.log(`Click: ${btn.customId} by ${btn.user.tag}`);
 
     try {
       await btn.deferUpdate();
-      console.log('deferUpdate success');
     } catch (err) {
       if (err.code === 10062) {
-        console.log('Click expired before defer (10062) – safe ignore');
+        console.log('Click already expired – safe ignore');
         return;
       }
-      console.error('deferUpdate error:', err);
-      return btn.followUp({ content: 'Click timed out.', ephemeral: true }).catch(() => {});
+      console.error('deferUpdate failed:', err);
+      return btn.followUp({ content: 'Click expired.', ephemeral: true }).catch(() => {});
     }
 
     let result = '';
@@ -117,22 +149,17 @@ async function performRoom(interaction, client, data, guildId, userId) {
     let goldGain = 0;
 
     if (btn.customId === 'd_fight') {
-      hpLoss = Math.floor(Math.random() * 25) + 10;
-      goldGain = Math.floor(Math.random() * 60) + 30;
-      result = `Fought! -${hpLoss} HP, +${goldGain} gold!`;
+      hpLoss = 15;
+      goldGain = 40;
+      result = 'You fought! -15 HP, +40 gold!';
     } else if (btn.customId === 'd_sneak') {
-      goldGain = Math.floor(Math.random() * 40) + 15;
-      result = `Sneaked! +${goldGain} gold.`;
+      goldGain = 25;
+      result = 'Sneaked safely! +25 gold!';
     } else if (btn.customId === 'd_loot') {
-      if (Math.random() > 0.6) {
-        goldGain = Math.floor(Math.random() * 120) + 50;
-        result = `Jackpot! +${goldGain} gold!`;
-      } else {
-        hpLoss = Math.floor(Math.random() * 45) + 20;
-        result = `Trap! -${hpLoss} HP`;
-      }
+      goldGain = 60;
+      result = 'Looted! +60 gold!';
     } else if (btn.customId === 'd_surrender') {
-      result = 'Surrendered. Run ended.';
+      result = 'You surrendered. Run ended.';
       data.inDungeon = false;
       client.memory.set(`dungeon_${guildId}_${userId}`, data);
       await btn.editReply({ content: result, embeds: [], components: [] });
@@ -144,7 +171,7 @@ async function performRoom(interaction, client, data, guildId, userId) {
     data.gold = Math.max(0, data.gold);
 
     if (data.hp <= 0) {
-      result += '\n\n💀 **Died...** Revived at start (50% gold loss)';
+      result += '\n\n💀 You died... Revived at start (50% gold loss)';
       data.hp = 50;
       data.gold = Math.floor(data.gold * 0.5);
       data.currentRoom = 1;
@@ -159,21 +186,14 @@ async function performRoom(interaction, client, data, guildId, userId) {
       .setTitle(`Room ${data.currentRoom}`)
       .setDescription(result + '\n\nNext room...')
       .addFields(
-        { name: 'HP', value: `${data.hp}/100`, inline: true },
+        { name: 'HP Bar', value: getDieBar(data.hp), inline: false },
         { name: 'Gold', value: `${data.gold}`, inline: true }
       );
 
-    try {
-      await btn.editReply({ embeds: [newEmbed], components: [] });
-    } catch (err) {
-      console.error('editReply after action failed:', err);
-    }
+    await btn.editReply({ embeds: [newEmbed], components: [] }).catch(() => {});
 
-    // Auto next room
     setTimeout(() => {
-      if (data.inDungeon) {
-        performRoom(interaction, client, data, guildId, userId);
-      }
+      if (data.inDungeon) performRoom(interaction, client, data, guildId, userId);
     }, 2000);
   });
 
