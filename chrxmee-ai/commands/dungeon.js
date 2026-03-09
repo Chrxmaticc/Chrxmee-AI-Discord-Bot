@@ -8,11 +8,11 @@ const ROOM_THEMES = [
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('dungeon')
-    .setDescription('Infinite dungeon RPG – fixed expired interactions')
+    .setDescription('Infinite dungeon RPG – fixed "not for you" & expired issues')
     .addSubcommand(sub => sub.setName('start').setDescription('Begin a new run'))
     .addSubcommand(sub => sub.setName('view').setDescription('See current status'))
     .addSubcommand(sub => sub.setName('leave').setDescription('Escape the dungeon'))
-    .addSubcommand(sub => sub.setName('reset').setDescription('Force-reset dungeon data (fixes stuck/expired)'))
+    .addSubcommand(sub => sub.setName('reset').setDescription('Force-reset your dungeon data'))
     .addSubcommandGroup(group =>
       group.setName('party')
         .setDescription('Party options')
@@ -25,12 +25,12 @@ module.exports = {
         .addSubcommand(sub => sub.setName('allow').setDescription('Enable/disable dungeon'))),
 
   async execute(interaction, client) {
-    // Defer IMMEDIATELY – this is the #1 fix for 10062
+    // Defer right away — no more expired before response
     try {
       await interaction.deferReply({ ephemeral: false });
     } catch (err) {
-      console.error('Top-level defer failed:', err);
-      return interaction.reply({ content: 'Failed to start dungeon – try again.', ephemeral: true }).catch(() => {});
+      console.error('Defer failed:', err);
+      return interaction.reply({ content: 'Failed to start – try again.', ephemeral: true }).catch(() => {});
     }
 
     console.log(`[${new Date().toISOString()}] DUNGEON started by ${interaction.user.tag} | sub: ${interaction.options.getSubcommand() || 'unknown'}`);
@@ -53,7 +53,7 @@ module.exports = {
     // ==================== RESET ====================
     if (sub === 'reset') {
       client.memory.delete(`dungeon_${guildId}_${userId}`);
-      return interaction.editReply('Dungeon data fully reset. No more stuck runs. Start fresh with /dungeon start.');
+      return interaction.editReply('Dungeon data fully reset. Use /dungeon start to begin fresh.');
     }
 
     // ==================== PARTY OPTIONS ====================
@@ -62,7 +62,7 @@ module.exports = {
         data.partyMode = 'solo';
         data.party = [userId];
         client.memory.set(`dungeon_${guildId}_${userId}`, data);
-        return interaction.editReply('Party mode: **Solo** (only you can click buttons).');
+        return interaction.editReply('Party mode: **Solo** (only you can click).');
       }
 
       if (sub === 'open') {
@@ -78,13 +78,13 @@ module.exports = {
         if (!data.party.includes(target.id)) data.party.push(target.id);
         data.partyMode = 'invite';
         client.memory.set(`dungeon_${guildId}_${userId}`, data);
-        return interaction.editReply(`Invited **${target.username}** to your party.`);
+        return interaction.editReply(`Invited **${target.username}**.`);
       }
     }
 
     // ==================== START ====================
     if (sub === 'start') {
-      if (data.inDungeon) return interaction.editReply({ content: 'You are already in a run! Use /dungeon leave or /dungeon reset.', ephemeral: true });
+      if (data.inDungeon) return interaction.editReply({ content: 'Already in a run! Use /dungeon leave or /dungeon reset.', ephemeral: true });
 
       data.inDungeon = true;
       data.currentRoom = 1;
@@ -114,22 +114,24 @@ module.exports = {
 
       const msg = await interaction.editReply({ embeds: [embed], components: [row] });
 
-      const collector = msg.createMessageComponentCollector({ time: 300000 }); // 5 min
+      const collector = msg.createMessageComponentCollector({ time: 300000 });
 
       collector.on('collect', async btn => {
         try {
-          await btn.deferUpdate(); // ← critical fix for unknown interaction
+          await btn.deferUpdate();
         } catch (err) {
           if (err.code === 10062) {
-            console.log('Button expired before deferUpdate (10062) – ignoring');
-            return btn.followUp({ content: 'This button has expired.', ephemeral: true }).catch(() => {});
+            console.log('Button expired (10062) – ignoring');
+            return;
           }
           console.error('deferUpdate failed:', err);
-          return btn.followUp({ content: 'Button action failed.', ephemeral: true }).catch(() => {});
+          return btn.followUp({ content: 'Button expired.', ephemeral: true }).catch(() => {});
         }
 
+        // Permission check – very lenient by default
         const isAllowed = data.party.includes(btn.user.id) ||
-                         (data.partyMode === 'open' && btn.channelId === interaction.channelId);
+                         data.partyMode === 'open' ||
+                         data.partyMode === 'solo' && btn.user.id === userId;
 
         if (!isAllowed) {
           return btn.followUp({ content: 'This run is not open to you.', ephemeral: true });
@@ -144,7 +146,7 @@ module.exports = {
           data.inDungeon = false;
         }
 
-        data.gold += 20; // simple reward
+        data.gold += 20;
         client.memory.set(`dungeon_${guildId}_${userId}`, data);
 
         const updatedEmbed = new EmbedBuilder()
@@ -161,27 +163,27 @@ module.exports = {
       collector.on('end', async () => {
         try {
           const disabledRow = new ActionRowBuilder().addComponents(
-            row.components.map(b => ButtonBuilder.from(b.data).setDisabled(true))
+            row.components.map(b => ButtonBuilder.from(b).setDisabled(true))
           );
           await msg.edit({ components: [disabledRow] }).catch(() => {});
         } catch (err) {
-          console.error('Collector end cleanup failed:', err);
+          console.error('Collector cleanup failed:', err);
         }
       });
     }
 
-    // ==================== OTHER SUBCOMMANDS ====================
+    // ==================== VIEW / LEAVE ====================
+    if (sub === 'view') {
+      if (!data.inDungeon) return interaction.editReply('Not in a dungeon.');
+      return interaction.editReply(`Room: ${data.currentRoom} | HP: ${data.hp} | Gold: ${data.gold}`);
+    }
+
     if (sub === 'leave') {
       data.inDungeon = false;
       client.memory.set(`dungeon_${guildId}_${userId}`, data);
       return interaction.editReply('You left the dungeon.');
     }
 
-    if (sub === 'view') {
-      if (!data.inDungeon) return interaction.editReply('You are not in a dungeon.');
-      return interaction.editReply(`Current room: ${data.currentRoom} | HP: ${data.hp} | Gold: ${data.gold}`);
-    }
-
-    return interaction.editReply({ content: 'This feature is coming soon!', ephemeral: true });
+    return interaction.editReply({ content: 'Coming soon!', ephemeral: true });
   }
 };
