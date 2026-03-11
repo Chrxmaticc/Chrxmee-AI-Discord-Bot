@@ -8,9 +8,8 @@ module.exports = {
       const command = client.commands.get(interaction.commandName);
       if (!command) return;
       try {
-        await command.execute(interaction, client); // ← ONLY CHANGE: added client as second argument
+        await command.execute(interaction, client);
       } catch (err) {
-        // Handle common interaction errors gracefully
         if (err.code === 10062 || err.code === 40060) {
           console.warn(`Interaction for ${interaction.commandName} expired before response.`);
           return;
@@ -29,7 +28,8 @@ module.exports = {
         }
       }
     } else if (interaction.isButton()) {
-      if (interaction.customId.startsWith('debate_join_')) return; // Handled within debate command collector
+      if (interaction.customId.startsWith('debate_join_')) return;
+      if (!interaction.customId.includes('|')) return; // Let command collectors handle their own buttons
       const [action, userId, prompt] = interaction.customId.split("|");
       if (interaction.user.id !== userId) {
         return interaction.reply({ content: "This is not for you!", flags: [64] });
