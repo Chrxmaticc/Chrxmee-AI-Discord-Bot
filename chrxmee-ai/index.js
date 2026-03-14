@@ -52,7 +52,7 @@ setInterval(() => {
   }
 }, 300000);
 
-// ==================== POSTGRES POOL – HARDENED + LOGGED ====================
+// ==================== POSTGRES POOL – HARDENED + SECURE LOGGED ====================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
@@ -63,13 +63,13 @@ const pool = new Pool({
   keepAliveInitialDelayMillis: 10000
 });
 
-// Secure error handler – prevent bot crash
+// Prevent bot crash on connection drop
 pool.on('error', (err, client) => {
-  console.error('Postgres pool error:', err.message);
+  console.error(`[${new Date().toISOString()}] Postgres pool error:`, err.message);
   if (client) client.release();
 });
 
-// Keep-alive ping with secure stats logging
+// Keep-alive ping with pool stats (secure)
 setInterval(async () => {
   try {
     const client = await pool.connect();
@@ -81,7 +81,9 @@ setInterval(async () => {
   }
 }, 30000);
 
-// ==================== CLIENT CREATION ====================
+client.pool = pool;
+
+// ==================== CLIENT SETUP ====================
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -91,9 +93,6 @@ const client = new Client({
   ],
   partials: [1, 3],
 });
-
-// NOW assign pool to client (this is the fix – moved after client is defined)
-client.pool = pool;
 
 client.commands = new Collection();
 client.memory = new Map();
@@ -114,7 +113,7 @@ client.on('messageDelete', message => {
   if (snipes.length > 100) snipes.shift();
   client.snipes.set(message.channelId, snipes);
 
-  // roast logic stays the same...
+  // roast logic...
 });
 
 client.on('messageUpdate', (oldMsg, newMsg) => {
@@ -160,7 +159,6 @@ client.once('clientReady', async () => {
   console.log(`[${new Date().toISOString()}] Logged in as ${client.user.tag}`);
   console.log(`[${new Date().toISOString()}] Chrxmee AI ready as ${client.user.tag}`);
 
-  // Pre-warm & setup tables
   try {
     const pgClient = await pool.connect();
     console.log(`[${new Date().toISOString()}] Postgres connected successfully on ready!`);
@@ -195,14 +193,27 @@ client.once('clientReady', async () => {
     console.error(`[${new Date().toISOString()}] Postgres setup failed in clientReady:`, err.message);
   }
 
-  // Your presence code...
+  // Presence...
 });
 
-// ==================== LOGIN WITH DEBUG ====================
-console.log(`[${new Date().toISOString()}] Attempting login...`);
-client.login(process.env.BOT_TOKEN).catch(err => {
+// ==================== LOGIN WITH TIMEOUT + DEBUG ====================
+console.log(`[${new Date().toISOString()}] Attempting Discord login...`);
+
+const loginPromise = client.login(process.env.BOT_TOKEN);
+
+loginPromise.then(() => {
+  console.log(`[${new Date().toISOString()}] LOGIN SUCCESS – Logged in as ${client.user.tag}`);
+}).catch(err => {
   console.error(`[${new Date().toISOString()}] LOGIN FAILED:`, err.message);
+  console.error('Full error stack:', err.stack);
 });
+
+// Timeout if login hangs > 30 seconds
+setTimeout(() => {
+  if (!client.user) {
+    console.error(`[${new Date().toISOString()}] LOGIN TIMEOUT – no response after 30 seconds`);
+  }
+}, 30000);
 
 // ==================== GLOBAL ERROR HANDLERS ====================
 process.on('unhandledRejection', (reason, promise) => {
@@ -210,4 +221,26 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 process.on('uncaughtException', (err) => {
   console.error(`[${new Date().toISOString()}] Uncaught Exception thrown:`, err);
+});
+
+// ==================== COMMAND EXECUTION LOGGING (example in client.on('interactionCreate')) ====================
+// Add this inside your interactionCreate if not already there
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+
+  console.log(`[${new Date().toISOString()}] Command executed: /${interaction.commandName} by ${interaction.user.tag} (${interaction.user.id})`);
+
+  const command = client.commands.get(interaction.commandName);
+  if (!command) return;
+
+  try {
+    await command.execute(interaction, client);
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] Command error /${interaction.commandName}:`, error.message);
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp({ content: 'There was an error executing this command!', ephemeral: true }).catch(() => {});
+    } else {
+      await interaction.reply({ content: 'There was an error executing this command!', ephemeral: true }).catch(() => {});
+    }
+  }
 });
