@@ -124,35 +124,42 @@ for (const file of eventFiles) {
   }
 }
 
-// PG Pool
+// ==================== POSTGRES POOL – HARDENED FOR RENDER ====================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ssl: { rejectUnauthorized: false },
+  max: 10,                        // Render free tier safe limit
+  idleTimeoutMillis: 30000,       // Close idle after 30s
+  connectionTimeoutMillis: 5000,  // Fail fast if can't connect
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000
 });
 
-client.pool = null;
+// Prevent bot crash when connection drops
+pool.on('error', (err, client) => {
+  console.error('Postgres pool error:', err.message);
+  if (client) client.release();
+});
+
+// Auto-ping every 30 seconds to keep connection alive
+setInterval(async () => {
+  try {
+    const client = await pool.connect();
+    await client.query('SELECT 1');
+    client.release();
+    console.log('Postgres keep-alive ping OK');
+  } catch (err) {
+    console.error('Postgres keep-alive failed:', err.message);
+  }
+}, 30000);
+
+client.pool = pool;
 
 client.once('clientReady', async () => {
   console.log(`Logged in as ${client.user.tag}`);
   console.log(`Chrxmee AI ready as ${client.user.tag}`);
 
-  client.pool = pool;
-
-  // Pre-warm Postgres pool to avoid cold connect lag on first command
-  (async () => {
-    try {
-      const pgClient = await client.pool.connect();
-      await pgClient.query('SELECT 1');
-      pgClient.release();
-      console.log('Pool pre-warmed successfully');
-    } catch (err) {
-      console.error('Pool pre-warm failed:', err.message);
-    }
-  })();
-
-  // In-memory storage for things like saved embeds, skill trees, temp user data, etc. (fast, no DB lag)
-  client.memory = client.memory || new Map();
-
+  // Pre-warm & setup tables
   try {
     const pgClient = await pool.connect();
     console.log('Postgres connected successfully on ready!');
@@ -250,7 +257,7 @@ client.once('clientReady', async () => {
     }]
   });
 
-  // HELP SELECT MENU HANDLER (now works because EmbedBuilder is imported)
+  // HELP SELECT MENU HANDLER
   client.on('interactionCreate', async i => {
     if (!i.isStringSelectMenu()) return;
     if (i.customId !== 'help_select') return;
