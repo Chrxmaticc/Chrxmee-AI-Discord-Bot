@@ -52,7 +52,7 @@ setInterval(() => {
   }
 }, 300000);
 
-// ==================== POSTGRES POOL – HARDENED + SECURE LOGGED ====================
+// ==================== POSTGRES POOL – HARDENED + LOGGED ====================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
@@ -63,13 +63,13 @@ const pool = new Pool({
   keepAliveInitialDelayMillis: 10000
 });
 
-// Prevent bot crash on connection drop
+// Secure error handler – prevent bot crash
 pool.on('error', (err, client) => {
-  console.error(`[${new Date().toISOString()}] Postgres pool error:`, err.message);
+  console.error('Postgres pool error:', err.message);
   if (client) client.release();
 });
 
-// Keep-alive ping with pool stats (secure)
+// Keep-alive ping with secure stats logging
 setInterval(async () => {
   try {
     const client = await pool.connect();
@@ -81,9 +81,7 @@ setInterval(async () => {
   }
 }, 30000);
 
-client.pool = pool;
-
-// ==================== CLIENT SETUP ====================
+// ==================== CLIENT CREATION ====================
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -93,6 +91,9 @@ const client = new Client({
   ],
   partials: [1, 3],
 });
+
+// NOW attach pool to client (this was moved down to fix the ReferenceError)
+client.pool = pool;
 
 client.commands = new Collection();
 client.memory = new Map();
@@ -223,8 +224,7 @@ process.on('uncaughtException', (err) => {
   console.error(`[${new Date().toISOString()}] Uncaught Exception thrown:`, err);
 });
 
-// ==================== COMMAND EXECUTION LOGGING (example in client.on('interactionCreate')) ====================
-// Add this inside your interactionCreate if not already there
+// ==================== COMMAND EXECUTION LOGGING ====================
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
