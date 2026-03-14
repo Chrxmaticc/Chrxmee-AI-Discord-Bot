@@ -81,9 +81,7 @@ setInterval(async () => {
   }
 }, 30000);
 
-client.pool = pool;
-
-// ==================== CLIENT SETUP ====================
+// ==================== CLIENT CREATION ====================
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -93,6 +91,9 @@ const client = new Client({
   ],
   partials: [1, 3],
 });
+
+// NOW assign pool to client (this is the fix – moved after client is defined)
+client.pool = pool;
 
 client.commands = new Collection();
 client.memory = new Map();
