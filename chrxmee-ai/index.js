@@ -135,10 +135,10 @@ setInterval(() => {
 
 // ==================== CLIENT READY ====================
 client.once('ready', async () => {
-  console.log(`Logged in as ${client.user.tag}`);
-  console.log(`Chrxmee AI ready as ${client.user.tag}`);
-
   try {
+    console.log(`Logged in as ${client.user.tag}`);
+    console.log(`Chrxmee AI ready as ${client.user.tag}`);
+
     const pgClient = await pool.connect();
     console.log('Postgres connected successfully on ready!');
 
@@ -194,52 +194,53 @@ client.once('ready', async () => {
           }
         }
       } catch (err) {
-        console.error('Daily birthday check failed:', err);
+        console.error('Birthday check failed:', err);
       }
     }, 86400000);
 
+    client.user.setPresence({
+      status: 'online',
+      activities: [{ name: "Discord World AI Competition", type: 0 }]
+    });
+
+    client.on('interactionCreate', async i => {
+      if (!i.isStringSelectMenu()) return;
+      if (i.customId !== 'help_select') return;
+      await i.deferReply({ ephemeral: true });
+
+      let title = '', desc = '';
+      switch (i.values[0]) {
+        case 'help_ai':
+          title = 'AI-Powered Commands';
+          desc = '`/ask` — Ask anything to the AI\n`/chat` — Chat with the bot\n`/summarize` — Summarize text\n`/translate` — Translate text\n`/debate` — Debate with the bot\n`/dream` — Generate dream/image\n`/model` — Switch AI model\n`/news` — Get news\n`/oracle` — Oracle prediction\n`/code-generate` — Generate code';
+          break;
+        case 'help_visual':
+          title = 'Visual Imagination';
+          desc = '`/image` — Search images\n`/imagine` — Imagine something\n`/generate-qr` — QR code\n`/avatar` — User avatar';
+          break;
+        case 'help_fun':
+          title = 'Fun & Games';
+          desc = '`/roast` — Roast someone\n`/roastme` — Get roasted\n`/burn @user` — Burn someone\n`/coinflip` — Coin flip\n`/dice` — Roll dice\n`/poll` — Create poll\n`/trivia` — Trivia game\n`/ship` — Ship two users\n`/8ball` — Magic 8-ball';
+          break;
+        case 'help_utility':
+          title = 'Utility';
+          desc = '`/snipe` — Snipe messages\n`/ping` — Ping bot\n`/serverinfo` — Server info\n`/user @user` — User info\n`/remind-me` — Reminders\n`/quote` — Random quote\n`/status` — Bot status\n`/history` — Conversation history';
+          break;
+        case 'help_mod':
+          title = 'Moderation & Advanced';
+          desc = '`/auto-respond` — Toggle auto-responses\n`/guild-settings` — Server settings\n`/dashboard` — Bot dashboard\n`/brain-dump` — Memory dump\n`/clear-brain` — Clear memory';
+          break;
+        default:
+          return i.editReply({ content: 'Unknown section.', ephemeral: true });
+      }
+
+      return i.editReply({ embeds: [new EmbedBuilder().setColor('#2f3136').setTitle(title).setDescription(desc)], ephemeral: true });
+    });
+
   } catch (err) {
-    console.error('Postgres setup failed in ready:', err.message);
+    console.error('READY EVENT CRASHED:', err);
+    console.error('Stack trace:', err.stack);
   }
-
-  client.user.setPresence({
-    status: 'online',
-    activities: [{ name: "Discord World AI Competition", type: 0 }]
-  });
-
-  client.on('interactionCreate', async i => {
-    if (!i.isStringSelectMenu()) return;
-    if (i.customId !== 'help_select') return;
-    await i.deferReply({ ephemeral: true });
-
-    let title = '', desc = '';
-    switch (i.values[0]) {
-      case 'help_ai':
-        title = 'AI-Powered Commands';
-        desc = '`/ask` — Ask anything to the AI\n`/chat` — Chat with the bot\n`/summarize` — Summarize text\n`/translate` — Translate text\n`/debate` — Debate with the bot\n`/dream` — Generate dream/image\n`/model` — Switch AI model\n`/news` — Get news\n`/oracle` — Oracle prediction\n`/code-generate` — Generate code';
-        break;
-      case 'help_visual':
-        title = 'Visual Imagination';
-        desc = '`/image` — Search images\n`/imagine` — Imagine something\n`/generate-qr` — QR code\n`/avatar` — User avatar';
-        break;
-      case 'help_fun':
-        title = 'Fun & Games';
-        desc = '`/roast` — Roast someone\n`/roastme` — Get roasted\n`/burn @user` — Burn someone\n`/coinflip` — Coin flip\n`/dice` — Roll dice\n`/poll` — Create poll\n`/trivia` — Trivia game\n`/ship` — Ship two users\n`/8ball` — Magic 8-ball';
-        break;
-      case 'help_utility':
-        title = 'Utility';
-        desc = '`/snipe` — Snipe messages\n`/ping` — Ping bot\n`/serverinfo` — Server info\n`/user @user` — User info\n`/remind-me` — Reminders\n`/quote` — Random quote\n`/status` — Bot status\n`/history` — Conversation history';
-        break;
-      case 'help_mod':
-        title = 'Moderation & Advanced';
-        desc = '`/auto-respond` — Toggle auto-responses\n`/guild-settings` — Server settings\n`/dashboard` — Bot dashboard\n`/brain-dump` — Memory dump\n`/clear-brain` — Clear memory';
-        break;
-      default:
-        return i.editReply({ content: 'Unknown section.', ephemeral: true });
-    }
-
-    return i.editReply({ embeds: [new EmbedBuilder().setColor('#2f3136').setTitle(title).setDescription(desc)], ephemeral: true });
-  });
 });
 
 // ==================== GLOBAL ERROR HANDLERS ====================
