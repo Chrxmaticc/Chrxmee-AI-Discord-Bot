@@ -5,8 +5,13 @@ module.exports = {
    
     if (interaction.user.bot) return;
     if (interaction.isChatInputCommand()) {
+      console.log(`Command received: /${interaction.commandName} from ${interaction.user.tag}`);
       const command = client.commands.get(interaction.commandName);
-      if (!command) return;
+      if (!command) {
+        console.log(`Command not found: ${interaction.commandName}`);
+        return;
+      }
+      console.log(`Executing: /${interaction.commandName}`);
       try {
         await command.execute(interaction, client);
       } catch (err) {
@@ -16,7 +21,6 @@ module.exports = {
         }
         console.error(`Error executing ${interaction.commandName}:`, err);
         const errorContent = "There was an error while executing this command! Please try again in a moment.";
-       
         try {
           if (interaction.replied || interaction.deferred) {
             await interaction.followUp({ content: errorContent, flags: [64] }).catch(() => {});
@@ -29,7 +33,7 @@ module.exports = {
       }
     } else if (interaction.isButton()) {
       if (interaction.customId.startsWith('debate_join_')) return;
-      if (!interaction.customId.includes('|')) return; // Let command collectors handle their own buttons
+      if (!interaction.customId.includes('|')) return;
       const [action, userId, prompt] = interaction.customId.split("|");
       if (interaction.user.id !== userId) {
         return interaction.reply({ content: "This is not for you!", flags: [64] });
@@ -56,3 +60,4 @@ module.exports = {
       }
     }
   },
+};
