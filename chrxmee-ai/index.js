@@ -4,15 +4,6 @@ const fs = require("fs");
 const path = require("path");
 const { Pool } = require('pg');
 
-// ==================== SECURE STARTUP LOGGING ====================
-console.log('=== SECURE STARTUP DEBUG ===');
-console.log(`BOT_TOKEN exists? ${!!process.env.BOT_TOKEN}`);
-console.log(`BOT_TOKEN length: ${process.env.BOT_TOKEN?.length || 'MISSING'}`);
-console.log(`DATABASE_URL prefix: ${process.env.DATABASE_URL?.substring(0, 15) || 'MISSING'}...`);
-console.log(`Node version: ${process.version}`);
-console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-console.log('=== DEBUG END ===');
-
 // ==================== KEEP-ALIVE SERVER ====================
 const http = require('http');
 console.log("Starting keep-alive server...");
@@ -24,62 +15,10 @@ const PORT = 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Keep-alive server listening on port ${PORT}`);
 });
-
 server.on('error', (err) => {
   console.error('Keep-alive server error:', err.message);
   setTimeout(() => server.listen(PORT, '0.0.0.0'), 5000);
 });
-
-// ==================== HEARTBEAT & PRESENCE ====================
-let heartbeatCount = 0;
-setInterval(() => {
-  heartbeatCount++;
-  if (client.user) {
-    const activities = [
-      "Discord World AI Competition",
-      "Winning against Chatcord",
-      "Smarter than your average bot.",
-      "Analyzing the void of existence.",
-      `Active for ${Math.floor(process.uptime() / 3600)}h | ${client.guilds.cache.size} Servers`,
-      `Handling ${heartbeatCount} heartbeats | High Traffic Mode 🚀`
-    ];
-    const activity = activities[Math.floor(Math.random() * activities.length)];
-    client.user.setPresence({
-      activities: [{ name: activity, type: 0 }],
-      status: 'online'
-    });
-    console.log(`[HEARTBEAT #${heartbeatCount}] Traffic normal. Presence: ${activity}`);
-  }
-}, 300000);
-
-// ==================== POSTGRES POOL – HARDENED + LOGGED ====================
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  max: 10,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
-  keepAlive: true,
-  keepAliveInitialDelayMillis: 10000
-});
-
-// Secure error handler – prevent bot crash
-pool.on('error', (err, client) => {
-  console.error('Postgres pool error:', err.message);
-  if (client) client.release();
-});
-
-// Keep-alive ping with secure stats logging
-setInterval(async () => {
-  try {
-    const client = await pool.connect();
-    await client.query('SELECT 1');
-    client.release();
-    console.log(`[${new Date().toISOString()}] Postgres keep-alive ping OK | Active: ${pool.totalCount}, Idle: ${pool.idleCount}, Queued: ${pool.waitingCount}`);
-  } catch (err) {
-    console.error(`[${new Date().toISOString()}] Postgres keep-alive failed:`, err.message);
-  }
-}, 30000);
 
 // ==================== CLIENT CREATION ====================
 const client = new Client({
@@ -92,42 +31,62 @@ const client = new Client({
   partials: [1, 3],
 });
 
-// NOW attach pool to client (this was moved down to fix the ReferenceError)
-client.pool = pool;
-
 client.commands = new Collection();
 client.memory = new Map();
-
-// ==================== SNIPE SYSTEM ====================
 client.snipes = new Map();
 
-client.on('messageDelete', message => {
-  if (message.author.bot || !message.content) return;
+// ==================== POSTGRES POOL ====================
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000
+});
 
+pool.on('error', (err) => {
+  console.error('Postgres pool error:', err.message);
+});
+
+setInterval(async () => {
+  try {
+    const pgClient = await pool.connect();
+    await pgClient.query('SELECT 1');
+    pgClient.release();
+    console.log('Postgres keep-alive ping OK');
+  } catch (err) {
+    console.error('Postgres keep-alive failed:', err.message);
+  }
+}, 30000);
+
+client.pool = pool;
+
+// ==================== SNIPE SYSTEM ====================
+client.on('messageDelete', message => {
+  if (message.author?.bot || !message.content) return;
   const snipes = client.snipes.get(message.channelId) || [];
-  snipes.push({
-    author: message.author,
-    content: message.content,
-    timestamp: new Date(),
-    type: 'delete'
-  });
+  snipes.push({ author: message.author, content: message.content, timestamp: new Date(), type: 'delete' });
   if (snipes.length > 100) snipes.shift();
   client.snipes.set(message.channelId, snipes);
 
-  // roast logic...
+  const text = message.content.toLowerCase();
+  let roast = '';
+  if (text.includes('kill') || text.includes('die') || text.includes('murder')) {
+    roast = `Whoa ${message.author}, threats already? Taking notes... God mode engaged.`;
+  } else if (text.includes('fuck') || text.includes('bitch') || text.includes('shit')) {
+    roast = `God, I guess? ${message.author} typed that with full chest and zero brain cells. Touch grass.`;
+  } else if (text.includes('ugly') || text.includes('stupid') || text.includes('loser')) {
+    roast = `Oof ${message.author}... projecting much? Mirror called, wants its feelings back.`;
+  }
+  if (roast) message.channel.send(roast).catch(() => {});
 });
 
 client.on('messageUpdate', (oldMsg, newMsg) => {
-  if (oldMsg.author.bot || oldMsg.content === newMsg.content) return;
-
+  if (oldMsg.author?.bot || oldMsg.content === newMsg.content) return;
   const snipes = client.snipes.get(oldMsg.channelId) || [];
-  snipes.push({
-    author: oldMsg.author,
-    content: newMsg.content,
-    oldContent: oldMsg.content,
-    timestamp: new Date(),
-    type: 'edit'
-  });
+  snipes.push({ author: oldMsg.author, content: newMsg.content, oldContent: oldMsg.content, timestamp: new Date(), type: 'edit' });
   if (snipes.length > 100) snipes.shift();
   client.snipes.set(oldMsg.channelId, snipes);
 });
@@ -155,14 +114,33 @@ for (const file of eventFiles) {
   }
 }
 
+// ==================== HEARTBEAT & PRESENCE ====================
+let heartbeatCount = 0;
+setInterval(() => {
+  heartbeatCount++;
+  if (client.user) {
+    const activities = [
+      "Discord World AI Competition",
+      "Winning against Chatcord",
+      "Smarter than your average bot.",
+      "Analyzing the void of existence.",
+      `Active for ${Math.floor(process.uptime() / 3600)}h | ${client.guilds.cache.size} Servers`,
+      `Handling ${heartbeatCount} heartbeats | High Traffic Mode 🚀`
+    ];
+    const activity = activities[Math.floor(Math.random() * activities.length)];
+    client.user.setPresence({ activities: [{ name: activity, type: 0 }], status: 'online' });
+    console.log(`[HEARTBEAT #${heartbeatCount}] Presence: ${activity}`);
+  }
+}, 300000);
+
 // ==================== CLIENT READY ====================
 client.once('clientReady', async () => {
-  console.log(`[${new Date().toISOString()}] Logged in as ${client.user.tag}`);
-  console.log(`[${new Date().toISOString()}] Chrxmee AI ready as ${client.user.tag}`);
+  console.log(`Logged in as ${client.user.tag}`);
+  console.log(`Chrxmee AI ready as ${client.user.tag}`);
 
   try {
     const pgClient = await pool.connect();
-    console.log(`[${new Date().toISOString()}] Postgres connected successfully on ready!`);
+    console.log('Postgres connected successfully on ready!');
 
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS guild_settings (
@@ -172,7 +150,7 @@ client.once('clientReady', async () => {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
-    console.log(`[${new Date().toISOString()}] guild_settings table ready`);
+    console.log('guild_settings table ready');
 
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS user_birthdays (
@@ -184,63 +162,95 @@ client.once('clientReady', async () => {
         set_at TIMESTAMP DEFAULT NOW()
       )
     `);
-    console.log(`[${new Date().toISOString()}] user_birthdays table ready`);
+    console.log('user_birthdays table ready');
 
-    await pgClient.query('SELECT 1');
-    console.log(`[${new Date().toISOString()}] Test query worked`);
-
+    const res = await pgClient.query('SELECT 1');
+    console.log('Test query worked:', res.rows);
     pgClient.release();
+    console.log('Pool pre-warmed successfully');
+
+    // Daily birthday checker
+    setInterval(async () => {
+      try {
+        const today = new Date();
+        const result = await pool.query(`SELECT user_id, birthday_date, birthday_role_id, ping_role_id FROM user_birthdays`);
+        for (const row of result.rows) {
+          const bday = new Date(row.birthday_date);
+          if (bday.getMonth() === today.getMonth() && bday.getDate() === today.getDate()) {
+            const guild = client.guilds.cache.first();
+            if (!guild) continue;
+            const member = await guild.members.fetch(row.user_id).catch(() => null);
+            if (!member) continue;
+            if (row.birthday_role_id) {
+              const role = guild.roles.cache.get(row.birthday_role_id);
+              if (role) {
+                await member.roles.add(role).catch(console.error);
+                setTimeout(() => member.roles.remove(role).catch(console.error), 86400000);
+              }
+            }
+            if (row.ping_role_id) {
+              const channel = guild.systemChannel || guild.channels.cache.find(ch => ch.isTextBased());
+              if (channel) await channel.send(`<@&${row.ping_role_id}> Happy birthday to ${member}! 🎂`).catch(console.error);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Daily birthday check failed:', err);
+      }
+    }, 86400000);
+
   } catch (err) {
-    console.error(`[${new Date().toISOString()}] Postgres setup failed in clientReady:`, err.message);
+    console.error('Postgres setup failed in clientReady:', err.message);
   }
 
-  // Presence...
+  client.user.setPresence({
+    status: 'online',
+    activities: [{ name: "Discord World AI Competition", type: 0 }]
+  });
+
+  // HELP SELECT MENU HANDLER
+  client.on('interactionCreate', async i => {
+    if (!i.isStringSelectMenu()) return;
+    if (i.customId !== 'help_select') return;
+    await i.deferReply({ ephemeral: true });
+
+    let title = '', desc = '';
+    switch (i.values[0]) {
+      case 'help_ai':
+        title = 'AI-Powered Commands';
+        desc = '`/ask` — Ask anything to the AI\n`/chat` — Chat with the bot\n`/summarize` — Summarize text\n`/translate` — Translate text\n`/debate` — Debate with the bot\n`/dream` — Generate dream/image\n`/model` — Switch AI model\n`/news` — Get news\n`/oracle` — Oracle prediction\n`/code-generate` — Generate code';
+        break;
+      case 'help_visual':
+        title = 'Visual Imagination';
+        desc = '`/image` — Search images\n`/imagine` — Imagine something\n`/generate-qr` — QR code\n`/avatar` — User avatar';
+        break;
+      case 'help_fun':
+        title = 'Fun & Games';
+        desc = '`/roast` — Roast someone\n`/roastme` — Get roasted\n`/burn @user` — Burn someone\n`/coinflip` — Coin flip\n`/dice` — Roll dice\n`/poll` — Create poll\n`/trivia` — Trivia game\n`/ship` — Ship two users\n`/8ball` — Magic 8-ball';
+        break;
+      case 'help_utility':
+        title = 'Utility';
+        desc = '`/snipe` — Snipe messages\n`/ping` — Ping bot\n`/serverinfo` — Server info\n`/user @user` — User info\n`/remind-me` — Reminders\n`/quote` — Random quote\n`/status` — Bot status\n`/history` — Conversation history';
+        break;
+      case 'help_mod':
+        title = 'Moderation & Advanced';
+        desc = '`/auto-respond` — Toggle auto-responses\n`/guild-settings` — Server settings\n`/dashboard` — Bot dashboard\n`/brain-dump` — Memory dump\n`/clear-brain` — Clear memory';
+        break;
+      default:
+        return i.editReply({ content: 'Unknown section.', ephemeral: true });
+    }
+
+    return i.editReply({ embeds: [new EmbedBuilder().setColor('#2f3136').setTitle(title).setDescription(desc)], ephemeral: true });
+  });
 });
-
-// ==================== LOGIN WITH TIMEOUT + DEBUG ====================
-console.log(`[${new Date().toISOString()}] Attempting Discord login...`);
-
-const loginPromise = client.login(process.env.BOT_TOKEN);
-
-loginPromise.then(() => {
-  console.log(`[${new Date().toISOString()}] LOGIN SUCCESS – Logged in as ${client.user.tag}`);
-}).catch(err => {
-  console.error(`[${new Date().toISOString()}] LOGIN FAILED:`, err.message);
-  console.error('Full error stack:', err.stack);
-});
-
-// Timeout if login hangs > 30 seconds
-setTimeout(() => {
-  if (!client.user) {
-    console.error(`[${new Date().toISOString()}] LOGIN TIMEOUT – no response after 30 seconds`);
-  }
-}, 30000);
 
 // ==================== GLOBAL ERROR HANDLERS ====================
 process.on('unhandledRejection', (reason, promise) => {
-  console.error(`[${new Date().toISOString()}] Unhandled Rejection at:`, promise, 'reason:', reason);
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 process.on('uncaughtException', (err) => {
-  console.error(`[${new Date().toISOString()}] Uncaught Exception thrown:`, err);
+  console.error('Uncaught Exception thrown:', err);
 });
 
-// ==================== COMMAND EXECUTION LOGGING ====================
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand()) return;
-
-  console.log(`[${new Date().toISOString()}] Command executed: /${interaction.commandName} by ${interaction.user.tag} (${interaction.user.id})`);
-
-  const command = client.commands.get(interaction.commandName);
-  if (!command) return;
-
-  try {
-    await command.execute(interaction, client);
-  } catch (error) {
-    console.error(`[${new Date().toISOString()}] Command error /${interaction.commandName}:`, error.message);
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({ content: 'There was an error executing this command!', ephemeral: true }).catch(() => {});
-    } else {
-      await interaction.reply({ content: 'There was an error executing this command!', ephemeral: true }).catch(() => {});
-    }
-  }
-});
+// ==================== LOGIN ====================
+client.login(process.env.BOT_TOKEN);
