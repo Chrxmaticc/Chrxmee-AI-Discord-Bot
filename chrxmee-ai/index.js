@@ -35,34 +35,6 @@ client.commands = new Collection();
 client.memory = new Map();
 client.snipes = new Map();
 
-// ==================== POSTGRES POOL ====================
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  max: 10,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
-  keepAlive: true,
-  keepAliveInitialDelayMillis: 10000
-});
-
-pool.on('error', (err) => {
-  console.error('Postgres pool error:', err.message);
-});
-
-setInterval(async () => {
-  try {
-    const pgClient = await pool.connect();
-    await pgClient.query('SELECT 1');
-    pgClient.release();
-    console.log('Postgres keep-alive ping OK');
-  } catch (err) {
-    console.error('Postgres keep-alive failed:', err.message);
-  }
-}, 30000);
-
-client.pool = pool;
-
 // ==================== SNIPE SYSTEM ====================
 client.on('messageDelete', message => {
   if (message.author?.bot || !message.content) return;
@@ -114,7 +86,7 @@ for (const file of eventFiles) {
   }
 }
 
-// ==================== HEARTBEAT & PRESENCE ====================
+// ==================== HEARTBEAT ====================
 let heartbeatCount = 0;
 setInterval(() => {
   heartbeatCount++;
@@ -132,6 +104,51 @@ setInterval(() => {
     console.log(`[HEARTBEAT #${heartbeatCount}] Presence: ${activity}`);
   }
 }, 300000);
+
+// ==================== LOGIN FIRST (non-blocking) ====================
+console.log('BOT_TOKEN value:', process.env.BOT_TOKEN ? `exists, length: ${process.env.BOT_TOKEN.length}` : 'MISSING OR EMPTY');
+
+client.login(process.env.BOT_TOKEN).then(() => {
+  console.log('Discord login successful!');
+}).catch(err => {
+  console.error('Discord login FAILED:', err.message);
+  console.error('Full error:', err);
+});
+
+setTimeout(() => {
+  if (!client.user) {
+    console.error('LOGIN TIMEOUT - still not logged in after 30 seconds');
+    console.error('Token prefix:', process.env.BOT_TOKEN?.substring(0, 10));
+  }
+}, 30000);
+
+// ==================== POSTGRES POOL (after login) ====================
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000
+});
+
+pool.on('error', (err) => {
+  console.error('Postgres pool error:', err.message);
+});
+
+setInterval(async () => {
+  try {
+    const pgClient = await pool.connect();
+    await pgClient.query('SELECT 1');
+    pgClient.release();
+    console.log('Postgres keep-alive ping OK');
+  } catch (err) {
+    console.error('Postgres keep-alive failed:', err.message);
+  }
+}, 30000);
+
+client.pool = pool;
 
 // ==================== CLIENT READY ====================
 client.once('ready', async () => {
@@ -250,21 +267,3 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception thrown:', err);
 });
-
-// ==================== LOGIN ====================
-console.log('BOT_TOKEN value:', process.env.BOT_TOKEN ? `exists, length: ${process.env.BOT_TOKEN.length}` : 'MISSING OR EMPTY');
-
-client.login(process.env.BOT_TOKEN).then(() => {
-  console.log('Discord login successful!');
-}).catch(err => {
-  console.error('Discord login FAILED:', err.message);
-  console.error('Full error:', err);
-});
-
-setTimeout(() => {
-  if (!client.user) {
-    console.error('LOGIN TIMEOUT - still not logged in after 30 seconds');
-    console.error('Token length:', process.env.BOT_TOKEN?.length);
-    console.error('Token prefix:', process.env.BOT_TOKEN?.substring(0, 10));
-  }
-}, 30000);
