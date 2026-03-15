@@ -11,7 +11,7 @@ const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('Chrxmee AI is alive! 🚀');
 });
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Keep-alive server listening on port ${PORT}`);
 });
@@ -105,24 +105,7 @@ setInterval(() => {
   }
 }, 300000);
 
-// ==================== LOGIN FIRST (non-blocking) ====================
-console.log('BOT_TOKEN value:', process.env.BOT_TOKEN ? `exists, length: ${process.env.BOT_TOKEN.length}` : 'MISSING OR EMPTY');
-
-client.login(process.env.BOT_TOKEN).then(() => {
-  console.log('Discord login successful!');
-}).catch(err => {
-  console.error('Discord login FAILED:', err.message);
-  console.error('Full error:', err);
-});
-
-setTimeout(() => {
-  if (!client.user) {
-    console.error('LOGIN TIMEOUT - still not logged in after 30 seconds');
-    console.error('Token prefix:', process.env.BOT_TOKEN?.substring(0, 10));
-  }
-}, 30000);
-
-// ==================== POSTGRES POOL (after login) ====================
+// ==================== POSTGRES POOL ====================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
@@ -260,10 +243,33 @@ client.once('ready', async () => {
   }
 });
 
+// ==================== RECONNECTION LOGIC ====================
+client.on('disconnect', () => {
+  console.log('Bot disconnected from Discord! Attempting to reconnect...');
+});
+
+client.on('error', (err) => {
+  console.error('Discord client error:', err.message);
+});
+
+client.on('warn', (info) => {
+  console.warn('Discord client warning:', info);
+});
+
 // ==================== GLOBAL ERROR HANDLERS ====================
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception thrown:', err);
+});
+
+// ==================== LOGIN ====================
+console.log('BOT_TOKEN value:', process.env.BOT_TOKEN ? `exists, length: ${process.env.BOT_TOKEN.length}` : 'MISSING OR EMPTY');
+
+client.login(process.env.BOT_TOKEN).then(() => {
+  console.log('Discord login successful!');
+}).catch(err => {
+  console.error('Discord login FAILED:', err.message);
+  console.error('Full error:', err);
 });
