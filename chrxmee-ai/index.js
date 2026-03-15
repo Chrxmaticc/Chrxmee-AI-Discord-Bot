@@ -253,4 +253,18 @@ process.on('uncaughtException', (err) => {
 
 // ==================== LOGIN ====================
 console.log('BOT_TOKEN value:', process.env.BOT_TOKEN ? `exists, length: ${process.env.BOT_TOKEN.length}` : 'MISSING OR EMPTY');
-client.login(process.env.BOT_TOKEN);
+
+client.login(process.env.BOT_TOKEN).then(() => {
+  console.log('Discord login successful!');
+}).catch(err => {
+  console.error('Discord login FAILED:', err.message);
+  console.error('Full error:', err);
+});
+
+setTimeout(() => {
+  if (!client.user) {
+    console.error('LOGIN TIMEOUT - still not logged in after 30 seconds');
+    console.error('Token length:', process.env.BOT_TOKEN?.length);
+    console.error('Token prefix:', process.env.BOT_TOKEN?.substring(0, 10));
+  }
+}, 30000);
