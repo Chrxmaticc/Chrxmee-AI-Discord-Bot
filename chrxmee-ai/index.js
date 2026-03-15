@@ -134,7 +134,7 @@ setInterval(() => {
 }, 300000);
 
 // ==================== CLIENT READY ====================
-client.once('clientReady', async () => {
+client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
   console.log(`Chrxmee AI ready as ${client.user.tag}`);
 
@@ -199,7 +199,7 @@ client.once('clientReady', async () => {
     }, 86400000);
 
   } catch (err) {
-    console.error('Postgres setup failed in clientReady:', err.message);
+    console.error('Postgres setup failed in ready:', err.message);
   }
 
   client.user.setPresence({
