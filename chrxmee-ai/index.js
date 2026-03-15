@@ -169,7 +169,6 @@ client.once('clientReady', async () => {
     pgClient.release();
     console.log('Pool pre-warmed successfully');
 
-    // Daily birthday checker
     setInterval(async () => {
       try {
         const today = new Date();
@@ -208,7 +207,6 @@ client.once('clientReady', async () => {
     activities: [{ name: "Discord World AI Competition", type: 0 }]
   });
 
-  // HELP SELECT MENU HANDLER
   client.on('interactionCreate', async i => {
     if (!i.isStringSelectMenu()) return;
     if (i.customId !== 'help_select') return;
@@ -253,4 +251,5 @@ process.on('uncaughtException', (err) => {
 });
 
 // ==================== LOGIN ====================
+console.log('BOT_TOKEN value:', process.env.BOT_TOKEN ? `exists, length: ${process.env.BOT_TOKEN.length}` : 'MISSING OR EMPTY');
 client.login(process.env.BOT_TOKEN);
