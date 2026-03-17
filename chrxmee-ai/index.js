@@ -3,7 +3,7 @@ const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require("discord
 const fs = require("fs");
 const path = require("path");
 const { Pool } = require('pg');
-const { setupAntinukeEvents } = require('./antinukeEvents');
+const { setupAntinukeEvents } = require('./events/antinukeEvents');
 
 // ==================== KEEP-ALIVE SERVER ====================
 const http = require('http');
@@ -173,7 +173,6 @@ client.once('ready', async () => {
 
     // Setup antinuke events
     setupAntinukeEvents(client);
-    console.log('Antinuke events registered!');
 
     setInterval(async () => {
       try {
