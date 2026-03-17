@@ -3,7 +3,7 @@ const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require("discord
 const fs = require("fs");
 const path = require("path");
 const { Pool } = require('pg');
-const { setupAntinukeEvents } = require('./events/antinukeEvents');
+const { setupAntinukeEvents } = require('./antinukeEvents');
 
 // ==================== KEEP-ALIVE SERVER ====================
 const http = require('http');
@@ -171,7 +171,6 @@ client.once('ready', async () => {
     pgClient.release();
     console.log('Pool pre-warmed successfully');
 
-    // Setup antinuke events
     setupAntinukeEvents(client);
 
     setInterval(async () => {
