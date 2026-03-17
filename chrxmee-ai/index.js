@@ -3,6 +3,7 @@ const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require("discord
 const fs = require("fs");
 const path = require("path");
 const { Pool } = require('pg');
+const { setupAntinukeEvents } = require('./antinukeEvents');
 
 // ==================== KEEP-ALIVE SERVER ====================
 const http = require('http');
@@ -27,6 +28,8 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildModeration,
   ],
   partials: [1, 3],
 });
@@ -34,6 +37,34 @@ const client = new Client({
 client.commands = new Collection();
 client.memory = new Map();
 client.snipes = new Map();
+
+// ==================== POSTGRES POOL ====================
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000
+});
+
+pool.on('error', (err) => {
+  console.error('Postgres pool error:', err.message);
+});
+
+setInterval(async () => {
+  try {
+    const pgClient = await pool.connect();
+    await pgClient.query('SELECT 1');
+    pgClient.release();
+    console.log('Postgres keep-alive ping OK');
+  } catch (err) {
+    console.error('Postgres keep-alive failed:', err.message);
+  }
+}, 30000);
+
+client.pool = pool;
 
 // ==================== SNIPE SYSTEM ====================
 client.on('messageDelete', message => {
@@ -105,34 +136,6 @@ setInterval(() => {
   }
 }, 300000);
 
-// ==================== POSTGRES POOL ====================
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  max: 10,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
-  keepAlive: true,
-  keepAliveInitialDelayMillis: 10000
-});
-
-pool.on('error', (err) => {
-  console.error('Postgres pool error:', err.message);
-});
-
-setInterval(async () => {
-  try {
-    const pgClient = await pool.connect();
-    await pgClient.query('SELECT 1');
-    pgClient.release();
-    console.log('Postgres keep-alive ping OK');
-  } catch (err) {
-    console.error('Postgres keep-alive failed:', err.message);
-  }
-}, 30000);
-
-client.pool = pool;
-
 // ==================== CLIENT READY ====================
 client.once('ready', async () => {
   try {
@@ -168,6 +171,10 @@ client.once('ready', async () => {
     console.log('Test query worked:', res.rows);
     pgClient.release();
     console.log('Pool pre-warmed successfully');
+
+    // Setup antinuke events
+    setupAntinukeEvents(client);
+    console.log('Antinuke events registered!');
 
     setInterval(async () => {
       try {
@@ -245,7 +252,7 @@ client.once('ready', async () => {
 
 // ==================== RECONNECTION LOGIC ====================
 client.on('disconnect', () => {
-  console.log('Bot disconnected from Discord! Attempting to reconnect...');
+  console.log('Bot disconnected! Attempting to reconnect...');
 });
 
 client.on('error', (err) => {
