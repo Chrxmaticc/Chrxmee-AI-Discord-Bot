@@ -1,6 +1,6 @@
 // ============================================================
 // DUNGEON PRESTIGE, LEVELS & SKILL TREE — ADD-ON MODULE
-// Drop this file in your commands/ folder as dungeon-prestige.js
+// Prestige File..
 // This adds /dungeon level, /dungeon skills, /dungeon learn,
 // /dungeon prestige, /dungeon prestigeboard
 // The XP/level/skill system hooks into your existing dungeon.js
