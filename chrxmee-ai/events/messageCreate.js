@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { Client } = require("pg");
+const { handleKeywords } = require("../commands/keyword-responder");
 
 const db = new Client({
   connectionString: process.env.DATABASE_URL,
@@ -11,6 +12,9 @@ module.exports = {
   name: "messageCreate",
   async execute(message) {
     if (message.author.bot) return;
+
+    // ── KEYWORD RESPONDER ──────────────────────────────────
+    await handleKeywords(message, message.client);
 
     try {
       const result = await db.query(
@@ -40,7 +44,6 @@ module.exports = {
         if (mode === 'off') return;
         
         if (mode === 'ping') {
-          // If not mentioned AND not in a continuous chat session, ignore
           let isInSession = false;
           for (const [id, data] of client.memory.entries()) {
             if (data.inChat && data.chatChannelId === channelId && (data.chatMode === "group" || id === userId)) {
@@ -52,7 +55,6 @@ module.exports = {
         }
         
         if (mode === 'commands') {
-          // In 'commands' mode, we only respond to messages if they are part of an active /chat session
           let isInSession = false;
           for (const [id, data] of client.memory.entries()) {
             if (data.inChat && data.chatChannelId === channelId && (data.chatMode === "group" || id === userId)) {
@@ -62,13 +64,8 @@ module.exports = {
           }
           if (!isInSession) return;
         }
-
-        // IMPORTANT: If we are here, and it's NOT a chat session, but it WAS a ping, we need to handle it.
-        // Currently, the logic below checks "if (!userData || !userData.inChat) return;"
-        // We need to allow pings to trigger a one-off response.
         
         if (isMentioned) {
-          // Handle one-off ping response if not in session
           let currentSession = null;
           for (const [id, data] of client.memory.entries()) {
             if (data.inChat && data.chatChannelId === channelId && (data.chatMode === "group" || id === userId)) {
@@ -78,14 +75,12 @@ module.exports = {
           }
 
           if (!currentSession) {
-            // It's a one-off ping. Let's process it like an /ask command but in the channel.
             const cleanContent = message.content.replace(/<@!?[0-9]+>/g, "").trim();
             if (!cleanContent) return message.reply("Yes? How can I help? (Use `/chat` for long conversations!)");
 
             try {
               message.channel.sendTyping();
               
-              // Fetch custom behavior and personal info for pings too
               let customPrompt = "";
               let personalContext = "";
               let userData = client.memory.get(userId) || { history: [], model: "smart" };
@@ -118,7 +113,6 @@ module.exports = {
                 ? `You are Chrxmee AI. ${customPrompt}. ${personalContext} Keep responses natural and concise.`
                 : `You are Chrxmee AI, a helpful and friendly AI assistant. ${personalContext} Keep responses natural and concise.`;
 
-              // Maintain history for pings too
               userData.history.push({ role: "user", content: cleanContent });
               if (userData.history.length > 20) userData.history = userData.history.slice(-20);
 
@@ -217,7 +211,6 @@ module.exports = {
     userData.history.push({ role: "user", content: msgContent });
     if (userData.history.length > 30) userData.history = userData.history.slice(-30);
 
-    // Fetch custom behavior and personal info from DB if not in memory
     if (!userData.customPrompt || !userData.personal) {
       try {
         const [customRes, personalRes] = await Promise.all([
