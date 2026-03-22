@@ -1,27 +1,126 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } = require('discord.js');
+
+const cooldowns = new Map();
+const COOLDOWN_MS = 7000;
+
+function checkCooldown(userId) {
+  const last = cooldowns.get(userId);
+  if (last && Date.now() - last < COOLDOWN_MS) {
+    return Math.ceil((COOLDOWN_MS - (Date.now() - last)) / 1000);
+  }
+  cooldowns.set(userId, Date.now());
+  return 0;
+}
+
+const STYLES = {
+  anime:     'anime style, vibrant colors, detailed illustration',
+  realistic: 'photorealistic, highly detailed, 8k resolution',
+  cartoon:   'cartoon style, bright colors, fun and playful',
+  pixel:     'pixel art, retro style, 16-bit',
+};
+
+const SIZES = {
+  square:    { w: 1024, h: 1024 },
+  portrait:  { w: 768,  h: 1344 },
+  landscape: { w: 1344, h: 768  },
+};
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('image')
-    .setDescription('Drop a random public image (Lorem Picsum)'),
+    .setName('imagine')
+    .setDescription('Generate an AI image.')
+    .addStringOption(opt =>
+      opt.setName('prompt').setDescription('What do you want to generate?').setRequired(true).setMaxLength(500)
+    )
+    .addStringOption(opt =>
+      opt.setName('style').setDescription('Art style').setRequired(false)
+        .addChoices(
+          { name: '🎌 Anime', value: 'anime' },
+          { name: '📷 Realistic', value: 'realistic' },
+          { name: '🎨 Cartoon', value: 'cartoon' },
+          { name: '👾 Pixel Art', value: 'pixel' }
+        )
+    )
+    .addStringOption(opt =>
+      opt.setName('negative').setDescription('What NOT to include in the image').setRequired(false).setMaxLength(200)
+    )
+    .addStringOption(opt =>
+      opt.setName('size').setDescription('Image size').setRequired(false)
+        .addChoices(
+          { name: '⬛ Square (1024x1024)', value: 'square' },
+          { name: '📱 Portrait (768x1344)', value: 'portrait' },
+          { name: '🖥️ Landscape (1344x768)', value: 'landscape' }
+        )
+    )
+    .addIntegerOption(opt =>
+      opt.setName('seed').setDescription('Seed number for reproducible results').setRequired(false).setMinValue(1).setMaxValue(9999999)
+    ),
 
-  async execute(interaction) {
-    await interaction.deferReply();
+  async execute(interaction, client) {
+    const cd = checkCooldown(interaction.user.id);
+    if (cd > 0) return interaction.reply({ content: `⏰ Wait **${cd}s** before generating another image!`, ephemeral: true });
 
-    // Random size + grayscale sometimes for chaos
-    const width = Math.floor(Math.random() * 400) + 600; // 600-1000
-    const height = Math.floor(Math.random() * 300) + 400; // 400-700
-    const grayscale = Math.random() < 0.3 ? '?grayscale' : ''; // 30% chance
+    try { await interaction.deferReply(); }
+    catch (err) { return interaction.reply({ content: 'Failed to start.', ephemeral: true }).catch(() => {}); }
 
-    const url = `https://picsum.photos/${width}/${height}${grayscale}`;
+    const prompt = interaction.options.getString('prompt');
+    const style = interaction.options.getString('style') || null;
+    const negative = interaction.options.getString('negative') || null;
+    const size = interaction.options.getString('size') || 'square';
+    const seed = interaction.options.getInteger('seed') || Math.floor(Math.random() * 9999999);
+    const { w, h } = SIZES[size];
 
-    const embed = new EmbedBuilder()
-      .setColor('#7289da')
-      .setTitle('Random Image')
-      .setImage(url)
-      .setDescription('Fresh from the public web — no API key needed')
-      .setFooter({ text: 'Lorem Picsum — truly public images' });
+    // Build full prompt
+    const styleText = style ? STYLES[style] : '';
+    const fullPrompt = [prompt, styleText].filter(Boolean).join(', ');
+    const encodedPrompt = encodeURIComponent(fullPrompt);
+    const encodedNegative = negative ? encodeURIComponent(negative) : null;
 
-    return interaction.editReply({ embeds: [embed] });
+    // Build Pollinations URL
+    let url = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${w}&height=${h}&seed=${seed}&nologo=true&enhance=true`;
+    if (encodedNegative) url += `&negative=${encodedNegative}`;
+
+    // Show generating message
+    await interaction.editReply({
+      embeds: [new EmbedBuilder()
+        .setColor('#9b59b6')
+        .setTitle('🎨 Generating your image...')
+        .setDescription(`**Prompt:** ${prompt}${style ? `\n**Style:** ${style}` : ''}${negative ? `\n**Negative:** ${negative}` : ''}\n**Size:** ${size} (${w}x${h})\n**Seed:** ${seed}\n\n*This may take a few seconds...*`)
+        .setFooter({ text: 'Powered by Pollinations.ai' })]
+    });
+
+    try {
+      // Fetch the image
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Image fetch failed: ${response.status}`);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const attachment = new AttachmentBuilder(buffer, { name: 'imagine.png' });
+
+      await interaction.editReply({
+        embeds: [new EmbedBuilder()
+          .setColor('#9b59b6')
+          .setTitle('🎨 Image Generated!')
+          .addFields(
+            { name: '📝 Prompt', value: prompt, inline: false },
+            { name: '🎨 Style', value: style || 'None', inline: true },
+            { name: '📐 Size', value: `${size} (${w}x${h})`, inline: true },
+            { name: '🌱 Seed', value: `${seed}`, inline: true },
+            { name: '🚫 Negative', value: negative || 'None', inline: false },
+          )
+          .setImage('attachment://imagine.png')
+          .setFooter({ text: `Generated by ${interaction.user.username} • Powered by Pollinations.ai` })],
+        files: [attachment]
+      });
+
+    } catch (err) {
+      console.error('imagine failed:', err.message);
+      await interaction.editReply({
+        embeds: [new EmbedBuilder()
+          .setColor('#ff0000')
+          .setTitle('❌ Generation Failed')
+          .setDescription(`Something went wrong while generating your image.\n\nTry a different prompt or try again in a moment.\n\n**Error:** ${err.message.slice(0, 100)}`)
+          .setFooter({ text: 'Chrxmaticc AI Image Generations' })]
+      });
+    }
   }
 };
