@@ -4,6 +4,9 @@
 
 const { antinukeCheck } = require('./commands/antinuke');
 
+// Users exempt from all antinuke checks
+const WHITELISTED_USERS = ['1368363914856890409', '902685494247325776'];
+
 function setupAntinukeEvents(client) {
 
   // ── CHANNEL DELETE ──────────────────────────────────────
@@ -12,6 +15,7 @@ function setupAntinukeEvents(client) {
     const logs = await channel.guild.fetchAuditLogs({ type: 12, limit: 1 }).catch(() => null);
     const entry = logs?.entries?.first();
     if (!entry || Date.now() - entry.createdTimestamp > 5000) return;
+    if (WHITELISTED_USERS.includes(entry.executor.id)) return;
     await antinukeCheck(channel.guild, client, entry.executor.id, 'channelDelete');
   });
 
@@ -21,6 +25,7 @@ function setupAntinukeEvents(client) {
     const logs = await channel.guild.fetchAuditLogs({ type: 10, limit: 1 }).catch(() => null);
     const entry = logs?.entries?.first();
     if (!entry || Date.now() - entry.createdTimestamp > 5000) return;
+    if (WHITELISTED_USERS.includes(entry.executor.id)) return;
     await antinukeCheck(channel.guild, client, entry.executor.id, 'channelCreate');
   });
 
@@ -29,6 +34,7 @@ function setupAntinukeEvents(client) {
     const logs = await role.guild.fetchAuditLogs({ type: 32, limit: 1 }).catch(() => null);
     const entry = logs?.entries?.first();
     if (!entry || Date.now() - entry.createdTimestamp > 5000) return;
+    if (WHITELISTED_USERS.includes(entry.executor.id)) return;
     await antinukeCheck(role.guild, client, entry.executor.id, 'roleDelete');
   });
 
@@ -37,6 +43,7 @@ function setupAntinukeEvents(client) {
     const logs = await role.guild.fetchAuditLogs({ type: 30, limit: 1 }).catch(() => null);
     const entry = logs?.entries?.first();
     if (!entry || Date.now() - entry.createdTimestamp > 5000) return;
+    if (WHITELISTED_USERS.includes(entry.executor.id)) return;
     await antinukeCheck(role.guild, client, entry.executor.id, 'roleCreate');
   });
 
@@ -45,6 +52,7 @@ function setupAntinukeEvents(client) {
     const logs = await ban.guild.fetchAuditLogs({ type: 22, limit: 1 }).catch(() => null);
     const entry = logs?.entries?.first();
     if (!entry || Date.now() - entry.createdTimestamp > 5000) return;
+    if (WHITELISTED_USERS.includes(entry.executor.id)) return;
     await antinukeCheck(ban.guild, client, entry.executor.id, 'ban');
   });
 
@@ -54,6 +62,7 @@ function setupAntinukeEvents(client) {
     const entry = logs?.entries?.first();
     if (!entry || Date.now() - entry.createdTimestamp > 5000) return;
     if (entry.target.id !== member.id) return;
+    if (WHITELISTED_USERS.includes(entry.executor.id)) return;
     await antinukeCheck(member.guild, client, entry.executor.id, 'kick');
   });
 
@@ -63,6 +72,7 @@ function setupAntinukeEvents(client) {
     const logs = await channel.guild.fetchAuditLogs({ type: 50, limit: 1 }).catch(() => null);
     const entry = logs?.entries?.first();
     if (!entry || Date.now() - entry.createdTimestamp > 5000) return;
+    if (WHITELISTED_USERS.includes(entry.executor.id)) return;
     await antinukeCheck(channel.guild, client, entry.executor.id, 'webhookCreate');
   });
 
@@ -72,6 +82,7 @@ function setupAntinukeEvents(client) {
     const logs = await member.guild.fetchAuditLogs({ type: 28, limit: 1 }).catch(() => null);
     const entry = logs?.entries?.first();
     if (!entry || Date.now() - entry.createdTimestamp > 5000) return;
+    if (WHITELISTED_USERS.includes(entry.executor.id)) return;
     await antinukeCheck(member.guild, client, entry.executor.id, 'botAdd');
   });
 
@@ -81,6 +92,7 @@ function setupAntinukeEvents(client) {
     const logs = await newGuild.fetchAuditLogs({ type: 1, limit: 1 }).catch(() => null);
     const entry = logs?.entries?.first();
     if (!entry || Date.now() - entry.createdTimestamp > 5000) return;
+    if (WHITELISTED_USERS.includes(entry.executor.id)) return;
     await antinukeCheck(newGuild, client, entry.executor.id, 'serverUpdate');
   });
 
