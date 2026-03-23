@@ -1,4 +1,4 @@
-// 🔥 RENDER WEB SERVICE FIX - ADD THIS FIRST
+// Skidded, YES I SKID NXY
 console.log('🚀 chrxmee-ai STARTING...');
 console.log('TOKEN:', process.env.BOT_TOKEN ? '✅' : '❌');
 console.log('Music deps loading...');
@@ -17,7 +17,7 @@ const path = require("path");
 const { Pool } = require('pg');
 const { setupAntinukeEvents } = require('./antinukeEvents');
 
-// 🌐 EXPRESS SERVER (RENDER FIX)
+// 🌐 EXPRESS SERVER (RENDER FIX - so tuff)
 const express = require('express');
 const app = express();
 
