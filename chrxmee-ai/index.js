@@ -5,6 +5,163 @@ const path = require("path");
 const { Pool } = require('pg');
 const { setupAntinukeEvents } = require('./antinukeEvents');
 
+// ==================== MUSIC PLAYER CLASS====================
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus, entersState } = require('@discordjs/voice');
+const play = require('play-dl');
+const Genius = require('genius-lyrics-api');
+
+class ChrxmaticcMusicPlayer {
+  constructor(guildId) {
+    this.guildId = guildId;
+    this.queue = [];
+    this.currentSong = null;
+    this.connection = null;
+    this.player = createAudioPlayer();
+    this.volume = 50;
+    this.is247 = false;
+    this.textChannel = null;
+  }
+
+  async join(channel) {
+    // Prevent joining multiple VCs in same guild cuz why not. if fails deleting this
+    if (this.connection && this.connection.joinConfig.channelId !== channel.id) {
+      return { error: 'I’m already in another voice channel in this server. Use /stop first.' };
+    }
+
+    if (this.connection) return this.connection;
+
+    this.connection = joinVoiceChannel({
+      channelId: channel.id,
+      guildId: channel.guild.id,
+      adapterCreator: channel.guild.voiceAdapterCreator,
+    });
+
+    try {
+      await entersState(this.connection, VoiceConnectionStatus.Ready, 15000);
+    } catch (err) {
+      this.connection.destroy();
+      return { error: 'Failed to join VC for some reason.. Try again maybe' };
+    }
+
+    this.connection.subscribe(this.player);
+
+    this.connection.on(VoiceConnectionStatus.Disconnected, () => {
+      if (!this.is247) this.destroy();
+    });
+
+    return this.connection;
+  }
+
+  async search(query) {
+    try {
+      const results = await play.search(query, { limit: 5 });
+      return results;
+    } catch {
+      return [];
+    }
+  }
+
+  async play(url, requestedBy, textChannel) {
+    this.textChannel = textChannel;
+
+    let song;
+    try {
+      song = await play.video_basic_info(url);
+    } catch {
+      return { error: 'Invalid song URL, incorrect or something idk.' };
+    }
+
+    const track = {
+      title: song.title,
+      url: song.url,
+      duration: song.durationRaw,
+      thumbnail: song.thumbnails?.[0]?.url || null,
+      requestedBy: requestedBy.tag,
+    };
+
+    this.queue.push(track);
+
+    if (this.queue.length === 1 && !this.currentSong) {
+      await this.startPlayback();
+    }
+
+    return { added: track, position: this.queue.length };
+  }
+
+  async startPlayback() {
+    if (this.queue.length === 0) {
+      if (this.is247) return;
+      this.destroy();
+      return;
+    }
+
+    this.currentSong = this.queue[0];
+
+    try {
+      const stream = await play.stream(this.currentSong.url);
+      const resource = createAudioResource(stream.stream, { inputType: stream.type });
+      resource.volume?.setVolume(this.volume / 100);
+
+      this.player.play(resource);
+
+      this.player.on(AudioPlayerStatus.Idle, () => {
+        this.queue.shift();
+        this.currentSong = null;
+        this.startPlayback();
+      });
+
+      if (this.textChannel) {
+        this.textChannel.send({
+          embeds: [{
+            title: 'Now Playing',
+            description: `[${this.currentSong.title}](${this.currentSong.url})`,
+            thumbnail: { url: this.currentSong.thumbnail },
+            fields: [
+              { name: 'Requested by', value: this.currentSong.requestedBy, inline: true },
+              { name: 'Duration', value: this.currentSong.duration, inline: true },
+            ],
+            color: 0x5865F2
+          }]
+        });
+      }
+    } catch (err) {
+      console.error('Playback error:', err);
+      this.queue.shift();
+      this.startPlayback();
+    }
+  }
+
+  skip() {
+    this.player.stop();
+  }
+
+  destroy() {
+    if (this.connection) this.connection.destroy();
+    this.connection = null;
+    this.currentSong = null;
+    this.queue = [];
+  }
+
+  setVolume(vol) {
+    this.volume = Math.max(0, Math.min(200, vol));
+  }
+
+  toggle247() {
+    this.is247 = !this.is247;
+    return this.is247;
+  }
+
+  async getLyrics() {
+    if (!this.currentSong) return 'No song playing, find a song to play for the vibe';
+    try {
+      const lyrics = await Genius.getLyrics({ title: this.currentSong.title });
+      return lyrics || 'Lyrics not found.';
+    } catch {
+      return 'Lyrics not found.';
+    }
+  }
+}
+
 // ==================== KEEP-ALIVE SERVER ====================
 const http = require('http');
 console.log("Starting keep-alive server...");
@@ -32,7 +189,6 @@ const client = new Client({
   ],
   partials: [1, 3],
 });
-
 client.commands = new Collection();
 client.memory = new Map();
 client.snipes = new Map();
@@ -47,11 +203,9 @@ const pool = new Pool({
   keepAlive: true,
   keepAliveInitialDelayMillis: 10000
 });
-
 pool.on('error', (err) => {
   console.error('Postgres pool error:', err.message);
 });
-
 setInterval(async () => {
   try {
     const pgClient = await pool.connect();
@@ -62,8 +216,10 @@ setInterval(async () => {
     console.error('Postgres keep-alive failed:', err.message);
   }
 }, 30000);
-
 client.pool = pool;
+
+// ==================== MUSIC PLAYER SETUP ====================
+client.musicPlayers = new Map();
 
 // ==================== SNIPE SYSTEM ====================
 client.on('messageDelete', message => {
@@ -72,7 +228,6 @@ client.on('messageDelete', message => {
   snipes.push({ author: message.author, content: message.content, timestamp: new Date(), type: 'delete' });
   if (snipes.length > 100) snipes.shift();
   client.snipes.set(message.channelId, snipes);
-
   const text = message.content.toLowerCase();
   let roast = '';
   if (text.includes('kill') || text.includes('die') || text.includes('murder')) {
@@ -84,7 +239,6 @@ client.on('messageDelete', message => {
   }
   if (roast) message.channel.send(roast).catch(() => {});
 });
-
 client.on('messageUpdate', (oldMsg, newMsg) => {
   if (oldMsg.author?.bot || oldMsg.content === newMsg.content) return;
   const snipes = client.snipes.get(oldMsg.channelId) || [];
@@ -103,7 +257,6 @@ for (const file of commandFiles) {
     client.commands.set(command.data.name, command);
   }
 }
-
 const eventsPath = path.join(__dirname, "events");
 const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith(".js"));
 for (const file of eventFiles) {
@@ -115,7 +268,6 @@ for (const file of eventFiles) {
     client.on(event.name, (...args) => event.execute(...args));
   }
 }
-
 // ==================== HEARTBEAT ====================
 let heartbeatCount = 0;
 setInterval(() => {
@@ -134,16 +286,13 @@ setInterval(() => {
     console.log(`[HEARTBEAT #${heartbeatCount}] Presence: ${activity}`);
   }
 }, 300000);
-
 // ==================== CLIENT READY ====================
 client.once('ready', async () => {
   try {
     console.log(`Logged in as ${client.user.tag}`);
     console.log(`Chrxmee AI ready as ${client.user.tag}`);
-
     const pgClient = await pool.connect();
     console.log('Postgres connected successfully on ready!');
-
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS guild_settings (
         guild_id BIGINT PRIMARY KEY,
@@ -153,7 +302,6 @@ client.once('ready', async () => {
       )
     `);
     console.log('guild_settings table ready');
-
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS user_birthdays (
         user_id BIGINT PRIMARY KEY,
@@ -165,14 +313,11 @@ client.once('ready', async () => {
       )
     `);
     console.log('user_birthdays table ready');
-
     const res = await pgClient.query('SELECT 1');
     console.log('Test query worked:', res.rows);
     pgClient.release();
     console.log('Pool pre-warmed successfully');
-
     setupAntinukeEvents(client);
-
     setInterval(async () => {
       try {
         const today = new Date();
@@ -201,17 +346,14 @@ client.once('ready', async () => {
         console.error('Birthday check failed:', err);
       }
     }, 86400000);
-
     client.user.setPresence({
       status: 'online',
       activities: [{ name: "Discord World AI Competition", type: 0 }]
     });
-
     client.on('interactionCreate', async i => {
       if (!i.isStringSelectMenu()) return;
       if (i.customId !== 'help_select') return;
       await i.deferReply({ ephemeral: true });
-
       let title = '', desc = '';
       switch (i.values[0]) {
         case 'help_ai':
@@ -237,29 +379,23 @@ client.once('ready', async () => {
         default:
           return i.editReply({ content: 'Unknown section.', ephemeral: true });
       }
-
       return i.editReply({ embeds: [new EmbedBuilder().setColor('#2f3136').setTitle(title).setDescription(desc)], ephemeral: true });
     });
-
   } catch (err) {
     console.error('READY EVENT CRASHED:', err);
     console.error('Stack trace:', err.stack);
   }
 });
-
 // ==================== RECONNECTION LOGIC ====================
 client.on('disconnect', () => {
   console.log('Bot disconnected! Attempting to reconnect...');
 });
-
 client.on('error', (err) => {
   console.error('Discord client error:', err.message);
 });
-
 client.on('warn', (info) => {
   console.warn('Discord client warning:', info);
 });
-
 // ==================== GLOBAL ERROR HANDLERS ====================
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
@@ -267,10 +403,8 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception thrown:', err);
 });
-
 // ==================== LOGIN ====================
 console.log('BOT_TOKEN value:', process.env.BOT_TOKEN ? `exists, length: ${process.env.BOT_TOKEN.length}` : 'MISSING OR EMPTY');
-
 client.login(process.env.BOT_TOKEN).then(() => {
   console.log('Discord login successful!');
 }).catch(err => {
