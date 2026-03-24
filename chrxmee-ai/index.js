@@ -11,7 +11,11 @@ const path = require("path");
 const { Pool } = require('pg');
 const { setupAntinukeEvents } = require('./antinukeEvents');
 const { DisTube } = require('distube');
-const { YtDlpPlugin } = require('@distube/ytdl-core');
+
+// FIX: Switched to @distube/yt-dlp for better stability
+const { YtDlpPlugin } = require('@distube/yt-dlp');
+// FIX: Added ffmpeg-static requirement
+const ffmpeg = require('ffmpeg-static');
 
 // ==================== EXPRESS SERVER ====================
 const express = require('express');
@@ -63,7 +67,9 @@ client.pool = pool;
 
 // ==================== DISTUBE SETUP ====================
 client.distube = new DisTube(client, {
-  plugins: [new YtDlpPlugin()],
+  // FIX: Added explicit ffmpeg path to prevent "ffmpeg not found" errors
+  ffmpeg: { path: ffmpeg }, 
+  plugins: [new YtDlpPlugin({ updateOnStart: true })],
   emitNewSongOnly: true,
   nsfw: false,
   joinNewVoiceChannel: true,
@@ -104,7 +110,6 @@ client.distube
       new ButtonBuilder().setCustomId('music_stop').setLabel('⏹️ Stop').setStyle(ButtonStyle.Danger),
     );
     queue.textChannel.send({ embeds: [buildNowPlayingEmbed(song, queue)], components: [row1, row2] }).then(msg => {
-      // Store msg for button collector
       client.memory.set(`np_msg_${queue.id}`, msg.id);
       const collector = msg.createMessageComponentCollector({ time: 3600000 });
       collector.on('collect', async btn => {
@@ -200,24 +205,29 @@ client.on('messageUpdate', (oldMsg, newMsg) => {
 
 // ==================== COMMAND & EVENT LOADING ====================
 const commandsPath = path.join(__dirname, "commands");
-const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith(".js"));
-for (const file of commandFiles) {
-  const filePath = path.join(commandsPath, file);
-  const command = require(filePath);
-  if ("data" in command && "execute" in command) {
-    client.commands.set(command.data.name, command);
-  }
+if (fs.existsSync(commandsPath)) {
+    const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith(".js"));
+    for (const file of commandFiles) {
+    const filePath = path.join(commandsPath, file);
+    const command = require(filePath);
+    if ("data" in command && "execute" in command) {
+        client.commands.set(command.data.name, command);
+    }
+    }
 }
+
 const eventsPath = path.join(__dirname, "events");
-const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith(".js"));
-for (const file of eventFiles) {
-  const filePath = path.join(eventsPath, file);
-  const event = require(filePath);
-  if (event.once) {
-    client.once(event.name, (...args) => event.execute(...args));
-  } else {
-    client.on(event.name, (...args) => event.execute(...args));
-  }
+if (fs.existsSync(eventsPath)) {
+    const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith(".js"));
+    for (const file of eventFiles) {
+    const filePath = path.join(eventsPath, file);
+    const event = require(filePath);
+    if (event.once) {
+        client.once(event.name, (...args) => event.execute(...args));
+    } else {
+        client.on(event.name, (...args) => event.execute(...args));
+    }
+    }
 }
 
 // ==================== HEARTBEAT ====================
@@ -284,27 +294,26 @@ client.once('ready', async () => {
       } catch (err) { console.error('Birthday check failed:', err); }
     }, 86400000);
 
-    // Help select menu
-    client.on('interactionCreate', async i => {
-      if (!i.isStringSelectMenu()) return;
-      if (i.customId !== 'help_select') return;
-      await i.deferReply({ ephemeral: true });
-      let title = '', desc = '';
-      switch (i.values[0]) {
-        case 'help_ai':    title = 'AI-Powered Commands';   desc = '`/ask` `/chat` `/summarize` `/translate` `/debate` `/dream` `/model` `/news` `/oracle` `/code-generate`'; break;
-        case 'help_visual':title = 'Visual Imagination';    desc = '`/image` `/imagine` `/generate-qr` `/avatar`'; break;
-        case 'help_fun':   title = 'Fun & Games';           desc = '`/roast` `/roastme` `/burn` `/coinflip` `/dice` `/poll` `/trivia` `/ship` `/8ball`'; break;
-        case 'help_utility':title = 'Utility';              desc = '`/snipe` `/ping` `/serverinfo` `/user` `/remind-me` `/quote` `/status` `/history`'; break;
-        case 'help_mod':   title = 'Moderation & Advanced'; desc = '`/auto-respond` `/guild-settings` `/dashboard` `/brain-dump` `/clear-brain`'; break;
-        default: return i.editReply({ content: 'Unknown section.', ephemeral: true });
-      }
-      return i.editReply({ embeds: [new EmbedBuilder().setColor('#2f3136').setTitle(title).setDescription(desc)], ephemeral: true });
-    });
-
   } catch (err) {
     console.error('READY EVENT CRASHED:', err);
-    console.error('Stack trace:', err.stack);
   }
+});
+
+// Help select menu listener
+client.on('interactionCreate', async i => {
+    if (!i.isStringSelectMenu()) return;
+    if (i.customId !== 'help_select') return;
+    await i.deferReply({ ephemeral: true });
+    let title = '', desc = '';
+    switch (i.values[0]) {
+      case 'help_ai':     title = 'AI-Powered Commands';   desc = '`/ask` `/chat` `/summarize` `/translate` `/debate` `/dream` `/model` `/news` `/oracle` `/code-generate`'; break;
+      case 'help_visual': title = 'Visual Imagination';    desc = '`/image` `/imagine` `/generate-qr` `/avatar`'; break;
+      case 'help_fun':    title = 'Fun & Games';           desc = '`/roast` `/roastme` `/burn` `/coinflip` `/dice` `/poll` `/trivia` `/ship` `/8ball`'; break;
+      case 'help_utility': title = 'Utility';              desc = '`/snipe` `/ping` `/serverinfo` `/user` `/remind-me` `/quote` `/status` `/history`'; break;
+      case 'help_mod':    title = 'Moderation & Advanced'; desc = '`/auto-respond` `/guild-settings` `/dashboard` `/brain-dump` `/clear-brain`'; break;
+      default: return i.editReply({ content: 'Unknown section.', ephemeral: true });
+    }
+    return i.editReply({ embeds: [new EmbedBuilder().setColor('#2f3136').setTitle(title).setDescription(desc)], ephemeral: true });
 });
 
 // ==================== RECONNECTION ====================
