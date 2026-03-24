@@ -34,6 +34,12 @@ module.exports = {
   async execute(interaction, client) {
     const sub = interaction.options.getSubcommand();
     const distube = client.distube;
+    if (!distube) {
+      return interaction.reply({
+        content: '❌ Music is currently unavailable. Install dependencies and restart the bot.',
+        ephemeral: true
+      });
+    }
 
     // Check Voice Channel for all commands except "favorites"
     if (sub !== 'favorites') {
@@ -63,7 +69,12 @@ module.exports = {
 
       // 2. Perform a Search if it's not a direct URL
       if (!query.startsWith('http')) {
+        if (typeof distube.search !== 'function') {
+          return interaction.editReply('❌ Search is unavailable in this music setup. Please use a direct track URL for now.');
+        }
+
         const results = await distube.search(query, { limit: 5 });
+        if (!results?.length) return interaction.editReply('❌ No results found for that search.');
         
         const menu = new StringSelectMenuBuilder()
           .setCustomId('search_select')

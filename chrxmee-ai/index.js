@@ -5,7 +5,6 @@ const {
     ActionRowBuilder, ButtonBuilder, ButtonStyle, Partials 
 } = require("discord.js");
 const { DisTube } = require('distube');
-const { YtDlpPlugin } = require('@distube/yt-dlp');
 const { Pool } = require('pg');
 const fs = require("fs"), path = require("path"), express = require('express'), https = require('https');
 
@@ -38,11 +37,16 @@ const pool = new Pool({
 client.pool = pool;
 
 // --- DISTUBE (MUSIC SYSTEM) ---
-client.distube = new DisTube(client, {
-    plugins: [new YtDlpPlugin()],
-    emitNewSongOnly: true,
-    leaveOnEmpty: false
-});
+try {
+    client.distube = new DisTube(client, {
+        emitNewSongOnly: true,
+        leaveOnEmpty: false
+    });
+    console.log('🎵 STEP 2: Music system initialized.');
+} catch (err) {
+    client.distube = null;
+    console.error(`⚠️ MUSIC DISABLED: ${err.message}`);
+}
 
 // --- KEEP-ALIVE SERVER ---
 const app = express();
@@ -63,6 +67,9 @@ client.on('messageDelete', m => {
 // --- MUSIC BUTTON HANDLER ---
 client.on('interactionCreate', async i => {
     if (!i.isButton()) return;
+    if (!client.distube) {
+        return i.reply({ content: 'Music system is not ready yet.', ephemeral: true });
+    }
     const queue = client.distube.getQueue(i.guildId);
     if (!queue) return i.reply({ content: 'No music playing.', ephemeral: true });
 
