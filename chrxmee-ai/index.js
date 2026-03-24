@@ -1,84 +1,113 @@
-console.log('🚀 STEP 1: Booting system...');
+console.log('🚀 STEP 1: Booting Full System...');
 require("dotenv").config();
-const { Client, GatewayIntentBits, Collection, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
+const { 
+    Client, GatewayIntentBits, Collection, EmbedBuilder, 
+    ActionRowBuilder, ButtonBuilder, ButtonStyle, Partials 
+} = require("discord.js");
 const { DisTube } = require('distube');
 const { YtDlpPlugin } = require('@distube/yt-dlp');
 const { Pool } = require('pg');
-const fs = require("fs"), path = require("path"), express = require('express');
+const fs = require("fs"), path = require("path"), express = require('express'), https = require('https');
 
-console.log('🚀 STEP 2: Dependencies loaded.');
+// --- PRE-FLIGHT NETWORK TEST ---
+https.get('https://discord.com/api/v10/gateway', (res) => {
+    console.log(`🌐 NETWORK CHECK: Discord Status: ${res.statusCode}`);
+    if (res.statusCode === 429) console.error('⚠️ CRITICAL: YOU ARE RATE LIMITED. WAIT 1 HOUR.');
+}).on('error', (e) => console.error('❌ NETWORK ERROR:', e.message));
 
-// --- 6-STEP LOGIN SEQUENCE ---
-const client = new Client({ intents: [1, 2, 128, 512, 4096, 32768] }); // Compact Intents
-console.log('🚀 STEP 3: Client initialized.');
+// --- CLIENT INIT (ALL INTENTS) ---
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildPresences
+    ],
+    partials: [Partials.Channel, Partials.Message, Partials.GuildMember, Partials.User]
+});
 
-const token = process.env.BOT_TOKEN;
-if (!token) { console.error('❌ STEP 4: BOT_TOKEN missing!'); process.exit(1); }
-console.log('🚀 STEP 4: Token found. Connecting...');
-
-console.log('🚀 STEP 5: Logging in...');
-client.login(token)
-  .then(() => console.log('✅ STEP 6: LOGIN SUCCESSFUL!'))
-  .catch(e => { console.error('❌ STEP 6: LOGIN FAILED!', e.message); process.exit(1); });
-
-// --- GLOBALS & KEEP-ALIVE ---
+// --- GLOBALS ---
 client.commands = new Collection();
 client.snipes = new Map();
 client.memory = new Map();
 
-express().get('/', (req, res) => res.send('Live🚀')).listen(process.env.PORT || 10000, '0.0.0.0', () => console.log('🌐 Web OK'));
+// --- DATABASE (POSTGRES) ---
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+});
+client.pool = pool;
 
-// --- DISTUBE & DB ---
-client.distube = new DisTube(client, { plugins: [new YtDlpPlugin()], emitNewSongOnly: true });
-client.pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
-
-// --- EVENT HANDLERS ---
-client.once('ready', async () => {
-  console.log(`🤖 ONLINE: ${client.user.tag}`);
-  client.pool.query('CREATE TABLE IF NOT EXISTS stats (id TEXT PRIMARY KEY)').catch(e => console.error('⚠️ DB Error:', e.message));
+// --- DISTUBE (MUSIC SYSTEM) ---
+client.distube = new DisTube(client, {
+    plugins: [new YtDlpPlugin()],
+    emitNewSongOnly: true,
+    leaveOnEmpty: false
 });
 
+// --- KEEP-ALIVE SERVER ---
+const app = express();
+app.get('/', (req, res) => res.send('Chrxmee AI: Full System Online 🚀'));
+app.listen(process.env.PORT || 10000, '0.0.0.0', () => console.log('🌐 STEP 3: Web Server Live'));
+
+// --- SNIPE SYSTEM ---
 client.on('messageDelete', m => {
-  if (m.content && !m.author?.bot) client.snipes.set(m.channelId, { content: m.content, author: m.author, time: Date.now() });
+    if (!m.content || m.author?.bot) return;
+    client.snipes.set(m.channelId, {
+        content: m.content,
+        author: m.author,
+        image: m.attachments.first()?.proxyURL || null,
+        time: Date.now()
+    });
+});
+
+// --- MUSIC BUTTON HANDLER ---
+client.on('interactionCreate', async i => {
+    if (!i.isButton()) return;
+    const queue = client.distube.getQueue(i.guildId);
+    if (!queue) return i.reply({ content: 'No music playing.', ephemeral: true });
+
+    try {
+        if (i.customId === 'm_pause') {
+            queue.paused ? queue.resume() : queue.pause();
+            await i.reply({ content: queue.paused ? '⏸️ Paused' : '▶️ Resumed', ephemeral: true });
+        } else if (i.customId === 'm_skip') {
+            await queue.skip();
+            await i.reply({ content: '⏭️ Skipped', ephemeral: true });
+        } else if (i.customId === 'm_stop') {
+            queue.stop();
+            await i.reply({ content: '⏹️ Stopped', ephemeral: true });
+        }
+    } catch (err) { console.error('Button Error:', err.message); }
 });
 
 // --- COMMAND LOADER ---
-try {
-  const dir = path.join(__dirname, 'commands');
-  fs.readdirSync(dir).filter(f => f.endsWith('.js')).forEach(file => {
-    const cmd = require(path.join(dir, file));
-    if (cmd.data) client.commands.set(cmd.data.name, cmd);
-  });
-  console.log(`📦 Commands loaded: ${client.commands.size}`);
-} catch (e) { console.error('⚠️ Command load error:', e.message); }
+const foldersPath = path.join(__dirname, 'commands');
+if (fs.existsSync(foldersPath)) {
+    fs.readdirSync(foldersPath).filter(f => f.endsWith('.js')).forEach(file => {
+        const cmd = require(path.join(foldersPath, file));
+        if (cmd.data) client.commands.set(cmd.data.name, cmd);
+    });
+}
+console.log(`📦 STEP 4: Loaded ${client.commands.size} commands.`);
 
-// --- INTERACTION CONTROLLER ---
-client.on('interactionCreate', async i => {
-  if (i.isChatInputCommand()) {
-    const cmd = client.commands.get(i.commandName);
-    if (cmd) cmd.execute(i, client).catch(e => { console.error(e); i.reply({ content: 'Error!', ephemeral: true }).catch(()=>{}); });
-  } else if (i.isButton()) {
-    const q = client.distube.getQueue(i.guildId);
-    if (!q) return i.reply({ content: 'No music playing.', ephemeral: true });
-    
-    if (i.customId === 'm_pause') { q.paused ? q.resume() : q.pause(); i.reply({ content: q.paused ? '⏸️' : '▶️', ephemeral: true }); }
-    else if (i.customId === 'm_skip') { q.skip().catch(()=>{}); i.reply({ content: '⏭️', ephemeral: true }); }
-    else if (i.customId === 'm_stop') { q.stop(); i.reply({ content: '⏹️', ephemeral: true }); }
-  }
+// --- READY EVENT & DB SYNC ---
+client.once('ready', async () => {
+    console.log(`🤖 ONLINE: ${client.user.tag}`);
+    try {
+        await pool.query('CREATE TABLE IF NOT EXISTS guild_settings (guild_id TEXT PRIMARY KEY, prefix TEXT DEFAULT "!")');
+        console.log('🐘 Postgres tables verified.');
+    } catch (e) { console.error('⚠️ DB Error:', e.message); }
 });
 
-// --- MUSIC EMBEDS ---
-client.distube.on('playSong', (q, song) => {
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('m_pause').setEmoji('⏸️').setStyle(2),
-    new ButtonBuilder().setCustomId('m_skip').setEmoji('⏭️').setStyle(2),
-    new ButtonBuilder().setCustomId('m_stop').setEmoji('⏹️').setStyle(4)
-  );
-  q.textChannel?.send({ 
-    embeds: [new EmbedBuilder().setColor('#5865F2').setDescription(`🎵 **[${song.name}](${song.url})**`).setThumbnail(song.thumbnail)], 
-    components: [row] 
-  });
-});
+// --- THE LOGIN (THE FINAL BOSS) ---
+console.log('🚀 STEP 5: Attempting Discord Login...');
+client.login(process.env.BOT_TOKEN)
+    .then(() => console.log('✅ STEP 6: DISCORD LOGIN SUCCESSFUL!'))
+    .catch(e => {
+        console.error('❌ STEP 6: LOGIN FAILED!');
+        console.error(`ERROR: ${e.message}`);
+    });
 
-process.on('unhandledRejection', e => console.error('💥', e));
-process.on('uncaughtException', e => console.error('💥', e));
+// --- ANTI-CRASH ---
+process.on('unhandledRejection', e => console.error('💥 REJECTION:', e));
+process.on('uncaughtException', e => console.error('💥 EXCEPTION:', e));
