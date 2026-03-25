@@ -98,11 +98,11 @@ module.exports = {
 
         const embed = new EmbedBuilder()
           .setColor(embedColor)
-          .setTitle("â¬ï¸ Level Up!")
+          .setTitle("Guild Level Up!")
           .setDescription(`Nice work, ${message.author}! You've reached **Level ${newLevel}**!${prestigeText}`)
           .addFields(
-            { name: "â¨ Total XP", value: `${xp.toLocaleString()} XP`, inline: true },
-            { name: "ð Next Level", value: `${xpForLevel(newLevel + 1).toLocaleString()} XP`, inline: true }
+            { name: "Guild Total XP", value: `${xp.toLocaleString()} XP`, inline: true },
+            { name: "Guild Next Level", value: `${xpForLevel(newLevel + 1).toLocaleString()} XP`, inline: true }
           )
           .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
           .setTimestamp();
