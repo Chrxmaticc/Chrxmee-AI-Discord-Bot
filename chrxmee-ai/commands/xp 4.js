@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require("discord.js");
-const { getLevel, xpForLevel, buildProgressBar, getPrestigeInfo, PRESTIGE_XP_REQUIREMENT } = require("../utils/xpHelper");
+const { getLevel, xpForLevel, buildProgressBar, getPrestigeInfo, PRESTIGE_XP_REQUIREMENT } = require("../events/xpHelper");
 
 module.exports = {
   data: new SlashCommandBuilder()
