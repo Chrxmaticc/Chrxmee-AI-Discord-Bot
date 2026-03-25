@@ -166,6 +166,49 @@ client.once('ready', async () => {
     `);
     console.log('user_birthdays table ready');
 
+    // ==================== XP SYSTEM TABLES ====================
+    await pgClient.query(`
+      CREATE TABLE IF NOT EXISTS user_xp (
+        user_id BIGINT NOT NULL,
+        guild_id BIGINT NOT NULL,
+        xp INTEGER DEFAULT 0,
+        level INTEGER DEFAULT 0,
+        prestige INTEGER DEFAULT 0,
+        PRIMARY KEY (user_id, guild_id)
+      )
+    `);
+    console.log('user_xp table ready');
+
+    await pgClient.query(`
+      CREATE TABLE IF NOT EXISTS xp_blacklisted_channels (
+        guild_id BIGINT NOT NULL,
+        channel_id BIGINT NOT NULL,
+        PRIMARY KEY (guild_id, channel_id)
+      )
+    `);
+    console.log('xp_blacklisted_channels table ready');
+
+    await pgClient.query(`
+      CREATE TABLE IF NOT EXISTS xp_multipliers (
+        guild_id BIGINT NOT NULL,
+        role_id BIGINT NOT NULL,
+        multiplier NUMERIC DEFAULT 1,
+        PRIMARY KEY (guild_id, role_id)
+      )
+    `);
+    console.log('xp_multipliers table ready');
+
+    await pgClient.query(`
+      CREATE TABLE IF NOT EXISTS xp_level_roles (
+        guild_id BIGINT NOT NULL,
+        level INTEGER NOT NULL,
+        role_id BIGINT NOT NULL,
+        PRIMARY KEY (guild_id, level)
+      )
+    `);
+    console.log('xp_level_roles table ready');
+    // ==================== END XP SYSTEM TABLES ====================
+
     const res = await pgClient.query('SELECT 1');
     console.log('Test query worked:', res.rows);
     pgClient.release();
