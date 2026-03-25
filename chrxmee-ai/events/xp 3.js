@@ -1,5 +1,5 @@
 const { EmbedBuilder } = require("discord.js");
-const { getLevel, xpForLevel, getPrestigeInfo } = require("../utils/xpHelper");
+const { getLevel, xpForLevel, getPrestigeInfo } = require("../events/xpHelper");
 
 const cooldowns = new Map();
 const COOLDOWN_MS = 60_000;
@@ -98,11 +98,11 @@ module.exports = {
 
         const embed = new EmbedBuilder()
           .setColor(embedColor)
-          .setTitle("⬆️ Level Up!")
+          .setTitle("â¬ï¸ Level Up!")
           .setDescription(`Nice work, ${message.author}! You've reached **Level ${newLevel}**!${prestigeText}`)
           .addFields(
-            { name: "✨ Total XP", value: `${xp.toLocaleString()} XP`, inline: true },
-            { name: "📈 Next Level", value: `${xpForLevel(newLevel + 1).toLocaleString()} XP`, inline: true }
+            { name: "â¨ Total XP", value: `${xp.toLocaleString()} XP`, inline: true },
+            { name: "ð Next Level", value: `${xpForLevel(newLevel + 1).toLocaleString()} XP`, inline: true }
           )
           .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
           .setTimestamp();
