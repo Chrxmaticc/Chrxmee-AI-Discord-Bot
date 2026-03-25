@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
-const { getLevel, getPrestigeInfo } = require("../utils/xpHelper");
+const { getLevel, getPrestigeInfo } = require("../events/xpHelper");
 
 module.exports = {
   data: new SlashCommandBuilder()
