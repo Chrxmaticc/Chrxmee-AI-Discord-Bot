@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
-const { getLevel, xpForLevel, buildProgressBar, getPrestigeInfo } = require("../utils/xpHelper");
+const { getLevel, xpForLevel, buildProgressBar, getPrestigeInfo } = require("../events/xpHelper");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -38,10 +38,10 @@ module.exports = {
       .setTitle(`${target.username}'s Rank`)
       .setThumbnail(target.displayAvatarURL({ dynamic: true }))
       .addFields(
-        { name: "🏅 Server Rank", value: `#${rank}`, inline: true },
-        { name: "⭐ Level", value: `${level}`, inline: true },
-        { name: "✦ Prestige", value: prestigeInfo ? prestigeInfo.label : "None", inline: true },
-        { name: "✨ Total XP", value: `${xp.toLocaleString()}`, inline: true },
+        { name: "ð Server Rank", value: `#${rank}`, inline: true },
+        { name: "â­ Level", value: `${level}`, inline: true },
+        { name: "â¦ Prestige", value: prestigeInfo ? prestigeInfo.label : "None", inline: true },
+        { name: "â¨ Total XP", value: `${xp.toLocaleString()}`, inline: true },
         { name: `Progress to Level ${level + 1}`, value: `\`${bar}\` ${percent}%\n${progress.toLocaleString()} / ${needed.toLocaleString()} XP` }
       )
       .setTimestamp();
