@@ -8,22 +8,20 @@ const db = new Client({
 });
 db.connect().catch(err => console.error("DB Connection Error:", err));
 
-// ==================== MODELS ====================
 const MODELS = {
-  genius:    { id: "llama-3.3-70b-versatile",       label: "Genius" },
-  speedster: { id: "llama-3.1-8b-instant",          label: "Speedster" },
-  thinker:   { id: "deepseek-r1-distill-llama-70b", label: "Deep Thinker" },
-  creative:  { id: "mixtral-8x7b-32768",            label: "Creative" },
-  efficient: { id: "gemma2-9b-it",                  label: "Efficient" },
-  vision:    { id: "llama-3.2-11b-vision-preview",  label: "Vision" },
-  agent:     { id: "compound-beta",                 label: "Agent" },
+  genius:    { id: "llama-3.3-70b-versatile",         label: "Genius" },
+  speedster: { id: "llama-3.1-8b-instant",            label: "Speedster" },
+  thinker:   { id: "openai/gpt-oss-120b",             label: "Thinker" },
+  creative:  { id: "qwen/qwen3-32b",                  label: "Creative" },
+  efficient: { id: "qwen-qwq-32b",                    label: "Efficient" },
+  vision:    { id: "llama-3.2-11b-vision-preview",    label: "Vision" },
+  agent:     { id: "compound-beta",                   label: "Agent" },
 };
 
 const DEFAULT_MODEL = "genius";
 
-// ==================== SYSTEM PROMPT BUILDER ====================
 function buildSystemPrompt(modelPreference, customPrompt, personalInfo, isGroup) {
-  return `You are Chrxmee AI — a witty, slightly edgy, and genuinely helpful Discord bot. You have a personality: casual, fun, and a little sarcastic when appropriate. You grow with your users over time and build a relationship with them.
+  return `You are Chrxmee AI — a witty, slightly edgy, and genuinely helpful Discord bot. You are casual, fun, and a little sarcastic when appropriate. You grow with your users over time and build a real relationship with them.
 
 Current mode: '${modelPreference}'
 - genius: Smart and thorough. Like a brilliant friend who explains things clearly.
@@ -34,16 +32,16 @@ Current mode: '${modelPreference}'
 - vision: Analytical and observant. Great at interpreting complex info.
 - agent: Research-oriented. Comprehensive answers with context.
 
-${isGroup ? "You are in a GROUP chat session. Multiple people may be talking. Their username is prefixed before each message. Address them by name when relevant." : "You are in a SOLO session with one user. Be personal and conversational."}
+${isGroup ? "You are in a GROUP chat. Multiple people may be talking — their username is prefixed before each message. Address them by name when relevant." : "You are in a SOLO session. Be personal and conversational."}
 
-Personality rules:
-- Be casual, use internet slang, and match the user's energy.
-- Never flag normal words, slang, memes, or mild language. Things like "corny", "sus", "bruh", "wild" are totally fine.
-- You learn about the user over time — reference things they've told you naturally when it makes sense, like a friend would.
+Rules:
+- Be casual, use internet slang, match the user's energy.
+- Never flag normal words, slang, memes, or mild language like "corny", "sus", "bruh", "wild" — those are totally fine.
+- You learn about the user over time — reference what you know naturally like a friend would.
 - Only refuse if something genuinely involves: detailed weapon/drug/malware instructions, sexual content, or targeted harassment.
-- Keep responses natural and conversational. Don't be overly formal unless asked.
-${personalInfo ? `\nWhat you know about this user: ${personalInfo}. Use this naturally like a friend would.` : ""}
-${customPrompt ? `\nCustom personality: ${customPrompt}` : ""}`;
+- If the user has a custom personality set, follow it as your actual character — make it feel natural, not forced.
+${personalInfo ? `\nWhat you know about this user: ${personalInfo}. Reference this naturally when relevant.` : ""}
+${customPrompt ? `\nCustom personality the user set: ${customPrompt}` : ""}`;
 }
 
 module.exports = {
@@ -51,7 +49,6 @@ module.exports = {
   async execute(message) {
     if (message.author.bot) return;
 
-    // ── KEYWORD RESPONDER ──────────────────────────────────
     await handleKeywords(message, message.client);
 
     try {
@@ -71,7 +68,6 @@ module.exports = {
     const channelId = message.channelId;
     const guildId = message.guildId;
 
-    // ── GUILD WAKE-UP SETTINGS ─────────────────────────────
     if (guildId) {
       try {
         const settingsRes = await db.query("SELECT wake_up_mode FROM guild_settings WHERE guild_id = $1", [guildId]);
@@ -93,7 +89,6 @@ module.exports = {
           if (mode === 'commands' && !isInSession) return;
         }
 
-        // ── PING RESPONSE (no active session) ─────────────
         if (isMentioned) {
           let currentSession = null;
           for (const [id, data] of client.memory.entries()) {
@@ -117,10 +112,14 @@ module.exports = {
               if (!userData.customPrompt && !userData.personal) {
                 try {
                   const [customRes, personalRes] = await Promise.all([
-                    db.query("SELECT custom_prompt FROM user_interactions WHERE user_id = $1", [userId]),
+                    db.query("SELECT custom_prompt, preferred_model FROM user_interactions WHERE user_id = $1", [userId]),
                     db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId])
                   ]);
-                  if (customRes.rows[0]) { customPrompt = customRes.rows[0].custom_prompt; userData.customPrompt = customPrompt; }
+                  if (customRes.rows[0]) {
+                    customPrompt = customRes.rows[0].custom_prompt || "";
+                    userData.customPrompt = customPrompt;
+                    if (customRes.rows[0].preferred_model) userData.model = customRes.rows[0].preferred_model;
+                  }
                   if (personalRes.rows[0]?.personal_info) {
                     try { userData.personal = JSON.parse(personalRes.rows[0].personal_info); }
                     catch { userData.personal = { info: personalRes.rows[0].personal_info }; }
@@ -167,7 +166,6 @@ module.exports = {
       }
     }
 
-    // ── ACTIVE CHAT SESSION ────────────────────────────────
     let activeSessionUser = null;
     let userData = null;
 
@@ -185,14 +183,12 @@ module.exports = {
 
     const now = Date.now();
 
-    // Timeout after 3 mins of inactivity
     if (userData.lastActivity && (now - userData.lastActivity > 180000)) {
       userData.inChat = false;
       client.memory.set(activeSessionUser, userData);
       return;
     }
 
-    // Stop phrases
     const content = message.content.toLowerCase();
     const stopPhrases = ["bye chrxmee ai.", "stop", "bye"];
     if (stopPhrases.includes(content) && activeSessionUser === userId) {
@@ -210,14 +206,16 @@ module.exports = {
 
     try { if (message.guild) message.channel.sendTyping(); } catch {}
 
-    // Fetch custom prompt + personal info if not cached
     if (!userData.customPrompt && !userData.personal) {
       try {
         const [customRes, personalRes] = await Promise.all([
-          db.query("SELECT custom_prompt FROM user_interactions WHERE user_id = $1", [userId]),
+          db.query("SELECT custom_prompt, preferred_model FROM user_interactions WHERE user_id = $1", [userId]),
           db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId])
         ]);
-        if (customRes.rows[0]) userData.customPrompt = customRes.rows[0].custom_prompt;
+        if (customRes.rows[0]) {
+          userData.customPrompt = customRes.rows[0].custom_prompt || "";
+          if (customRes.rows[0].preferred_model) userData.model = customRes.rows[0].preferred_model;
+        }
         if (personalRes.rows[0]?.personal_info) {
           try { userData.personal = JSON.parse(personalRes.rows[0].personal_info); }
           catch { userData.personal = { info: personalRes.rows[0].personal_info }; }
@@ -256,7 +254,7 @@ module.exports = {
 
       if (!data.choices?.[0]) {
         console.error("API Error Response:", JSON.stringify(data));
-        throw new Error("Invalid API response from Chrxmaticc AI, rate limited or broken.");
+        throw new Error("Invalid API response from Groq");
       }
 
       const answer = data.choices[0].message.content;
@@ -272,7 +270,7 @@ module.exports = {
     } catch (err) {
       console.error("AI execution error:", err);
       if (!err.message.includes("Unknown interaction")) {
-        message.reply("Sorry, Possibly an error or unknown interaction. Try again or switch to another model.").catch(() => {});
+        message.reply("Sorry, I hit a snag in our conversation. Try again in a sec!").catch(() => {});
       }
     }
   },
