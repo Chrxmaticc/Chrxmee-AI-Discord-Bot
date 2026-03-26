@@ -144,6 +144,7 @@ client.once('ready', async () => {
     const pgClient = await pool.connect();
     console.log('Postgres connected successfully on ready!');
 
+    // ── Core Settings ──────────────────────────────────────────
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS guild_settings (
         guild_id BIGINT PRIMARY KEY,
@@ -154,6 +155,7 @@ client.once('ready', async () => {
     `);
     console.log('guild_settings table ready');
 
+    // ── Birthdays ──────────────────────────────────────────────
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS user_birthdays (
         user_id BIGINT PRIMARY KEY,
@@ -166,7 +168,53 @@ client.once('ready', async () => {
     `);
     console.log('user_birthdays table ready');
 
-    // ==================== XP SYSTEM TABLES ====================
+    // ── AI Interactions ────────────────────────────────────────
+    await pgClient.query(`
+      CREATE TABLE IF NOT EXISTS user_interactions (
+        user_id BIGINT PRIMARY KEY,
+        custom_prompt TEXT DEFAULT '',
+        preferred_model TEXT DEFAULT 'genius',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    console.log('user_interactions table ready');
+
+    await pgClient.query(`
+      CREATE TABLE IF NOT EXISTS user_personal_info (
+        user_id BIGINT PRIMARY KEY,
+        personal_info TEXT DEFAULT '{}',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    console.log('user_personal_info table ready');
+
+    // ── Message Deduplication ──────────────────────────────────
+    await pgClient.query(`
+      CREATE TABLE IF NOT EXISTS processed_messages (
+        message_id BIGINT PRIMARY KEY,
+        processed_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    console.log('processed_messages table ready');
+
+    // ── Keyword Responder ──────────────────────────────────────
+    await pgClient.query(`
+      CREATE TABLE IF NOT EXISTS keyword_responder (
+        id SERIAL PRIMARY KEY,
+        guild_id BIGINT NOT NULL,
+        keyword TEXT NOT NULL,
+        response TEXT NOT NULL,
+        match_type TEXT DEFAULT 'contains',
+        created_by BIGINT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE (guild_id, keyword)
+      )
+    `);
+    console.log('keyword_responder table ready');
+
+    // ── XP System ─────────────────────────────────────────────
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS user_xp (
         user_id BIGINT NOT NULL,
@@ -207,15 +255,21 @@ client.once('ready', async () => {
       )
     `);
     console.log('xp_level_roles table ready');
-    // ==================== END XP SYSTEM TABLES ====================
+
+    // ── Migrations (add columns if missing) ───────────────────
+    await pgClient.query(`
+      ALTER TABLE user_interactions
+        ADD COLUMN IF NOT EXISTS preferred_model TEXT DEFAULT 'genius'
+    `);
 
     const res = await pgClient.query('SELECT 1');
     console.log('Test query worked:', res.rows);
     pgClient.release();
-    console.log('Pool pre-warmed successfully');
+    console.log('All tables ready — pool pre-warmed successfully');
 
     setupAntinukeEvents(client);
 
+    // ── Birthday Checker ───────────────────────────────────────
     setInterval(async () => {
       try {
         const today = new Date();
