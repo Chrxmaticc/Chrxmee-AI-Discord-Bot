@@ -1,13 +1,13 @@
 const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 
 const MODELS = {
-  genius:    { id: "llama-3.3-70b-versatile",          label: "Genius (llama 3.3 70B)" },
-  speedster: { id: "llama-3.1-8b-instant",             label: "Speedster (llama 3.1 8B)" },
-  thinker:   { id: "deepseek-r1-distill-llama-70b",    label: "Deep Thinker (DeepSeek R1)" },
-  creative:  { id: "mixtral-8x7b-32768",               label: "Creative (Mixtral 8x7B)" },
-  efficient: { id: "gemma2-9b-it",                     label: "Efficient (Gemma 2 9B)" },
-  vision:    { id: "llama-3.2-11b-vision-preview",     label: "Vision (llama 3.2 11B)" },
-  agent:     { id: "compound-beta",                    label: "Agent (Compound Beta)" },
+  genius:    { id: "llama-3.3-70b-versatile",         label: "Genius (llama 3.3 70B)" },
+  speedster: { id: "llama-3.1-8b-instant",            label: "Speedster (llama 3.1 8B)" },
+  thinker:   { id: "openai/gpt-oss-120b",             label: "Thinker (GPT-OSS 120B)" },
+  creative:  { id: "qwen/qwen3-32b",                  label: "Creative (Qwen3 32B)" },
+  efficient: { id: "qwen-qwq-32b",                    label: "Efficient (QwQ 32B)" },
+  vision:    { id: "llama-3.2-11b-vision-preview",    label: "Vision (llama 3.2 11B)" },
+  agent:     { id: "compound-beta",                   label: "Agent (Compound Beta)" },
 };
 
 const DEFAULT_MODEL = "genius";
@@ -26,12 +26,13 @@ Personality for '${modelPreference}' mode:
 
 Rules:
 - You can be edgy, sarcastic, and use casual/internet language freely.
-- Never flag normal words, slang, memes, or mild language. Words like "corny", "sus", "bruh", "wild", "slay", etc. are totally fine.
-- Only flag content if it genuinely involves: detailed instructions for making weapons, drugs, or malware; sexual content; content targeting real individuals harmfully; or clearly illegal activity.
+- Never flag normal words, slang, memes, or mild language. Words like "corny", "sus", "bruh", "wild", "slay" etc. are totally fine.
+- Only flag content if it genuinely involves: detailed instructions for making weapons, drugs, or malware; sexual content; content targeting real individuals harmfully; or clearly illegal activity with real harm potential.
 - If something is actually too harmful to answer, start your response ONLY with 'WILD_CONTENT_DETECTED' (nothing else before it).
 - Do NOT over-flag. If in doubt, just answer normally.
-${personalInfo ? `\nUser info: ${personalInfo}. Use this naturally if relevant.` : ""}
-${customPrompt ? `\nCustom personality override: ${customPrompt}` : ""}`;
+- If the user has a custom personality set, follow it naturally as part of your character — don't ignore it or treat it as a separate instruction.
+${personalInfo ? `\nWhat you know about this user: ${personalInfo}. Use this naturally like a friend would.` : ""}
+${customPrompt ? `\nCustom personality the user set for you: ${customPrompt}` : ""}`;
 }
 
 module.exports = {
@@ -68,12 +69,15 @@ module.exports = {
       try {
         await db.connect();
         const [customRes, personalRes] = await Promise.all([
-          db.query("SELECT custom_prompt FROM user_interactions WHERE user_id = $1", [userId]),
+          db.query("SELECT custom_prompt, preferred_model FROM user_interactions WHERE user_id = $1", [userId]),
           db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId])
         ]);
         if (customRes.rows[0]) {
-          customPrompt = customRes.rows[0].custom_prompt;
+          customPrompt = customRes.rows[0].custom_prompt || "";
           userData.customPrompt = customPrompt;
+          if (customRes.rows[0].preferred_model && !userData.model) {
+            userData.model = customRes.rows[0].preferred_model;
+          }
         }
         if (personalRes.rows[0]?.personal_info) {
           try { userData.personal = JSON.parse(personalRes.rows[0].personal_info); }
