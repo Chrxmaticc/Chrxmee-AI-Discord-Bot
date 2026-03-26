@@ -3,11 +3,11 @@ const { SlashCommandBuilder } = require("discord.js");
 const MODELS = {
   genius:    { id: "llama-3.3-70b-versatile",          label: "Genius",       desc: "Smart, thorough, and detailed answers." },
   speedster: { id: "llama-3.1-8b-instant",             label: "Speedster",    desc: "Fast and snappy. No fluff." },
-  thinker:   { id: "deepseek-r1-distill-llama-70b",    label: "Deep Thinker", desc: "Slow, methodical step-by-step reasoning." },
-  creative:  { id: "mixtral-8x7b-32768",               label: "Creative",     desc: "Expressive, imaginative, great for writing." },
-  efficient: { id: "gemma2-9b-it",                     label: "Efficient",    desc: "Lightweight and concise." },
-  vision:    { id: "llama-3.2-11b-vision-preview",     label: "Vision",       desc: "Analytical and observant." },
-  agent:     { id: "compound-beta",                    label: "Agent",        desc: "Research-oriented with web search." },
+  thinker:   { id: "gpt-oss-120b",                     label: "Thinker",      desc: "Deep reasoning and analysis." },
+  creative:  { id: "qwen3-32b",                        label: "Creative",     desc: "Imaginative and expressive writing." },
+  efficient: { id: "qwq-32b",                          label: "Efficient",    desc: "Lightweight and concise responses." },
+  vision:    { id: "llama-3.2-11b-vision",             label: "Vision",       desc: "Vision-enabled analysis." },
+  agent:     { id: "compound-beta",                    label: "Agent",        desc: "Research agent with web tools." },
 };
 
 module.exports = {
@@ -25,12 +25,12 @@ module.exports = {
             .setDescription("Choose a model")
             .setRequired(true)
             .addChoices(
-              { name: "🧠 Genius — Llama 3.3 70B",      value: "genius" },
-              { name: "⚡ Speedster — Llama 3.1 8B",     value: "speedster" },
-              { name: "🤔 Deep Thinker — DeepSeek R1",   value: "thinker" },
-              { name: "🎨 Creative — Mixtral 8x7B",      value: "creative" },
-              { name: "🔋 Efficient — Gemma 2 9B",       value: "efficient" },
-              { name: "👁️ Vision — Llama 3.2 11B",       value: "vision" },
+              { name: "🧠 Genius — llama 3.3 70B",      value: "genius" },
+              { name: "⚡ Speedster — llama 3.1 8B",     value: "speedster" },
+              { name: "🤔 Thinker — GPT-OSS 120B",       value: "thinker" },
+              { name: "🎨 Creative — Qwen3 32B",         value: "creative" },
+              { name: "🔋 Efficient — QwQ 32B",          value: "efficient" },
+              { name: "👁️ Vision — llama 3.2 11B",       value: "vision" },
               { name: "🌐 Agent — Compound Beta",        value: "agent" }
             )
         )
@@ -85,7 +85,7 @@ module.exports = {
         await db.end();
       }
 
-      return interaction.reply(`✅ Switched to **${model.label}** (\`${model.id}\`)\n> ${model.desc}`);
+      return interaction.reply(`✅ Switched to **${model.label}** (\`${model.id}\`)\\n> ${model.desc}`);
     }
 
     if (sub === "custom") {
@@ -109,7 +109,7 @@ module.exports = {
         await db.end();
       }
 
-      return interaction.reply(`✅ Custom personality set!\n> "${prompt}"\nChrxmee AI will act like this until you reset it.`);
+      return interaction.reply(`✅ Custom personality set!\\n> "${prompt}"\\nChrxmee AI will act like this until you reset it.`);
     }
 
     if (sub === "reset") {
@@ -141,7 +141,7 @@ module.exports = {
       const customPrompt = userData.customPrompt || "None";
 
       return interaction.reply({
-        content: `**Your Chrxmee AI Settings:**\n🧠 **Model:** ${currentModel.label} (\`${currentModel.id}\`)\n> ${currentModel.desc}\n\n✏️ **Custom Personality:** ${customPrompt}`,
+        content: `**Your Chrxmee AI Settings:**\\n🧠 **Model:** ${currentModel.label} (\`${currentModel.id}\`)\\n> ${currentModel.desc}\\n\\n✏️ **Custom Personality:** ${customPrompt}`,
         ephemeral: true
       });
     }
