@@ -1,0 +1,7 @@
+{
+  "name": "chrxmee-ai",
+  "npm": true,
+  "unstable": ["kv", "pg"],
+  "buildCommand": "npm ci --only=production --ignore-scripts --no-optional --network-timeout 100000",
+  "startCommand": "node chrxmee-ai/index.js"
+}
