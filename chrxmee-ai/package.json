@@ -1,10 +1,11 @@
 {
     "name": "chrxmee-ai",
     "version": "1.0.0",
-    "description": "Minimal deps for Deno Deploy success",
+    "description": "Deno Deploy success - deploy-commands included",
     "main": "index.js",
     "scripts": {
-        "start": "node chrxmee-ai/index.js"
+        "start": "node chrxmee-ai/index.js",
+        "deploy": "node deploy-commands.js"
     },
     "engines": {
         "node": ">=18.0.0"
