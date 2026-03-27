@@ -1,16 +1,10 @@
 {
     "name": "chrxmee-ai",
     "version": "1.0.0",
+    "description": "Minimal deps for Deno Deploy success",
     "main": "index.js",
     "scripts": {
-        "start": "node index.js",
-        "deploy": "node deploy-commands.js"
-    },
-    "dependencies": {
-        "discord.js": "^14.25.1",
-        "dotenv": "^16.6.1",
-        "node-fetch": "^3.3.2",
-        "pg": "^8.17.2"
+        "start": "node chrxmee-ai/index.js"
     },
     "engines": {
         "node": ">=18.0.0"
