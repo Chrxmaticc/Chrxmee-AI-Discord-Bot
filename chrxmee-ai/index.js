@@ -1,24 +1,34 @@
 require("dotenv").config();
 const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require("discord.js");
+const { LavalinkManager } = require("lavalink-client");
 const fs = require("fs");
 const path = require("path");
-const { Pool } = require('pg');
-const { setupAntinukeEvents } = require('./antinukeEvents');
+const { Pool } = require("pg");
+const { setupAntinukeEvents } = require("./antinukeEvents");
+
+// ==================== HELPERS ====================
+function msToTime(ms) {
+  const seconds = Math.floor((ms / 1000) % 60);
+  const minutes = Math.floor((ms / (1000 * 60)) % 60);
+  const hours = Math.floor(ms / (1000 * 60 * 60));
+  if (hours > 0) return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
 
 // ==================== KEEP-ALIVE SERVER ====================
-const http = require('http');
+const http = require("http");
 console.log("Starting keep-alive server...");
 const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Chrxmee AI is alive! 🚀');
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("Chrxmee AI is alive! 🚀");
 });
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, "0.0.0.0", () => {
   console.log(`Keep-alive server listening on port ${PORT}`);
 });
-server.on('error', (err) => {
-  console.error('Keep-alive server error:', err.message);
-  setTimeout(() => server.listen(PORT, '0.0.0.0'), 5000);
+server.on("error", (err) => {
+  console.error("Keep-alive server error:", err.message);
+  setTimeout(() => server.listen(PORT, "0.0.0.0"), 5000);
 });
 
 // ==================== CLIENT CREATION ====================
@@ -29,6 +39,7 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildVoiceStates,
   ],
   partials: [1, 3],
 });
@@ -36,6 +47,7 @@ const client = new Client({
 client.commands = new Collection();
 client.memory = new Map();
 client.snipes = new Map();
+client.msToTime = msToTime;
 
 // ==================== POSTGRES POOL ====================
 const pool = new Pool({
@@ -45,57 +57,113 @@ const pool = new Pool({
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
   keepAlive: true,
-  keepAliveInitialDelayMillis: 10000
+  keepAliveInitialDelayMillis: 10000,
 });
 
-pool.on('error', (err) => {
-  console.error('Postgres pool error:', err.message);
+pool.on("error", (err) => {
+  console.error("Postgres pool error:", err.message);
 });
 
 setInterval(async () => {
   try {
     const pgClient = await pool.connect();
-    await pgClient.query('SELECT 1');
+    await pgClient.query("SELECT 1");
     pgClient.release();
-    console.log('Postgres keep-alive ping OK');
+    console.log("Postgres keep-alive ping OK");
   } catch (err) {
-    console.error('Postgres keep-alive failed:', err.message);
+    console.error("Postgres keep-alive failed:", err.message);
   }
 }, 30000);
 
 client.pool = pool;
 
+// ==================== LAVALINK ====================
+client.lavalink = new LavalinkManager({
+  nodes: [
+    {
+      host: process.env.LAVA_HOST || "localhost",
+      port: parseInt(process.env.LAVA_PORT) || 2333,
+      authorization: process.env.LAVA_PASS || "chrxmaticc2026",
+      secure: process.env.LAVA_SECURE === "true",
+      id: "main",
+    },
+  ],
+  sendToShard: (guildId, payload) => {
+    const guild = client.guilds.cache.get(guildId);
+    if (guild) guild.shard.send(payload);
+  },
+  client: {
+    id: process.env.CLIENT_ID,
+    username: "Chrxmaticc AI",
+  },
+  playerOptions: {
+    defaultSearchPlatform: "ytsearch",
+    onDisconnect: { destroyPlayer: true },
+    onEmptyQueue: { destroyAfterMs: 30000 },
+  },
+});
+
+client.lavalink.on("nodeConnect", (node) =>
+  console.log(`Lavalink node "${node.id}" connected!`)
+);
+client.lavalink.on("nodeError", (node, err) =>
+  console.error(`Lavalink node "${node.id}" error:`, err.message)
+);
+client.lavalink.on("trackStart", (player, track) => {
+  const channel = client.channels.cache.get(player.textChannelId);
+  if (!channel) return;
+  channel.send({
+    embeds: [
+      new EmbedBuilder()
+        .setColor("#5865F2")
+        .setTitle("🎵 Now Playing")
+        .setDescription(`**[${track.info.title}](${track.info.uri})**`)
+        .addFields(
+          { name: "Author", value: track.info.author, inline: true },
+          { name: "Duration", value: msToTime(track.info.duration), inline: true },
+          { name: "Requested by", value: `<@${track.info.requester?.id || "Unknown"}>`, inline: true }
+        )
+        .setThumbnail(track.info.artworkUrl)
+        .setTimestamp(),
+    ],
+  }).catch(() => {});
+});
+client.lavalink.on("queueEnd", (player) => {
+  const channel = client.channels.cache.get(player.textChannelId);
+  if (channel) channel.send("✅ Queue finished! Add more songs with `/play`.").catch(() => {});
+});
+
 // ==================== SNIPE SYSTEM ====================
-client.on('messageDelete', message => {
+client.on("messageDelete", (message) => {
   if (message.author?.bot || !message.content) return;
   const snipes = client.snipes.get(message.channelId) || [];
-  snipes.push({ author: message.author, content: message.content, timestamp: new Date(), type: 'delete' });
+  snipes.push({ author: message.author, content: message.content, timestamp: new Date(), type: "delete" });
   if (snipes.length > 100) snipes.shift();
   client.snipes.set(message.channelId, snipes);
 
   const text = message.content.toLowerCase();
-  let roast = '';
-  if (text.includes('kill') || text.includes('die') || text.includes('murder')) {
+  let roast = "";
+  if (text.includes("kill") || text.includes("die") || text.includes("murder")) {
     roast = `Whoa ${message.author}, threats already? Taking notes... God mode engaged.`;
-  } else if (text.includes('fuck') || text.includes('bitch') || text.includes('shit')) {
+  } else if (text.includes("fuck") || text.includes("bitch") || text.includes("shit")) {
     roast = `God, I guess? ${message.author} typed that with full chest and zero brain cells. Touch grass.`;
-  } else if (text.includes('ugly') || text.includes('stupid') || text.includes('loser')) {
+  } else if (text.includes("ugly") || text.includes("stupid") || text.includes("loser")) {
     roast = `Oof ${message.author}... projecting much? Mirror called, wants its feelings back.`;
   }
   if (roast) message.channel.send(roast).catch(() => {});
 });
 
-client.on('messageUpdate', (oldMsg, newMsg) => {
+client.on("messageUpdate", (oldMsg, newMsg) => {
   if (oldMsg.author?.bot || oldMsg.content === newMsg.content) return;
   const snipes = client.snipes.get(oldMsg.channelId) || [];
-  snipes.push({ author: oldMsg.author, content: newMsg.content, oldContent: oldMsg.content, timestamp: new Date(), type: 'edit' });
+  snipes.push({ author: oldMsg.author, content: newMsg.content, oldContent: oldMsg.content, timestamp: new Date(), type: "edit" });
   if (snipes.length > 100) snipes.shift();
   client.snipes.set(oldMsg.channelId, snipes);
 });
 
 // ==================== COMMAND & EVENT LOADING ====================
 const commandsPath = path.join(__dirname, "commands");
-const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith(".js"));
+const commandFiles = fs.readdirSync(commandsPath).filter((file) => file.endsWith(".js"));
 for (const file of commandFiles) {
   const filePath = path.join(commandsPath, file);
   const command = require(filePath);
@@ -105,7 +173,7 @@ for (const file of commandFiles) {
 }
 
 const eventsPath = path.join(__dirname, "events");
-const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith(".js"));
+const eventFiles = fs.readdirSync(eventsPath).filter((file) => file.endsWith(".js"));
 for (const file of eventFiles) {
   const filePath = path.join(eventsPath, file);
   const event = require(filePath);
@@ -127,22 +195,26 @@ setInterval(() => {
       "Smarter than your average bot.",
       "Analyzing the void of existence.",
       `Active for ${Math.floor(process.uptime() / 3600)}h | ${client.guilds.cache.size} Servers`,
-      `Handling ${heartbeatCount} heartbeats | High Traffic Mode 🚀`
+      `Handling ${heartbeatCount} heartbeats | High Traffic Mode 🚀`,
     ];
     const activity = activities[Math.floor(Math.random() * activities.length)];
-    client.user.setPresence({ activities: [{ name: activity, type: 0 }], status: 'online' });
+    client.user.setPresence({ activities: [{ name: activity, type: 0 }], status: "online" });
     console.log(`[HEARTBEAT #${heartbeatCount}] Presence: ${activity}`);
   }
 }, 300000);
 
 // ==================== CLIENT READY ====================
-client.once('ready', async () => {
+client.once("ready", async () => {
   try {
     console.log(`Logged in as ${client.user.tag}`);
     console.log(`Chrxmee AI ready as ${client.user.tag}`);
 
+    // Init Lavalink
+    await client.lavalink.init({ id: client.user.id, username: client.user.username });
+    console.log("Lavalink manager initialized!");
+
     const pgClient = await pool.connect();
-    console.log('Postgres connected successfully on ready!');
+    console.log("Postgres connected successfully on ready!");
 
     // ── Core Settings ──────────────────────────────────────────
     await pgClient.query(`
@@ -153,7 +225,7 @@ client.once('ready', async () => {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
-    console.log('guild_settings table ready');
+    console.log("guild_settings table ready");
 
     // ── Birthdays ──────────────────────────────────────────────
     await pgClient.query(`
@@ -166,7 +238,7 @@ client.once('ready', async () => {
         set_at TIMESTAMP DEFAULT NOW()
       )
     `);
-    console.log('user_birthdays table ready');
+    console.log("user_birthdays table ready");
 
     // ── AI Interactions ────────────────────────────────────────
     await pgClient.query(`
@@ -178,7 +250,7 @@ client.once('ready', async () => {
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
-    console.log('user_interactions table ready');
+    console.log("user_interactions table ready");
 
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS user_personal_info (
@@ -188,7 +260,7 @@ client.once('ready', async () => {
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
-    console.log('user_personal_info table ready');
+    console.log("user_personal_info table ready");
 
     // ── Message Deduplication ──────────────────────────────────
     await pgClient.query(`
@@ -197,7 +269,7 @@ client.once('ready', async () => {
         processed_at TIMESTAMP DEFAULT NOW()
       )
     `);
-    console.log('processed_messages table ready');
+    console.log("processed_messages table ready");
 
     // ── Keyword Responder ──────────────────────────────────────
     await pgClient.query(`
@@ -212,7 +284,7 @@ client.once('ready', async () => {
         UNIQUE (guild_id, keyword)
       )
     `);
-    console.log('keyword_responder table ready');
+    console.log("keyword_responder table ready");
 
     // ── XP System ─────────────────────────────────────────────
     await pgClient.query(`
@@ -225,7 +297,7 @@ client.once('ready', async () => {
         PRIMARY KEY (user_id, guild_id)
       )
     `);
-    console.log('user_xp table ready');
+    console.log("user_xp table ready");
 
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS xp_blacklisted_channels (
@@ -234,7 +306,7 @@ client.once('ready', async () => {
         PRIMARY KEY (guild_id, channel_id)
       )
     `);
-    console.log('xp_blacklisted_channels table ready');
+    console.log("xp_blacklisted_channels table ready");
 
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS xp_multipliers (
@@ -244,7 +316,7 @@ client.once('ready', async () => {
         PRIMARY KEY (guild_id, role_id)
       )
     `);
-    console.log('xp_multipliers table ready');
+    console.log("xp_multipliers table ready");
 
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS xp_level_roles (
@@ -254,15 +326,15 @@ client.once('ready', async () => {
         PRIMARY KEY (guild_id, level)
       )
     `);
-    console.log('xp_level_roles table ready');
+    console.log("xp_level_roles table ready");
 
     // ── Migrations ─────────────────────────────────────────────
     await pgClient.query(`ALTER TABLE user_interactions ADD COLUMN IF NOT EXISTS preferred_model TEXT DEFAULT 'genius'`);
 
-    const res = await pgClient.query('SELECT 1');
-    console.log('Test query worked:', res.rows);
+    const res = await pgClient.query("SELECT 1");
+    console.log("Test query worked:", res.rows);
     pgClient.release();
-    console.log('All tables ready — pool pre-warmed successfully');
+    console.log("All tables ready — pool pre-warmed successfully");
 
     setupAntinukeEvents(client);
 
@@ -286,88 +358,92 @@ client.once('ready', async () => {
               }
             }
             if (row.ping_role_id) {
-              const channel = guild.systemChannel || guild.channels.cache.find(ch => ch.isTextBased());
+              const channel = guild.systemChannel || guild.channels.cache.find((ch) => ch.isTextBased());
               if (channel) await channel.send(`<@&${row.ping_role_id}> Happy birthday to ${member}! 🎂`).catch(console.error);
             }
           }
         }
       } catch (err) {
-        console.error('Birthday check failed:', err);
+        console.error("Birthday check failed:", err);
       }
     }, 86400000);
 
     client.user.setPresence({
-      status: 'online',
-      activities: [{ name: "Discord World AI Competition", type: 0 }]
+      status: "online",
+      activities: [{ name: "Discord World AI Competition", type: 0 }],
     });
 
-    client.on('interactionCreate', async i => {
+    client.on("interactionCreate", async (i) => {
       if (!i.isStringSelectMenu()) return;
-      if (i.customId !== 'help_select') return;
+      if (i.customId !== "help_select") return;
       await i.deferReply({ ephemeral: true });
 
-      let title = '', desc = '';
+      let title = "", desc = "";
       switch (i.values[0]) {
-        case 'help_ai':
-          title = 'AI-Powered Commands';
-          desc = '`/ask` — Ask anything to the AI\n`/chat` — Chat with the bot\n`/summarize` — Summarize text\n`/translate` — Translate text\n`/debate` — Debate with the bot\n`/dream` — Generate dream/image\n`/model` — Switch AI model\n`/news` — Get news\n`/oracle` — Oracle prediction\n`/code-generate` — Generate code';
+        case "help_ai":
+          title = "AI-Powered Commands";
+          desc = "`/ask` — Ask anything to the AI\n`/chat` — Chat with the bot\n`/summarize` — Summarize text\n`/translate` — Translate text\n`/debate` — Debate with the bot\n`/dream` — Generate dream/image\n`/model` — Switch AI model\n`/news` — Get news\n`/oracle` — Oracle prediction\n`/code-generate` — Generate code";
           break;
-        case 'help_visual':
-          title = 'Visual Imagination';
-          desc = '`/image` — Search images\n`/imagine` — Imagine something\n`/generate-qr` — QR code\n`/avatar` — User avatar';
+        case "help_visual":
+          title = "Visual Imagination";
+          desc = "`/image` — Search images\n`/imagine` — Imagine something\n`/generate-qr` — QR code\n`/avatar` — User avatar";
           break;
-        case 'help_fun':
-          title = 'Fun & Games';
-          desc = '`/roast` — Roast someone\n`/roastme` — Get roasted\n`/burn @user` — Burn someone\n`/coinflip` — Coin flip\n`/dice` — Roll dice\n`/poll` — Create poll\n`/trivia` — Trivia game\n`/ship` — Ship two users\n`/8ball` — Magic 8-ball';
+        case "help_fun":
+          title = "Fun & Games";
+          desc = "`/roast` — Roast someone\n`/roastme` — Get roasted\n`/burn @user` — Burn someone\n`/coinflip` — Coin flip\n`/dice` — Roll dice\n`/poll` — Create poll\n`/trivia` — Trivia game\n`/ship` — Ship two users\n`/8ball` — Magic 8-ball";
           break;
-        case 'help_utility':
-          title = 'Utility';
-          desc = '`/snipe` — Snipe messages\n`/ping` — Ping bot\n`/serverinfo` — Server info\n`/user @user` — User info\n`/remind-me` — Reminders\n`/quote` — Random quote\n`/status` — Bot status\n`/history` — Conversation history';
+        case "help_music":
+          title = "Music";
+          desc = "`/play` — Play a song\n`/skip` — Skip current song\n`/stop` — Stop and clear queue\n`/pause` — Pause/resume\n`/nowplaying` — Now playing\n`/queue` — View queue\n`/volume` — Set volume\n`/loop` — Loop mode\n`/filter` — Audio filters";
           break;
-        case 'help_mod':
-          title = 'Moderation & Advanced';
-          desc = '`/auto-respond` — Toggle auto-responses\n`/guild-settings` — Server settings\n`/dashboard` — Bot dashboard\n`/brain-dump` — Memory dump\n`/clear-brain` — Clear memory';
+        case "help_utility":
+          title = "Utility";
+          desc = "`/snipe` — Snipe messages\n`/ping` — Ping bot\n`/serverinfo` — Server info\n`/user @user` — User info\n`/remind-me` — Reminders\n`/quote` — Random quote\n`/status` — Bot status\n`/history` — Conversation history";
+          break;
+        case "help_mod":
+          title = "Moderation & Advanced";
+          desc = "`/auto-respond` — Toggle auto-responses\n`/guild-settings` — Server settings\n`/dashboard` — Bot dashboard\n`/brain-dump` — Memory dump\n`/clear-brain` — Clear memory";
           break;
         default:
-          return i.editReply({ content: 'Unknown section.', ephemeral: true });
+          return i.editReply({ content: "Unknown section.", ephemeral: true });
       }
 
-      return i.editReply({ embeds: [new EmbedBuilder().setColor('#2f3136').setTitle(title).setDescription(desc)], ephemeral: true });
+      return i.editReply({
+        embeds: [new EmbedBuilder().setColor("#2f3136").setTitle(title).setDescription(desc)],
+        ephemeral: true,
+      });
     });
-
   } catch (err) {
-    console.error('READY EVENT CRASHED:', err);
-    console.error('Stack trace:', err.stack);
+    console.error("READY EVENT CRASHED:", err);
+    console.error("Stack trace:", err.stack);
   }
 });
 
 // ==================== RECONNECTION LOGIC ====================
-client.on('disconnect', () => {
-  console.log('Bot disconnected! Attempting to reconnect...');
+client.on("disconnect", () => {
+  console.log("Bot disconnected! Attempting to reconnect...");
 });
-
-client.on('error', (err) => {
-  console.error('Discord client error:', err.message);
+client.on("error", (err) => {
+  console.error("Discord client error:", err.message);
 });
-
-client.on('warn', (info) => {
-  console.warn('Discord client warning:', info);
+client.on("warn", (info) => {
+  console.warn("Discord client warning:", info);
 });
 
 // ==================== GLOBAL ERROR HANDLERS ====================
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason);
 });
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception thrown:', err);
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception thrown:", err);
 });
 
 // ==================== LOGIN ====================
-console.log('BOT_TOKEN value:', process.env.BOT_TOKEN ? `exists, length: ${process.env.BOT_TOKEN.length}` : 'MISSING OR EMPTY');
+console.log("BOT_TOKEN value:", process.env.BOT_TOKEN ? `exists, length: ${process.env.BOT_TOKEN.length}` : "MISSING OR EMPTY");
 
 client.login(process.env.BOT_TOKEN).then(() => {
-  console.log('Discord login successful!');
-}).catch(err => {
-  console.error('Discord login FAILED:', err.message);
-  console.error('Full error:', err);
+  console.log("Discord login successful!");
+}).catch((err) => {
+  console.error("Discord login FAILED:", err.message);
+  console.error("Full error:", err);
 });
