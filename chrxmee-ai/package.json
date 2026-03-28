@@ -10,7 +10,8 @@
         "discord.js": "^14.25.1",
         "dotenv": "^16.6.1",
         "node-fetch": "^3.3.2",
-        "pg": "^8.17.2"
+        "pg": "^8.17.2",
+        "lavalink-client": "^2.0.0"
     },
     "engines": {
         "node": ">=18.0.0"
