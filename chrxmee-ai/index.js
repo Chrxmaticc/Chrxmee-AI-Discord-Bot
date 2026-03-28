@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const { Pool } = require("pg");
 const { setupAntinukeEvents } = require("./antinukeEvents");
+
 // ==================== HELPERS ====================
 function msToTime(ms) {
   const seconds = Math.floor((ms / 1000) % 60);
@@ -13,6 +14,7 @@ function msToTime(ms) {
   if (hours > 0) return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
+
 // ==================== KEEP-ALIVE SERVER ====================
 const http = require("http");
 console.log("Starting keep-alive server...");
@@ -28,6 +30,7 @@ server.on("error", (err) => {
   console.error("Keep-alive server error:", err.message);
   setTimeout(() => server.listen(PORT, "0.0.0.0"), 5000);
 });
+
 // ==================== CLIENT CREATION ====================
 const client = new Client({
   intents: [
@@ -40,10 +43,12 @@ const client = new Client({
   ],
   partials: [1, 3],
 });
+
 client.commands = new Collection();
 client.memory = new Map();
 client.snipes = new Map();
 client.msToTime = msToTime;
+
 // ==================== POSTGRES POOL ====================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -54,9 +59,11 @@ const pool = new Pool({
   keepAlive: true,
   keepAliveInitialDelayMillis: 10000,
 });
+
 pool.on("error", (err) => {
   console.error("Postgres pool error:", err.message);
 });
+
 setInterval(async () => {
   try {
     const pgClient = await pool.connect();
@@ -67,7 +74,9 @@ setInterval(async () => {
     console.error("Postgres keep-alive failed:", err.message);
   }
 }, 30000);
+
 client.pool = pool;
+
 // ==================== LAVALINK ====================
 client.lavalink = new LavalinkManager({
   nodes: [
@@ -75,7 +84,7 @@ client.lavalink = new LavalinkManager({
       host: process.env.LAVA_HOST || "localhost",
       port: parseInt(process.env.LAVA_PORT) || 2333,
       authorization: process.env.LAVA_PASS || "chrxmaticc2026",
-      secure: process.env.LAVA_SECURE === "true",
+      secure: false,
       id: "main",
     },
   ],
@@ -93,6 +102,7 @@ client.lavalink = new LavalinkManager({
     onEmptyQueue: { destroyAfterMs: 30000 },
   },
 });
+
 client.lavalink.on("nodeConnect", (node) =>
   console.log(`Lavalink node "${node.id}" connected!`)
 );
@@ -122,6 +132,7 @@ client.lavalink.on("queueEnd", (player) => {
   const channel = client.channels.cache.get(player.textChannelId);
   if (channel) channel.send("✅ Queue finished! Add more songs with `/play`.").catch(() => {});
 });
+
 // ==================== SNIPE SYSTEM ====================
 client.on("messageDelete", (message) => {
   if (message.author?.bot || !message.content) return;
@@ -129,6 +140,7 @@ client.on("messageDelete", (message) => {
   snipes.push({ author: message.author, content: message.content, timestamp: new Date(), type: "delete" });
   if (snipes.length > 100) snipes.shift();
   client.snipes.set(message.channelId, snipes);
+
   const text = message.content.toLowerCase();
   let roast = "";
   if (text.includes("kill") || text.includes("die") || text.includes("murder")) {
@@ -140,6 +152,7 @@ client.on("messageDelete", (message) => {
   }
   if (roast) message.channel.send(roast).catch(() => {});
 });
+
 client.on("messageUpdate", (oldMsg, newMsg) => {
   if (oldMsg.author?.bot || oldMsg.content === newMsg.content) return;
   const snipes = client.snipes.get(oldMsg.channelId) || [];
@@ -147,6 +160,7 @@ client.on("messageUpdate", (oldMsg, newMsg) => {
   if (snipes.length > 100) snipes.shift();
   client.snipes.set(oldMsg.channelId, snipes);
 });
+
 // ==================== COMMAND & EVENT LOADING ====================
 const commandsPath = path.join(__dirname, "commands");
 const commandFiles = fs.readdirSync(commandsPath).filter((file) => file.endsWith(".js"));
@@ -157,6 +171,7 @@ for (const file of commandFiles) {
     client.commands.set(command.data.name, command);
   }
 }
+
 const eventsPath = path.join(__dirname, "events");
 const eventFiles = fs.readdirSync(eventsPath).filter((file) => file.endsWith(".js"));
 for (const file of eventFiles) {
@@ -168,6 +183,7 @@ for (const file of eventFiles) {
     client.on(event.name, (...args) => event.execute(...args));
   }
 }
+
 // ==================== HEARTBEAT ====================
 let heartbeatCount = 0;
 setInterval(() => {
@@ -186,16 +202,20 @@ setInterval(() => {
     console.log(`[HEARTBEAT #${heartbeatCount}] Presence: ${activity}`);
   }
 }, 300000);
+
 // ==================== CLIENT READY ====================
 client.once("ready", async () => {
   try {
     console.log(`Logged in as ${client.user.tag}`);
     console.log(`Chrxmee AI ready as ${client.user.tag}`);
+
     // Init Lavalink
     await client.lavalink.init({ id: client.user.id, username: client.user.username });
     console.log("Lavalink manager initialized!");
+
     const pgClient = await pool.connect();
     console.log("Postgres connected successfully on ready!");
+
     // ── Core Settings ──────────────────────────────────────────
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS guild_settings (
@@ -206,6 +226,7 @@ client.once("ready", async () => {
       )
     `);
     console.log("guild_settings table ready");
+
     // ── Birthdays ──────────────────────────────────────────────
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS user_birthdays (
@@ -218,6 +239,7 @@ client.once("ready", async () => {
       )
     `);
     console.log("user_birthdays table ready");
+
     // ── AI Interactions ────────────────────────────────────────
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS user_interactions (
@@ -229,6 +251,7 @@ client.once("ready", async () => {
       )
     `);
     console.log("user_interactions table ready");
+
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS user_personal_info (
         user_id BIGINT PRIMARY KEY,
@@ -238,6 +261,7 @@ client.once("ready", async () => {
       )
     `);
     console.log("user_personal_info table ready");
+
     // ── Message Deduplication ──────────────────────────────────
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS processed_messages (
@@ -246,6 +270,7 @@ client.once("ready", async () => {
       )
     `);
     console.log("processed_messages table ready");
+
     // ── Keyword Responder ──────────────────────────────────────
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS keyword_responder (
@@ -260,6 +285,7 @@ client.once("ready", async () => {
       )
     `);
     console.log("keyword_responder table ready");
+
     // ── XP System ─────────────────────────────────────────────
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS user_xp (
@@ -272,6 +298,7 @@ client.once("ready", async () => {
       )
     `);
     console.log("user_xp table ready");
+
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS xp_blacklisted_channels (
         guild_id BIGINT NOT NULL,
@@ -280,6 +307,7 @@ client.once("ready", async () => {
       )
     `);
     console.log("xp_blacklisted_channels table ready");
+
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS xp_multipliers (
         guild_id BIGINT NOT NULL,
@@ -289,6 +317,7 @@ client.once("ready", async () => {
       )
     `);
     console.log("xp_multipliers table ready");
+
     await pgClient.query(`
       CREATE TABLE IF NOT EXISTS xp_level_roles (
         guild_id BIGINT NOT NULL,
@@ -298,13 +327,17 @@ client.once("ready", async () => {
       )
     `);
     console.log("xp_level_roles table ready");
+
     // ── Migrations ─────────────────────────────────────────────
     await pgClient.query(`ALTER TABLE user_interactions ADD COLUMN IF NOT EXISTS preferred_model TEXT DEFAULT 'genius'`);
+
     const res = await pgClient.query("SELECT 1");
     console.log("Test query worked:", res.rows);
     pgClient.release();
     console.log("All tables ready — pool pre-warmed successfully");
+
     setupAntinukeEvents(client);
+
     // ── Birthday Checker ───────────────────────────────────────
     setInterval(async () => {
       try {
@@ -334,14 +367,17 @@ client.once("ready", async () => {
         console.error("Birthday check failed:", err);
       }
     }, 86400000);
+
     client.user.setPresence({
       status: "online",
       activities: [{ name: "Discord World AI Competition", type: 0 }],
     });
+
     client.on("interactionCreate", async (i) => {
       if (!i.isStringSelectMenu()) return;
       if (i.customId !== "help_select") return;
       await i.deferReply({ ephemeral: true });
+
       let title = "", desc = "";
       switch (i.values[0]) {
         case "help_ai":
@@ -371,20 +407,24 @@ client.once("ready", async () => {
         default:
           return i.editReply({ content: "Unknown section.", ephemeral: true });
       }
+
       return i.editReply({
         embeds: [new EmbedBuilder().setColor("#2f3136").setTitle(title).setDescription(desc)],
         ephemeral: true,
       });
     });
+
   } catch (err) {
     console.error("READY EVENT CRASHED:", err);
     console.error("Stack trace:", err.stack);
   }
 });
 
-// ==================== LAVALINK VOICE STATE UPDATE (This section is SO FUCKING NEEDED NXY.) ====================
+// ==================== LAVALINK VOICE STATE UPDATE ====================
 client.on("raw", (d) => {
-  client.lavalink.updateVoiceState(d);
+  if (d.t === "VOICE_SERVER_UPDATE" || d.t === "VOICE_STATE_UPDATE") {
+    client.lavalink.sendRawData(d);
+  }
 });
 
 // ==================== RECONNECTION LOGIC ====================
@@ -397,6 +437,7 @@ client.on("error", (err) => {
 client.on("warn", (info) => {
   console.warn("Discord client warning:", info);
 });
+
 // ==================== GLOBAL ERROR HANDLERS ====================
 process.on("unhandledRejection", (reason, promise) => {
   console.error("Unhandled Rejection at:", promise, "reason:", reason);
@@ -404,8 +445,10 @@ process.on("unhandledRejection", (reason, promise) => {
 process.on("uncaughtException", (err) => {
   console.error("Uncaught Exception thrown:", err);
 });
+
 // ==================== LOGIN ====================
 console.log("BOT_TOKEN value:", process.env.BOT_TOKEN ? `exists, length: ${process.env.BOT_TOKEN.length}` : "MISSING OR EMPTY");
+
 client.login(process.env.BOT_TOKEN).then(() => {
   console.log("Discord login successful!");
 }).catch((err) => {
