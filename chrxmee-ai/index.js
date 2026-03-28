@@ -382,7 +382,7 @@ client.once("ready", async () => {
   }
 });
 
-// ==================== LAVALINK VOICE STATE UPDATE (only this added) ====================
+// ==================== LAVALINK VOICE STATE UPDATE (This section is SO FUCKING NEEDED NXY.) ====================
 client.on("raw", (d) => {
   client.lavalink.updateVoiceState(d);
 });
