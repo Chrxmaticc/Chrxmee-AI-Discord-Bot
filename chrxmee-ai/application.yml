@@ -12,7 +12,7 @@ lavalink:
   server:
     password: "chrxmaticc2026"
     sources:
-      youtube: false
+      youtube: true
       soundcloud: true
       http: true
     bufferDurationMs: 400
