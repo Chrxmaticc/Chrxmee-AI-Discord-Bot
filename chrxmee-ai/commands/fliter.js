@@ -9,7 +9,6 @@ const FILTERS = {
   tremolo:     { tremolo: { frequency: 4.0, depth: 0.75 } },
   vibrato:     { vibrato: { frequency: 4.0, depth: 0.75 } },
   soft:        { lowPass: { smoothing: 20.0 } },
-  clear:       {},
 };
 
 module.exports = {
@@ -35,15 +34,16 @@ module.exports = {
     const player = interaction.client.lavalink.getPlayer(interaction.guild.id);
     if (!player || !player.queue.current) return interaction.reply("❌ Nothing is playing!");
     if (!interaction.member.voice.channel) return interaction.reply("❌ You need to be in a voice channel!");
+    if (!player.filters) return interaction.reply("❌ Filters aren't ready yet — try again in a second!");
 
     const type = interaction.options.getString("type");
-    const filter = FILTERS[type];
 
     if (type === "clear") {
       await player.filters.resetFilters();
       return interaction.reply("❌ Cleared all filters!");
     }
 
+    const filter = FILTERS[type];
     await player.filters.setFilters(filter);
 
     const descriptions = {
