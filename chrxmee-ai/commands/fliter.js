@@ -28,68 +28,49 @@ module.exports = {
     const type = interaction.options.getString("type");
 
     const descriptions = {
-      bassboost:  "🔊 **Bass Boost** — Pumping up the low end!",
-      nightcore:  "🌙 **Nightcore** — Sped up and pitch shifted!",
-      vaporwave:  "🌊 **Vaporwave** — Slowed down and dreamy!",
-      "8d":       "🎧 **8D Audio** — Audio rotating around your head!",
-      karaoke:    "🎤 **Karaoke** — Attempting to remove vocals!",
-      tremolo:    "〰️ **Tremolo** — Wavering volume effect!",
-      vibrato:    "🎸 **Vibrato** — Wavering pitch effect!",
-      soft:       "🌥️ **Soft** — Smoothed out audio!",
-      clear:      "✅ **Cleared** — All filters removed!",
+      bassboost: "🔊 **Bass Boost** — Pumping up the low end!",
+      nightcore: "🌙 **Nightcore** — Sped up and pitch shifted!",
+      vaporwave: "🌊 **Vaporwave** — Slowed down and dreamy!",
+      "8d":      "🎧 **8D Audio** — Audio rotating around your head!",
+      karaoke:   "🎤 **Karaoke** — Attempting to remove vocals!",
+      tremolo:   "〰️ **Tremolo** — Wavering volume effect!",
+      vibrato:   "🎸 **Vibrato** — Wavering pitch effect!",
+      soft:      "🌥️ **Soft** — Smoothed out audio!",
     };
 
     try {
-      // Reset first so filters don't stack
       await player.filterManager.resetFilters();
 
       switch (type) {
         case "clear":
           return interaction.reply("✅ Cleared all filters!");
-
         case "bassboost":
-          await player.filterManager.setEqualizer([
-            { band: 0, gain: 0.6 }, { band: 1, gain: 0.7 },
-            { band: 2, gain: 0.8 }, { band: 3, gain: 0.55 },
-            { band: 4, gain: 0.25 }
-          ]);
+          await player.filterManager.setEQPreset("boost");
           break;
-
         case "nightcore":
-          await player.filterManager.setTimescale({ speed: 1.2, pitch: 1.3, rate: 1.0 });
+          await player.filterManager.toggleNightcore();
           break;
-
         case "vaporwave":
-          await player.filterManager.setTimescale({ speed: 0.8, pitch: 0.8, rate: 1.0 });
+          await player.filterManager.toggleVaporwave();
           break;
-
         case "8d":
-          await player.filterManager.setRotation({ rotationHz: 0.2 });
+          await player.filterManager.toggleRotation();
           break;
-
         case "karaoke":
-          await player.filterManager.setKaraoke({
-            level: 1.0, monoLevel: 1.0,
-            filterBand: 220.0, filterWidth: 100.0
-          });
+          await player.filterManager.toggleKaraoke();
           break;
-
         case "tremolo":
-          await player.filterManager.setTremolo({ frequency: 4.0, depth: 0.75 });
+          await player.filterManager.toggleTremolo();
           break;
-
         case "vibrato":
-          await player.filterManager.setVibrato({ frequency: 4.0, depth: 0.75 });
+          await player.filterManager.toggleVibrato();
           break;
-
         case "soft":
-          await player.filterManager.setLowPass({ smoothing: 20.0 });
+          await player.filterManager.toggleLowPass();
           break;
       }
     } catch (err) {
       console.error("Filter error:", err.message);
-      // Log what methods are actually available
-      console.log("Available filterManager methods:", Object.getOwnPropertyNames(Object.getPrototypeOf(player.filterManager)));
       return interaction.reply(`❌ Filter failed: \`${err.message}\``);
     }
 
