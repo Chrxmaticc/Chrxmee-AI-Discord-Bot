@@ -209,7 +209,6 @@ client.once("ready", async () => {
     console.log(`Logged in as ${client.user.tag}`);
     console.log(`Chrxmee AI ready as ${client.user.tag}`);
 
-    // Init Lavalink
     await client.lavalink.init({ id: client.user.id, username: client.user.username });
     console.log("Lavalink manager initialized!");
 
@@ -328,6 +327,32 @@ client.once("ready", async () => {
     `);
     console.log("xp_level_roles table ready");
 
+    // ── Playlists ──────────────────────────────────────────────
+    await pgClient.query(`
+      CREATE TABLE IF NOT EXISTS playlists (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        name TEXT NOT NULL,
+        is_public BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE (user_id, name)
+      )
+    `);
+    console.log("playlists table ready");
+
+    await pgClient.query(`
+      CREATE TABLE IF NOT EXISTS playlist_tracks (
+        id SERIAL PRIMARY KEY,
+        playlist_id INTEGER REFERENCES playlists(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        uri TEXT NOT NULL,
+        author TEXT,
+        duration BIGINT,
+        added_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    console.log("playlist_tracks table ready");
+
     // ── Migrations ─────────────────────────────────────────────
     await pgClient.query(`ALTER TABLE user_interactions ADD COLUMN IF NOT EXISTS preferred_model TEXT DEFAULT 'genius'`);
 
@@ -394,7 +419,7 @@ client.once("ready", async () => {
           break;
         case "help_music":
           title = "Music";
-          desc = "`/play` — Play a song\n`/skip` — Skip current song\n`/stop` — Stop and clear queue\n`/pause` — Pause/resume\n`/nowplaying` — Now playing\n`/queue` — View queue\n`/volume` — Set volume\n`/loop` — Loop mode\n`/filter` — Audio filters";
+          desc = "`/play` — Play a song\n`/join` — Join your VC\n`/leave` — Leave VC\n`/skip` — Skip current song\n`/stop` — Stop and clear queue\n`/pause` — Pause/resume\n`/nowplaying` — Now playing\n`/queue` — View queue\n`/volume` — Set volume\n`/loop` — Loop mode\n`/filter` — Audio filters\n`/shuffle` — Shuffle queue\n`/search` — Search and pick\n`/autoplay` — Toggle autoplay\n`/lyrics` — Get lyrics\n`/remove` — Remove a song\n`/move` — Move a song\n`/seek` — Seek to timestamp\n`/replay` — Restart song\n`/clearqueue` — Clear queue\n`/previous` — Previous song\n`/voteskip` — Vote to skip\n`/save` — DM yourself the song\n`/247` — 24/7 mode\n`/playlist` — Manage playlists";
           break;
         case "help_utility":
           title = "Utility";
