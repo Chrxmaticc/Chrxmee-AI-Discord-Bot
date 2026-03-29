@@ -21,7 +21,7 @@ module.exports = {
         guildId: interaction.guild.id,
         voiceChannelId: voiceChannel.id,
         textChannelId: interaction.channel.id,
-        selfDeaf: true,
+        selfDeaf: false,
         volume: 80,
       });
     }
