@@ -1,6 +1,0 @@
-
-LAVA_HOST=localhost
-LAVA_PORT=2333
-LAVA_PASS=chrxmaticc2026
-LAVA_SECURE=true
-PORT=3000
