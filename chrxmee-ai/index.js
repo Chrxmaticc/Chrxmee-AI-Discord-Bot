@@ -84,7 +84,7 @@ client.lavalink = new LavalinkManager({
       host: process.env.LAVA_HOST || "localhost",
       port: parseInt(process.env.LAVA_PORT) || 2333,
       authorization: process.env.LAVA_PASS || "chrxmaticc2026",
-      secure: false,
+      secure: true,
       id: "main",
     },
   ],
