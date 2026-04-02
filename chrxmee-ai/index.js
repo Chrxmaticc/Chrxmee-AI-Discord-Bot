@@ -84,7 +84,7 @@ client.lavalink = new LavalinkManager({
       host: process.env.LAVA_HOST || "localhost",
       port: parseInt(process.env.LAVA_PORT) || 2333,
       authorization: process.env.LAVA_PASS || "chrxmaticc2026",
-      secure: true,
+      secure: process.env.LAVA_SECURE === "true",
       id: "main",
     },
   ],
@@ -132,6 +132,23 @@ client.lavalink.on("queueEnd", (player) => {
   const channel = client.channels.cache.get(player.textChannelId);
   if (channel) channel.send("✅ Queue finished! Add more songs with `/play`.").catch(() => {});
 });
+
+// ==================== LAVALINK KEEP-ALIVE ====================
+setInterval(async () => {
+  try {
+    const lavaHost = process.env.LAVA_HOST || "chrxmee-lavalink.onrender.com";
+    const lavaPort = process.env.LAVA_PORT || "443";
+    const lavaPass = process.env.LAVA_PASS || "chrxmaticc2026";
+    const secure = process.env.LAVA_SECURE === "true";
+    const protocol = secure ? "https" : "http";
+    const res = await fetch(`${protocol}://${lavaHost}:${lavaPort}/version`, {
+      headers: { Authorization: lavaPass }
+    });
+    console.log("Lavalink keep-alive ping OK:", res.status);
+  } catch (err) {
+    console.error("Lavalink keep-alive failed:", err.message);
+  }
+}, 300000);
 
 // ==================== SNIPE SYSTEM ====================
 client.on("messageDelete", (message) => {
