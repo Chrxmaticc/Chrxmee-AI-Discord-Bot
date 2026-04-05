@@ -6,6 +6,14 @@ const path = require("path");
 const { Pool } = require("pg");
 const { setupAntinukeEvents } = require("./antinukeEvents");
 
+// ==================== SONG MARKERS ====================
+const {
+  applyStartMarker,
+  startEndMarkerWatcher,
+  stopEndMarkerWatcher,
+  getMarkers,
+} = require("./utils/songMarkers");
+
 // ==================== HELPERS ====================
 function msToTime(ms) {
   const seconds = Math.floor((ms / 1000) % 60);
@@ -109,28 +117,56 @@ client.lavalink.on("nodeConnect", (node) =>
 client.lavalink.on("nodeError", (node, err) =>
   console.error(`Lavalink node "${node.id}" error:`, err.message)
 );
-client.lavalink.on("trackStart", (player, track) => {
+
+// ── trackStart: Now Playing embed + marker system ──────────────────────────
+client.lavalink.on("trackStart", async (player, track) => {
+  // Now Playing embed
   const channel = client.channels.cache.get(player.textChannelId);
-  if (!channel) return;
-  channel.send({
-    embeds: [
-      new EmbedBuilder()
-        .setColor("#5865F2")
-        .setTitle("🎵 Now Playing")
-        .setDescription(`**[${track.info.title}](${track.info.uri})**`)
-        .addFields(
-          { name: "Author", value: track.info.author, inline: true },
-          { name: "Duration", value: msToTime(track.info.duration), inline: true },
-          { name: "Requested by", value: `<@${track.info.requester?.id || "Unknown"}>`, inline: true }
-        )
-        .setThumbnail(track.info.artworkUrl)
-        .setTimestamp(),
-    ],
-  }).catch(() => {});
+  if (channel) {
+    channel.send({
+      embeds: [
+        new EmbedBuilder()
+          .setColor("#5865F2")
+          .setTitle("🎵 Now Playing")
+          .setDescription(`**[${track.info.title}](${track.info.uri})**`)
+          .addFields(
+            { name: "Author", value: track.info.author, inline: true },
+            { name: "Duration", value: msToTime(track.info.duration), inline: true },
+            { name: "Requested by", value: `<@${track.info.requester?.id || "Unknown"}>`, inline: true }
+          )
+          .setThumbnail(track.info.artworkUrl)
+          .setTimestamp(),
+      ],
+    }).catch(() => {});
+  }
+
+  // Song marker system — apply start/end markers if set for this track
+  const m = getMarkers(track);
+  if (!m) return;
+
+  if (m.start != null) {
+    await applyStartMarker(player, track);
+  }
+  if (m.end != null) {
+    startEndMarkerWatcher(player, track, m.loop ?? false);
+  }
 });
+
+// ── trackEnd: clean up end-marker watcher ─────────────────────────────────
+client.lavalink.on("trackEnd", (player) => {
+  stopEndMarkerWatcher(player.guildId);
+});
+
+// ── queueEnd: announce + clean up watcher ─────────────────────────────────
 client.lavalink.on("queueEnd", (player) => {
+  stopEndMarkerWatcher(player.guildId);
   const channel = client.channels.cache.get(player.textChannelId);
   if (channel) channel.send("✅ Queue finished! Add more songs with `/play`.").catch(() => {});
+});
+
+// ── playerDestroy: clean up watcher ───────────────────────────────────────
+client.lavalink.on("playerDestroy", (player) => {
+  stopEndMarkerWatcher(player.guildId);
 });
 
 // ==================== LAVALINK KEEP-ALIVE ====================
@@ -436,7 +472,7 @@ client.once("ready", async () => {
           break;
         case "help_music":
           title = "Music";
-          desc = "`/play` — Play a song\n`/join` — Join your VC\n`/leave` — Leave VC\n`/skip` — Skip current song\n`/stop` — Stop and clear queue\n`/pause` — Pause/resume\n`/nowplaying` — Now playing\n`/queue` — View queue\n`/volume` — Set volume\n`/loop` — Loop mode\n`/filter` — Audio filters\n`/shuffle` — Shuffle queue\n`/search` — Search and pick\n`/autoplay` — Toggle autoplay\n`/lyrics` — Get lyrics\n`/remove` — Remove a song\n`/move` — Move a song\n`/seek` — Seek to timestamp\n`/replay` — Restart song\n`/clearqueue` — Clear queue\n`/previous` — Previous song\n`/voteskip` — Vote to skip\n`/save` — DM yourself the song\n`/247` — 24/7 mode\n`/playlist` — Manage playlists";
+          desc = "`/play` — Play a song\n`/join` — Join your VC\n`/leave` — Leave VC\n`/skip` — Skip current song\n`/stop` — Stop and clear queue\n`/pause` — Pause/resume\n`/nowplaying` — Now playing\n`/queue` — View queue\n`/volume` — Set volume\n`/loop` — Loop mode\n`/filter` — Audio filters\n`/shuffle` — Shuffle queue\n`/search` — Search and pick\n`/autoplay` — Toggle autoplay\n`/lyrics` — Get lyrics\n`/remove` — Remove a song\n`/move` — Move a song\n`/seek` — Seek to timestamp\n`/replay` — Restart song\n`/clearqueue` — Clear queue\n`/previous` — Previous song\n`/voteskip` — Vote to skip\n`/save` — DM yourself the song\n`/247` — 24/7 mode\n`/playlist` — Manage playlists\n`/player-set` — Set start/end markers on a song";
           break;
         case "help_utility":
           title = "Utility";
