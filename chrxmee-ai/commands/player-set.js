@@ -15,7 +15,7 @@ const {
   startEndMarkerWatcher,
   stopEndMarkerWatcher,
   applyStartMarker,
-} = require("../../events/songMarkers");
+} = require("../songMarkers");
 
 module.exports = {
   data: new SlashCommandBuilder()
