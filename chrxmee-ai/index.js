@@ -12,7 +12,7 @@ const {
   startEndMarkerWatcher,
   stopEndMarkerWatcher,
   getMarkers,
-} = require("./utils/songMarkers");
+} = require("./events/songMarkers");
 
 // ==================== HELPERS ====================
 function msToTime(ms) {
