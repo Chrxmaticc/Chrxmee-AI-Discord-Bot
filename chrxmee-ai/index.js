@@ -88,29 +88,12 @@ client.pool = pool;
 // ==================== LAVALINK ====================
 client.lavalink = new LavalinkManager({
   nodes: [
-    // ── Your existing node ──────────────────────────────
     {
       host: process.env.LAVA_HOST || "localhost",
       port: parseInt(process.env.LAVA_PORT) || 2333,
       authorization: process.env.LAVA_PASS || "chrxmaticc2026",
       secure: process.env.LAVA_SECURE === "true",
       id: "main",
-    },
-    // ── Public Node 1: Lavalink.EU (Germany) ───────────
-    {
-      host: "lavalink.eu",
-      port: 2333,
-      authorization: "youshallnotpass",
-      secure: false,
-      id: "public-eu",
-    },
-    // ── Public Node 2: KSoft.Si (US) ───────────────────
-    {
-      host: "lava-v4.ksoft.si",
-      port: 443,
-      authorization: "kousoft.si-was-here",
-      secure: true,
-      id: "public-ksoft",
     },
   ],
   sendToShard: (guildId, payload) => {
