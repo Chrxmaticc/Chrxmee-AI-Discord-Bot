@@ -88,35 +88,29 @@ client.pool = pool;
 // ==================== LAVALINK ====================
 client.lavalink = new LavalinkManager({
   nodes: [
-    // ── Your existing node (main) ────────────────────
+    // ── Your existing node ──────────────────────────────
     {
-      host: process.env.LAVA_HOST || "chrxmee-lavalink.onrender.com",
-      port: parseInt(process.env.LAVA_PORT) || 443,
+      host: process.env.LAVA_HOST || "localhost",
+      port: parseInt(process.env.LAVA_PORT) || 2333,
       authorization: process.env.LAVA_PASS || "chrxmaticc2026",
-      secure: process.env.LAVA_SECURE !== "false", // default to true for port 443
+      secure: process.env.LAVA_SECURE === "true",
       id: "main",
-      retryDelay: 30000,
-      retryAmount: 5,
     },
-    // ── Public Node 1: Lavalink v4 (by DarrenOfficial) ──
+    // ── Public Node 1: Lavalink.EU (Germany) ───────────
     {
-      host: "lava-v4.ajieblogs.eu.org",
-      port: 443,
-      authorization: "https://dsc.gg/ajidevserver",
-      secure: true,
-      id: "public-ajie",
-      retryDelay: 30000,
-      retryAmount: 3,
+      host: "lavalink.eu",
+      port: 2333,
+      authorization: "youshallnotpass",
+      secure: false,
+      id: "public-eu",
     },
-    // ── Public Node 2: Catfein ──────────────────────────
+    // ── Public Node 2: KSoft.Si (US) ───────────────────
     {
-      host: "lavalink.catfein.com",
+      host: "lava-v4.ksoft.si",
       port: 443,
-      authorization: "catfein",
+      authorization: "kousoft.si-was-here",
       secure: true,
-      id: "public-catfein",
-      retryDelay: 30000,
-      retryAmount: 3,
+      id: "public-ksoft",
     },
   ],
   sendToShard: (guildId, payload) => {
@@ -134,18 +128,11 @@ client.lavalink = new LavalinkManager({
   },
 });
 
-// Better error logging for debugging
 client.lavalink.on("nodeConnect", (node) =>
-  console.log(`✅ Lavalink node "${node.id}" connected! Host: ${node.host}`)
+  console.log(`Lavalink node "${node.id}" connected!`)
 );
 client.lavalink.on("nodeError", (node, err) =>
-  console.error(`❌ Lavalink node "${node.id}" error:`, err.message)
-);
-client.lavalink.on("nodeDisconnect", (node, reason) =>
-  console.warn(`⚠️ Lavalink node "${node.id}" disconnected. Reason:`, reason?.message || reason)
-);
-client.lavalink.on("nodeReconnect", (node) =>
-  console.log(`🔄 Lavalink node "${node.id}" reconnecting...`)
+  console.error(`Lavalink node "${node.id}" error:`, err.message)
 );
 
 // ── trackStart: Now Playing embed + marker system ──────────────────────────
