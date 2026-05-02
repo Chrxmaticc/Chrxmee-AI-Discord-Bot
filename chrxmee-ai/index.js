@@ -1,6 +1,9 @@
 require("dotenv").config();
 const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require("discord.js");
-const { LavalinkManager } = require("lavalink-client");
+const { ChrxmeeServer } = require("chrxmeestream");
+const WebSocket = require("ws");
+const { PassThrough } = require("stream");
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, StreamType, VoiceConnectionStatus, entersState } = require("@discordjs/voice");
 const fs = require("fs");
 const path = require("path");
 const { Pool } = require("pg");
@@ -56,6 +59,9 @@ client.commands = new Collection();
 client.memory = new Map();
 client.snipes = new Map();
 client.msToTime = msToTime;
+client.audioStreams = new Map();
+client.voiceConnections = new Map();
+client.audioPlayers = new Map();
 
 // ==================== POSTGRES POOL ====================
 const pool = new Pool({
@@ -85,106 +91,146 @@ setInterval(async () => {
 
 client.pool = pool;
 
-// ==================== LAVALINK ====================
-client.lavalink = new LavalinkManager({
-  nodes: [
-    {
-      host: process.env.LAVA_HOST || "localhost",
-      port: parseInt(process.env.LAVA_PORT) || 2333,
-      authorization: process.env.LAVA_PASS || "chrxmaticc2026",
-      secure: process.env.LAVA_SECURE === "true",
-      id: "main",
-    },
-  ],
-  sendToShard: (guildId, payload) => {
-    const guild = client.guilds.cache.get(guildId);
-    if (guild) guild.shard.send(payload);
-  },
-  client: {
-    id: process.env.CLIENT_ID,
-    username: "Chrxmaticc AI",
-  },
-  playerOptions: {
-    defaultSearchPlatform: "ytsearch",
-    onDisconnect: { destroyPlayer: true },
-    onEmptyQueue: { destroyAfterMs: 30000 },
-  },
-});
+// ==================== CHRXMEESTREAM v2.0.0 ====================
+console.log("🎵 Starting ChrxmeeStream v2.0.0 inside bot...");
+const chrxmeeServer = new ChrxmeeServer();
+chrxmeeServer.start();
+console.log("🎵 ChrxmeeStream running on ws://127.0.0.1:2333");
 
-client.lavalink.on("nodeConnect", (node) =>
-  console.log(`Lavalink node "${node.id}" connected!`)
-);
-client.lavalink.on("nodeError", (node, err) =>
-  console.error(`Lavalink node "${node.id}" error:`, err.message)
-);
+// Internal WebSocket connection to ChrxmeeStream
+let chrxmeeWs = null;
+const chrxmeeQueue = new Map();
 
-// ── trackStart: Now Playing embed + marker system ──────────────────────────
-client.lavalink.on("trackStart", async (player, track) => {
-  // Now Playing embed
-  const channel = client.channels.cache.get(player.textChannelId);
-  if (channel) {
-    channel.send({
-      embeds: [
-        new EmbedBuilder()
-          .setColor("#5865F2")
-          .setTitle("🎵 Now Playing")
-          .setDescription(`**[${track.info.title}](${track.info.uri})**`)
-          .addFields(
-            { name: "Author", value: track.info.author, inline: true },
-            { name: "Duration", value: msToTime(track.info.duration), inline: true },
-            { name: "Requested by", value: `<@${track.info.requester?.id || "Unknown"}>`, inline: true }
-          )
-          .setThumbnail(track.info.artworkUrl)
-          .setTimestamp(),
-      ],
-    }).catch(() => {});
+function connectToChrxmee() {
+  chrxmeeWs = new WebSocket("ws://127.0.0.1:2333", {
+    headers: { Authorization: "chrxmee" },
+  });
+
+  chrxmeeWs.on("open", () => {
+    console.log("✅ Connected to internal ChrxmeeStream");
+    for (const [guildId, ops] of chrxmeeQueue) {
+      for (const op of ops) {
+        chrxmeeWs.send(JSON.stringify({ guildId, ...op }));
+      }
+    }
+    chrxmeeQueue.clear();
+  });
+
+  chrxmeeWs.on("message", (data, isBinary) => {
+    if (isBinary) {
+      const guildIdLen = data.readUInt32BE(0);
+      const guildId = data.subarray(4, 4 + guildIdLen).toString("utf8");
+      const pcm = data.subarray(4 + guildIdLen);
+
+      const stream = client.audioStreams.get(guildId);
+      if (stream) stream.push(pcm);
+    } else {
+      const event = JSON.parse(data.toString());
+      handleChrxmeeEvent(event);
+    }
+  });
+
+  chrxmeeWs.on("close", () => {
+    console.warn("⚠️ ChrxmeeStream disconnected, reconnecting in 5s...");
+    setTimeout(connectToChrxmee, 5000);
+  });
+
+  chrxmeeWs.on("error", (err) => {
+    console.error("ChrxmeeStream WS error:", err.message);
+  });
+}
+
+function sendToChrxmee(guildId, op) {
+  const payload = JSON.stringify({ guildId, ...op });
+  if (chrxmeeWs && chrxmeeWs.readyState === WebSocket.OPEN) {
+    chrxmeeWs.send(payload);
+  } else {
+    if (!chrxmeeQueue.has(guildId)) chrxmeeQueue.set(guildId, []);
+    chrxmeeQueue.get(guildId).push(op);
+  }
+}
+
+function handleChrxmeeEvent(event) {
+  const { event: type, guildId, data } = event;
+  switch (type) {
+    case "trackStart":
+      console.log(`▶️ [${guildId}] Now playing: ${data?.source}`);
+      break;
+    case "trackEnd":
+      console.log(`⏹️ [${guildId}] Track ended`);
+      break;
+    case "error":
+      console.error(`❌ [${guildId}] ${data?.message}`);
+      break;
+    case "lowDataMode":
+      console.warn(`📉 Low Data Mode: ${data?.enabled ? "ON" : "OFF"}`);
+      break;
+  }
+}
+
+// ==================== VOICE HELPERS ====================
+async function ensureVoiceConnection(interaction) {
+  const guildId = interaction.guildId;
+  const member = interaction.member;
+  const voiceChannel = member.voice?.channel;
+
+  if (!voiceChannel) {
+    await interaction.reply({ content: "❌ You need to be in a voice channel first.", ephemeral: true });
+    return null;
   }
 
-  // Song marker system — apply start/end markers if set for this track
-  const m = getMarkers(track);
-  if (!m) return;
-
-  if (m.start != null) {
-    await applyStartMarker(player, track);
+  // Already connected?
+  let connection = client.voiceConnections.get(guildId);
+  if (connection && connection.state.status === VoiceConnectionStatus.Ready) {
+    return connection;
   }
-  if (m.end != null) {
-    startEndMarkerWatcher(player, track, m.loop ?? false);
-  }
-});
 
-// ── trackEnd: clean up end-marker watcher ─────────────────────────────────
-client.lavalink.on("trackEnd", (player) => {
-  stopEndMarkerWatcher(player.guildId);
-});
+  // Create new connection
+  connection = joinVoiceChannel({
+    channelId: voiceChannel.id,
+    guildId,
+    adapterCreator: interaction.guild.voiceAdapterCreator,
+  });
 
-// ── queueEnd: announce + clean up watcher ─────────────────────────────────
-client.lavalink.on("queueEnd", (player) => {
-  stopEndMarkerWatcher(player.guildId);
-  const channel = client.channels.cache.get(player.textChannelId);
-  if (channel) channel.send("✅ Queue finished! Add more songs with `/play`.").catch(() => {});
-});
-
-// ── playerDestroy: clean up watcher ───────────────────────────────────────
-client.lavalink.on("playerDestroy", (player) => {
-  stopEndMarkerWatcher(player.guildId);
-});
-
-// ==================== LAVALINK KEEP-ALIVE ====================
-setInterval(async () => {
   try {
-    const lavaHost = process.env.LAVA_HOST || "chrxmee-lavalink.onrender.com";
-    const lavaPort = process.env.LAVA_PORT || "443";
-    const lavaPass = process.env.LAVA_PASS || "chrxmaticc2026";
-    const secure = process.env.LAVA_SECURE === "true";
-    const protocol = secure ? "https" : "http";
-    const res = await fetch(`${protocol}://${lavaHost}:${lavaPort}/version`, {
-      headers: { Authorization: lavaPass }
-    });
-    console.log("Lavalink keep-alive ping OK:", res.status);
+    await entersState(connection, VoiceConnectionStatus.Ready, 10000);
   } catch (err) {
-    console.error("Lavalink keep-alive failed:", err.message);
+    connection.destroy();
+    await interaction.reply({ content: "❌ Could not connect to voice channel.", ephemeral: true });
+    return null;
   }
-}, 300000);
+
+  client.voiceConnections.set(guildId, connection);
+
+  // Create audio stream and player
+  const audioStream = new PassThrough();
+  client.audioStreams.set(guildId, audioStream);
+
+  const audioPlayer = createAudioPlayer();
+  const resource = createAudioResource(audioStream, { inputType: StreamType.Raw });
+  audioPlayer.play(resource);
+  connection.subscribe(audioPlayer);
+
+  client.audioPlayers.set(guildId, audioPlayer);
+
+  // Handle disconnect
+  connection.on(VoiceConnectionStatus.Disconnected, async () => {
+    try {
+      await Promise.race([
+        entersState(connection, VoiceConnectionStatus.Signalling, 5000),
+        entersState(connection, VoiceConnectionStatus.Connecting, 5000),
+      ]);
+    } catch {
+      connection.destroy();
+      client.voiceConnections.delete(guildId);
+      client.audioStreams.delete(guildId);
+      client.audioPlayers.delete(guildId);
+      sendToChrxmee(guildId, { op: "destroy" });
+    }
+  });
+
+  return connection;
+}
 
 // ==================== SNIPE SYSTEM ====================
 client.on("messageDelete", (message) => {
@@ -249,6 +295,7 @@ setInterval(() => {
       "Analyzing the void of existence.",
       `Active for ${Math.floor(process.uptime() / 3600)}h | ${client.guilds.cache.size} Servers`,
       `Handling ${heartbeatCount} heartbeats | High Traffic Mode 🚀`,
+      "🎵 ChrxmeeStream v2.0",
     ];
     const activity = activities[Math.floor(Math.random() * activities.length)];
     client.user.setPresence({ activities: [{ name: activity, type: 0 }], status: "online" });
@@ -262,8 +309,8 @@ client.once("ready", async () => {
     console.log(`Logged in as ${client.user.tag}`);
     console.log(`Chrxmee AI ready as ${client.user.tag}`);
 
-    await client.lavalink.init({ id: client.user.id, username: client.user.username });
-    console.log("Lavalink manager initialized!");
+    // Connect to internal ChrxmeeStream
+    connectToChrxmee();
 
     const pgClient = await pool.connect();
     console.log("Postgres connected successfully on ready!");
@@ -471,7 +518,7 @@ client.once("ready", async () => {
           desc = "`/roast` — Roast someone\n`/roastme` — Get roasted\n`/burn @user` — Burn someone\n`/coinflip` — Coin flip\n`/dice` — Roll dice\n`/poll` — Create poll\n`/trivia` — Trivia game\n`/ship` — Ship two users\n`/8ball` — Magic 8-ball";
           break;
         case "help_music":
-          title = "Music";
+          title = "Music (ChrxmeeStream v2.0)";
           desc = "`/play` — Play a song\n`/join` — Join your VC\n`/leave` — Leave VC\n`/skip` — Skip current song\n`/stop` — Stop and clear queue\n`/pause` — Pause/resume\n`/nowplaying` — Now playing\n`/queue` — View queue\n`/volume` — Set volume\n`/loop` — Loop mode\n`/filter` — Audio filters\n`/shuffle` — Shuffle queue\n`/search` — Search and pick\n`/autoplay` — Toggle autoplay\n`/lyrics` — Get lyrics\n`/remove` — Remove a song\n`/move` — Move a song\n`/seek` — Seek to timestamp\n`/replay` — Restart song\n`/clearqueue` — Clear queue\n`/previous` — Previous song\n`/voteskip` — Vote to skip\n`/save` — DM yourself the song\n`/247` — 24/7 mode\n`/playlist` — Manage playlists\n`/player-set` — Set start/end markers on a song";
           break;
         case "help_utility":
@@ -498,10 +545,158 @@ client.once("ready", async () => {
   }
 });
 
-// ==================== LAVALINK VOICE STATE UPDATE ====================
-client.on("raw", (d) => {
-  if (d.t === "VOICE_SERVER_UPDATE" || d.t === "VOICE_STATE_UPDATE") {
-    client.lavalink.sendRawData(d);
+// ==================== MUSIC COMMAND HANDLER ====================
+// This wraps your existing music commands to use ChrxmeeStream
+client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isCommand()) return;
+
+  const { commandName } = interaction;
+  const guildId = interaction.guildId;
+
+  // Route music commands to ChrxmeeStream
+  switch (commandName) {
+    case "play": {
+      const source = interaction.options.getString("source") || interaction.options.getString("query") || interaction.options.getString("song");
+      if (!source) {
+        await interaction.reply({ content: "❌ Please provide a song URL or search query.", ephemeral: true });
+        return;
+      }
+      const connection = await ensureVoiceConnection(interaction);
+      if (!connection) return;
+      sendToChrxmee(guildId, { op: "play", source });
+      await interaction.reply({
+        embeds: [
+          new EmbedBuilder()
+            .setColor("#9b59b6")
+            .setTitle("▶️ Now Playing")
+            .setDescription(`\`${source}\``)
+            .setFooter({ text: "ChrxmeeStream v2.0" }),
+        ],
+      });
+      break;
+    }
+
+    case "stop": {
+      sendToChrxmee(guildId, { op: "stop" });
+      await interaction.reply("⏹️ Stopped.");
+      break;
+    }
+
+    case "pause": {
+      sendToChrxmee(guildId, { op: "pause" });
+      await interaction.reply("⏸️ Paused.");
+      break;
+    }
+
+    case "resume": {
+      sendToChrxmee(guildId, { op: "resume" });
+      await interaction.reply("▶️ Resumed.");
+      break;
+    }
+
+    case "skip": {
+      sendToChrxmee(guildId, { op: "stop" }); // Stop current, queue auto-advances
+      await interaction.reply("⏭️ Skipped.");
+      break;
+    }
+
+    case "volume": {
+      const value = interaction.options.getInteger("value") || interaction.options.getInteger("volume");
+      if (value === null || value < 0 || value > 200) {
+        await interaction.reply({ content: "❌ Volume must be between 0 and 200.", ephemeral: true });
+        return;
+      }
+      sendToChrxmee(guildId, { op: "volume", value });
+      await interaction.reply(`🔊 Volume set to **${value}**`);
+      break;
+    }
+
+    case "seek": {
+      const seconds = interaction.options.getInteger("seconds") || interaction.options.getInteger("position");
+      if (seconds === null || seconds < 0) {
+        await interaction.reply({ content: "❌ Please provide a valid position in seconds.", ephemeral: true });
+        return;
+      }
+      sendToChrxmee(guildId, { op: "seek", value: seconds });
+      await interaction.reply(`⏩ Seeked to **${seconds}s**`);
+      break;
+    }
+
+    case "filter": {
+      const filterName = interaction.options.getString("name") || interaction.options.getString("filter");
+      if (!filterName) {
+        sendToChrxmee(guildId, { op: "filter", filters: [] });
+        await interaction.reply("🎛️ All filters cleared.");
+      } else {
+        sendToChrxmee(guildId, { op: "filter", filters: [filterName] });
+        await interaction.reply(`🎛️ Filter **${filterName}** applied.`);
+      }
+      break;
+    }
+
+    case "leave":
+    case "disconnect": {
+      const connection = client.voiceConnections.get(guildId);
+      if (connection) {
+        connection.destroy();
+        client.voiceConnections.delete(guildId);
+        client.audioStreams.delete(guildId);
+        client.audioPlayers.delete(guildId);
+      }
+      sendToChrxmee(guildId, { op: "destroy" });
+      await interaction.reply("👋 Left the voice channel.");
+      break;
+    }
+
+    case "nowplaying": {
+      await interaction.reply({
+        embeds: [
+          new EmbedBuilder()
+            .setColor("#9b59b6")
+            .setTitle("🎵 Now Playing")
+            .setDescription("Check the voice channel for current audio.")
+            .setFooter({ text: "ChrxmeeStream v2.0" }),
+        ],
+      });
+      break;
+    }
+
+    case "shuffle": {
+      sendToChrxmee(guildId, { op: "queue_shuffle" });
+      await interaction.reply("🔀 Queue shuffled.");
+      break;
+    }
+
+    case "loop": {
+      const mode = interaction.options.getString("mode") || "queue";
+      sendToChrxmee(guildId, { op: "queue_loop", value: mode });
+      await interaction.reply(`🔁 Loop set to **${mode}**`);
+      break;
+    }
+
+    case "clearqueue": {
+      sendToChrxmee(guildId, { op: "queue_clear" });
+      await interaction.reply("🗑️ Queue cleared.");
+      break;
+    }
+
+    case "queue": {
+      sendToChrxmee(guildId, { op: "queue_list" });
+      await interaction.reply("📋 Queue requested. Check console for details.");
+      break;
+    }
+
+    case "autoplay": {
+      const enabled = interaction.options.getBoolean("enabled") ?? true;
+      if (enabled) {
+        sendToChrxmee(guildId, { op: "autodj_enable" });
+        await interaction.reply("🤖 Auto DJ enabled.");
+      } else {
+        sendToChrxmee(guildId, { op: "autodj_disable" });
+        await interaction.reply("🤖 Auto DJ disabled.");
+      }
+      break;
+    }
   }
 });
 
