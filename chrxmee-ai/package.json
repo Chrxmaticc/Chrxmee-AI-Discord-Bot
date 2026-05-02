@@ -11,7 +11,8 @@
         "dotenv": "^16.6.1",
         "node-fetch": "^3.3.2",
         "pg": "^8.17.2",
-        "chrxmeestream": "^2.0.0"
+        "chrxmeestream": "^2.0.0",
+        "ws": "^8.16.0"
         
     },
     "engines": {
