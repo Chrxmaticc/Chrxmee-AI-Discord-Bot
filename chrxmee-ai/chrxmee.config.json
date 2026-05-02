@@ -1,1 +1,35 @@
-H
+{
+  "server": {
+    "port": 2333,
+    "host": "127.0.0.1",
+    "password": "chrxmee",
+    "audioDir": "./audio"
+  },
+  "node": {
+    "id": "chrxmaticc-ai-node",
+    "backup": null
+  },
+  "lowDataMode": {
+    "enabled": true,
+    "cpuThreshold": 85,
+    "memoryThreshold": 512,
+    "sampleRate": 24000,
+    "channels": 1
+  },
+  "silenceGuard": {
+    "enabled": false,
+    "mode": "ambient",
+    "source": "rain.mp3",
+    "volume": 15,
+    "timeout": 300
+  },
+  "queue": {
+    "maxSize": 500,
+    "persist": false
+  },
+  "cache": {
+    "enabled": true,
+    "ttlMinutes": 30,
+    "maxSize": 1000
+  }
+}
