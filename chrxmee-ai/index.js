@@ -88,35 +88,25 @@ client.pool = pool;
 // ==================== LAVALINK ====================
 client.lavalink = new LavalinkManager({
   nodes: [
-    // ── Your existing node (main) ────────────────────
+    // ── Public Node 1: Lavalink.EU (SoundCloud enabled) ──
     {
-      host: process.env.LAVA_HOST || "chrxmee-lavalink.onrender.com",
-      port: parseInt(process.env.LAVA_PORT) || 443,
-      authorization: process.env.LAVA_PASS || "chrxmaticc2026",
-      secure: process.env.LAVA_SECURE !== "false", // default to true for port 443
-      id: "main",
+      host: "lavalink.eu",
+      port: 2333,
+      authorization: "Raccoon",
+      secure: false,
+      id: "lavalink-eu",
       retryDelay: 30000,
       retryAmount: 5,
     },
-    // ── Public Node 1: Lavalink v4 (by DarrenOfficial) ──
+    // ── Public Node 2: Terrashift (SoundCloud enabled) ────
     {
-      host: "lava-v4.ajieblogs.eu.org",
+      host: "lavalink.terrashift.net",
       port: 443,
-      authorization: "https://dsc.gg/ajidevserver",
+      authorization: "terrashift",
       secure: true,
-      id: "public-ajie",
+      id: "terrashift",
       retryDelay: 30000,
-      retryAmount: 3,
-    },
-    // ── Public Node 2: Catfein ──────────────────────────
-    {
-      host: "lavalink.catfein.com",
-      port: 443,
-      authorization: "catfein",
-      secure: true,
-      id: "public-catfein",
-      retryDelay: 30000,
-      retryAmount: 3,
+      retryAmount: 5,
     },
   ],
   sendToShard: (guildId, payload) => {
@@ -128,15 +118,14 @@ client.lavalink = new LavalinkManager({
     username: "Chrxmaticc AI",
   },
   playerOptions: {
-    defaultSearchPlatform: "ytsearch",
+    defaultSearchPlatform: "scsearch",  // SoundCloud search enabled
     onDisconnect: { destroyPlayer: true },
     onEmptyQueue: { destroyAfterMs: 30000 },
   },
 });
 
-// Better error logging for debugging
 client.lavalink.on("nodeConnect", (node) =>
-  console.log(`✅ Lavalink node "${node.id}" connected! Host: ${node.host}`)
+  console.log(`✅ Lavalink node "${node.id}" connected!`)
 );
 client.lavalink.on("nodeError", (node, err) =>
   console.error(`❌ Lavalink node "${node.id}" error:`, err.message)
