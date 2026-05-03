@@ -3,41 +3,44 @@ const { scheduleMarkers, stopEndMarkerWatcher, parseTime, formatTime } = require
 
 // ==================== HELPERS ====================
 async function ensureVC(interaction, client) {
-  const guildId = interaction.guildId;
+  const gid = interaction.guildId;
   const vc = interaction.member?.voice?.channel;
-  if (!vc) { await interaction.reply({ content: "❌ Join a voice channel first.", ephemeral: true }); return null; }
+  if (!vc) return null;
 
-  let conn = client.voiceConnections?.get(guildId);
+  let conn = client.voiceConnections?.get(gid);
   if (conn?.state?.status === "ready") return conn;
 
   const { joinVoiceChannel, createAudioPlayer, createAudioResource, StreamType, VoiceConnectionStatus, entersState } = require("@discordjs/voice");
   const { PassThrough } = require("stream");
 
-  conn = joinVoiceChannel({ channelId: vc.id, guildId, adapterCreator: interaction.guild.voiceAdapterCreator });
-  try { await entersState(conn, VoiceConnectionStatus.Ready, 10000); } catch { conn.destroy(); await interaction.reply({ content: "❌ Could not connect.", ephemeral: true }); return null; }
+  conn = joinVoiceChannel({ channelId: vc.id, guildId: gid, adapterCreator: interaction.guild.voiceAdapterCreator });
+  try { await entersState(conn, VoiceConnectionStatus.Ready, 10000); } catch {
+    try { conn.destroy(); } catch {}; return null;
+  }
 
   if (!client.voiceConnections) client.voiceConnections = new Map();
   if (!client.audioStreams) client.audioStreams = new Map();
   if (!client.audioPlayers) client.audioPlayers = new Map();
-  client.voiceConnections.set(guildId, conn);
+  client.voiceConnections.set(gid, conn);
 
   const stream = new PassThrough();
-  client.audioStreams.set(guildId, stream);
+  client.audioStreams.set(gid, stream);
   const player = createAudioPlayer();
   player.play(createAudioResource(stream, { inputType: StreamType.Raw }));
   conn.subscribe(player);
-  client.audioPlayers.set(guildId, player);
+  client.audioPlayers.set(gid, player);
 
   conn.on(VoiceConnectionStatus.Disconnected, async () => {
     try { await Promise.race([entersState(conn, VoiceConnectionStatus.Signalling, 5000), entersState(conn, VoiceConnectionStatus.Connecting, 5000)]); } catch {
-      conn.destroy(); client.voiceConnections?.delete(guildId); client.audioStreams?.delete(guildId); client.audioPlayers?.delete(guildId);
-      global.sendToChrxmee?.(guildId, { op: "destroy" });
+      try { conn.destroy(); } catch {}
+      client.voiceConnections?.delete(gid); client.audioStreams?.delete(gid); client.audioPlayers?.delete(gid);
+      global.sendToChrxmee?.(gid, { op: "destroy" });
     }
   });
   return conn;
 }
 
-function sendOp(guildId, op) { global.sendToChrxmee?.(guildId, op); }
+function sendOp(gid, op) { global.sendToChrxmee?.(gid, op); }
 
 // ==================== COMMAND ====================
 module.exports = {
@@ -72,6 +75,12 @@ module.exports = {
   async execute(interaction, client) {
     const sub = interaction.options.getSubcommand();
     const gid = interaction.guildId;
+
+    // Defer everything upfront
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.deferReply().catch(() => {});
+    }
+
     if (!client.playerMarkers) client.playerMarkers = new Map();
     const pm = client.playerMarkers;
 
@@ -80,120 +89,131 @@ module.exports = {
       case "play": {
         const src = interaction.options.getString("source");
         const conn = await ensureVC(interaction, client);
-        if (!conn) return;
+        if (!conn) {
+          await interaction.editReply({ content: "❌ Could not connect to voice channel." }).catch(() => {});
+          return;
+        }
         stopEndMarkerWatcher(gid);
         sendOp(gid, { op: "play", source: src });
 
         const m = pm.get(gid);
         if (m?.start != null || m?.end != null) {
           scheduleMarkers(gid, m, src);
-          await interaction.reply({ embeds: [new EmbedBuilder().setColor("#e67e22").setTitle("▶️ Playing (Markers Active)").setDescription(`\`${src}\``).addFields({ name: "⏩ Start", value: formatTime(m.start || 0), inline: true }, { name: "⏹️ End", value: m.end ? formatTime(m.end) : "None", inline: true }, { name: "🔁 Loop", value: m.loop ? "ON" : "OFF", inline: true }).setFooter({ text: "ChrxmeeStream v2.0" })] });
+          await interaction.editReply({ embeds: [new EmbedBuilder().setColor("#e67e22").setTitle("▶️ Playing (Markers Active)").setDescription(`\`${src}\``).addFields({ name: "⏩ Start", value: formatTime(m.start || 0), inline: true }, { name: "⏹️ End", value: m.end ? formatTime(m.end) : "None", inline: true }, { name: "🔁 Loop", value: m.loop ? "ON" : "OFF", inline: true }).setFooter({ text: "ChrxmeeStream v2.0" })] }).catch(() => {});
         } else {
-          await interaction.reply({ embeds: [new EmbedBuilder().setColor("#9b59b6").setTitle("▶️ Now Playing").setDescription(`\`${src}\``).setFooter({ text: "ChrxmeeStream v2.0" })] });
+          await interaction.editReply({ embeds: [new EmbedBuilder().setColor("#9b59b6").setTitle("▶️ Now Playing").setDescription(`\`${src}\``).setFooter({ text: "ChrxmeeStream v2.0" })] }).catch(() => {});
         }
         break;
       }
 
-      case "stop": sendOp(gid, { op: "stop" }); stopEndMarkerWatcher(gid); await interaction.reply("⏹️ Stopped."); break;
-      case "pause": sendOp(gid, { op: "pause" }); await interaction.reply("⏸️ Paused."); break;
-      case "resume": sendOp(gid, { op: "resume" }); await interaction.reply("▶️ Resumed."); break;
-      case "skip": sendOp(gid, { op: "stop" }); stopEndMarkerWatcher(gid); await interaction.reply("⏭️ Skipped."); break;
+      case "stop": sendOp(gid, { op: "stop" }); stopEndMarkerWatcher(gid); await interaction.editReply("⏹️ Stopped.").catch(() => {}); break;
+      case "pause": sendOp(gid, { op: "pause" }); await interaction.editReply("⏸️ Paused.").catch(() => {}); break;
+      case "resume": sendOp(gid, { op: "resume" }); await interaction.editReply("▶️ Resumed.").catch(() => {}); break;
+      case "skip": sendOp(gid, { op: "stop" }); stopEndMarkerWatcher(gid); await interaction.editReply("⏭️ Skipped.").catch(() => {}); break;
 
       case "volume": {
         const v = interaction.options.getInteger("value");
         sendOp(gid, { op: "volume", value: v });
-        await interaction.reply(`🔊 Volume: **${v}**`);
+        await interaction.editReply(`🔊 Volume: **${v}**`).catch(() => {});
         break;
       }
 
       case "seek": {
         const sec = parseTime(interaction.options.getString("position"));
-        if (sec == null) { await interaction.reply({ content: "❌ Invalid time format.", ephemeral: true }); return; }
+        if (sec == null) { await interaction.editReply("❌ Invalid time format.").catch(() => {}); return; }
         sendOp(gid, { op: "seek", value: sec });
-        await interaction.reply(`⏩ Seeked to **${formatTime(sec)}**`);
+        await interaction.editReply(`⏩ Seeked to **${formatTime(sec)}**`).catch(() => {});
         break;
       }
 
       case "filter": {
         const name = interaction.options.getString("name");
         sendOp(gid, { op: "filter", filters: name ? [name] : [] });
-        await interaction.reply(name ? `🎛️ Filter **${name}** applied.` : "🎛️ Filters cleared.");
+        await interaction.editReply(name ? `🎛️ Filter **${name}** applied.` : "🎛️ Filters cleared.").catch(() => {});
         break;
       }
 
       case "filters": {
         const list = ["bassboost","nightcore","vaporwave","slowed","echo","reverb","normalize","earrape","karaoke","mono","treble","soft","underwater","telephone","chipmunk","deep","robot"];
-        await interaction.reply({ embeds: [new EmbedBuilder().setColor("#1db954").setTitle("🎛️ Filters").setDescription(list.map(f => `\`${f}\``).join("  "))] });
+        await interaction.editReply({ embeds: [new EmbedBuilder().setColor("#1db954").setTitle("🎛️ Filters").setDescription(list.map(f => `\`${f}\``).join("  "))] }).catch(() => {});
         break;
       }
 
       case "loop": {
         const mode = interaction.options.getString("mode");
         sendOp(gid, { op: "queue_loop", value: mode });
-        await interaction.reply(`🔁 Loop: **${mode}**`);
+        await interaction.editReply(`🔁 Loop: **${mode}**`).catch(() => {});
         break;
       }
 
-      case "shuffle": sendOp(gid, { op: "queue_shuffle" }); await interaction.reply("🔀 Shuffled."); break;
-      case "queue": sendOp(gid, { op: "queue_list" }); await interaction.reply({ embeds: [new EmbedBuilder().setColor("#9b59b6").setTitle("📋 Queue").setDescription("Use `/music queue` to refresh.")] }); break;
-      case "clearqueue": sendOp(gid, { op: "queue_clear" }); await interaction.reply("🗑️ Queue cleared."); break;
+      case "shuffle": sendOp(gid, { op: "queue_shuffle" }); await interaction.editReply("🔀 Shuffled.").catch(() => {}); break;
+      case "queue": sendOp(gid, { op: "queue_list" }); await interaction.editReply({ embeds: [new EmbedBuilder().setColor("#9b59b6").setTitle("📋 Queue").setDescription("Use `/music queue` to refresh.")] }).catch(() => {}); break;
+      case "clearqueue": sendOp(gid, { op: "queue_clear" }); await interaction.editReply("🗑️ Queue cleared.").catch(() => {}); break;
 
       case "remove": {
         const pos = interaction.options.getInteger("position") - 1;
         sendOp(gid, { op: "queue_remove", position: pos });
-        await interaction.reply(`🗑️ Removed position **${pos + 1}**.`);
+        await interaction.editReply(`🗑️ Removed position **${pos + 1}**.`).catch(() => {});
         break;
       }
 
       case "autoplay": {
         const on = interaction.options.getBoolean("enabled");
         sendOp(gid, { op: on ? "autodj_enable" : "autodj_disable" });
-        await interaction.reply(`🤖 Auto DJ **${on ? "ON" : "OFF"}**`);
+        await interaction.editReply(`🤖 Auto DJ **${on ? "ON" : "OFF"}**`).catch(() => {});
         break;
       }
 
-      case "nowplaying": await interaction.reply({ embeds: [new EmbedBuilder().setColor("#9b59b6").setTitle("🎵 Now Playing").setDescription("Check `/music queue` for details.").setFooter({ text: "ChrxmeeStream v2.0" })] }); break;
+      case "nowplaying":
+        await interaction.editReply({ embeds: [new EmbedBuilder().setColor("#9b59b6").setTitle("🎵 Now Playing").setDescription("Check `/music queue` for details.").setFooter({ text: "ChrxmeeStream v2.0" })] }).catch(() => {});
+        break;
 
       case "leave": {
         const c = client.voiceConnections?.get(gid);
-        if (c) { c.destroy(); client.voiceConnections?.delete(gid); client.audioStreams?.delete(gid); client.audioPlayers?.delete(gid); }
+        if (c) { try { c.destroy(); } catch {}; client.voiceConnections?.delete(gid); client.audioStreams?.delete(gid); client.audioPlayers?.delete(gid); }
         sendOp(gid, { op: "destroy" }); stopEndMarkerWatcher(gid);
-        await interaction.reply("👋 Left.");
+        await interaction.editReply("👋 Left.").catch(() => {});
         break;
       }
 
       case "player-set": {
         const sec = parseTime(interaction.options.getString("start"));
-        if (sec == null) { await interaction.reply({ content: "❌ Invalid time.", ephemeral: true }); return; }
+        if (sec == null) { await interaction.editReply("❌ Invalid time.").catch(() => {}); return; }
         if (!pm.has(gid)) pm.set(gid, {});
         pm.get(gid).start = sec;
-        await interaction.reply({ embeds: [new EmbedBuilder().setColor("#e67e22").setTitle("⏩ Start Marker").setDescription(`Starts at **${formatTime(sec)}**`)] });
+        await interaction.editReply({ embeds: [new EmbedBuilder().setColor("#e67e22").setTitle("⏩ Start Marker").setDescription(`Starts at **${formatTime(sec)}**`)] }).catch(() => {});
         break;
       }
 
       case "player-end": {
         const sec = parseTime(interaction.options.getString("end"));
-        if (sec == null) { await interaction.reply({ content: "❌ Invalid time.", ephemeral: true }); return; }
+        if (sec == null) { await interaction.editReply("❌ Invalid time.").catch(() => {}); return; }
         if (!pm.has(gid)) pm.set(gid, {});
         pm.get(gid).end = sec;
-        await interaction.reply({ embeds: [new EmbedBuilder().setColor("#e74c3c").setTitle("⏹️ End Marker").setDescription(`Ends at **${formatTime(sec)}**`)] });
+        await interaction.editReply({ embeds: [new EmbedBuilder().setColor("#e74c3c").setTitle("⏹️ End Marker").setDescription(`Ends at **${formatTime(sec)}**`)] }).catch(() => {});
         break;
       }
 
       case "player-loop": {
         if (!pm.has(gid)) pm.set(gid, {});
         pm.get(gid).loop = !pm.get(gid).loop;
-        await interaction.reply(`🔁 Marker loop **${pm.get(gid).loop ? "ON" : "OFF"}**`);
+        await interaction.editReply(`🔁 Marker loop **${pm.get(gid).loop ? "ON" : "OFF"}**`).catch(() => {});
         break;
       }
 
-      case "player-clear": pm.delete(gid); stopEndMarkerWatcher(gid); await interaction.reply("🧹 Markers cleared."); break;
+      case "player-clear": pm.delete(gid); stopEndMarkerWatcher(gid); await interaction.editReply("🧹 Markers cleared.").catch(() => {}); break;
 
-      case "lyrics": await interaction.reply({ embeds: [new EmbedBuilder().setColor("#1db954").setTitle("🎤 Lyrics").setDescription("Coming in v2.1").setFooter({ text: "ChrxmeeStream v2.0" })] }); break;
+      case "lyrics": await interaction.editReply({ embeds: [new EmbedBuilder().setColor("#1db954").setTitle("🎤 Lyrics").setDescription("Coming in v2.1").setFooter({ text: "ChrxmeeStream v2.0" })] }).catch(() => {}); break;
 
-      case "save": try { await interaction.user.send({ embeds: [new EmbedBuilder().setColor("#9b59b6").setTitle("💾 Track Saved").setDescription("Track info sent!").setFooter({ text: "ChrxmeeStream v2.0" })] }); await interaction.reply({ content: "📬 Sent to DMs!", ephemeral: true }); } catch { await interaction.reply({ content: "❌ Enable DMs.", ephemeral: true }); } break;
+      case "save": {
+        try {
+          await interaction.user.send({ embeds: [new EmbedBuilder().setColor("#9b59b6").setTitle("💾 Track Saved").setDescription("Track info sent!").setFooter({ text: "ChrxmeeStream v2.0" })] });
+          await interaction.editReply("📬 Sent to DMs!").catch(() => {});
+        } catch { await interaction.editReply("❌ Enable DMs.").catch(() => {}); }
+        break;
+      }
 
-      case "history": sendOp(gid, { op: "history", limit: 10 }); await interaction.reply({ embeds: [new EmbedBuilder().setColor("#9b59b6").setTitle("🕓 History").setDescription("Recently played tracks.")] }); break;
+      case "history": sendOp(gid, { op: "history", limit: 10 }); await interaction.editReply({ embeds: [new EmbedBuilder().setColor("#9b59b6").setTitle("🕓 History").setDescription("Recently played tracks.")] }).catch(() => {}); break;
     }
   },
 };
