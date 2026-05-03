@@ -15,7 +15,22 @@ const {
   startEndMarkerWatcher,
   stopEndMarkerWatcher,
   getMarkers,
+  scheduleMarkers,
+  stopEndMarkerWatcher: stopEndMarkerWatcherNew,
+  stopAllWatchers,
 } = require("./songMarkers");
+
+// ==================== CONFIG LOADING ====================
+let chrxmeeConfig;
+try {
+  chrxmeeConfig = require("./chrxmee.config.json");
+  console.log("📄 Loaded chrxmee.config.json");
+} catch {
+  console.warn("⚠️ chrxmee.config.json not found, using defaults");
+  chrxmeeConfig = {
+    server: { port: 2333, host: "127.0.0.1", password: "chrxmee", audioDir: "./audio" },
+  };
+}
 
 // ==================== HELPERS ====================
 function msToTime(ms) {
@@ -62,7 +77,7 @@ client.msToTime = msToTime;
 client.audioStreams = new Map();
 client.voiceConnections = new Map();
 client.audioPlayers = new Map();
-client.playerMarkers = new Map(); // guildId -> { start?, end?, loop? }
+client.playerMarkers = new Map();
 
 // ==================== POSTGRES POOL ====================
 const pool = new Pool({
@@ -93,15 +108,24 @@ setInterval(async () => {
 client.pool = pool;
 
 // ==================== CHRXMEESTREAM v2.0.0 ====================
-// ── Security: Validate config before starting ────────────────
-const CHRXMEE_INTERNAL_PORT = parseInt(process.env.CHRXMEE_INTERNAL_PORT) || 2333;
-const CHRXMEE_INTERNAL_HOST = process.env.CHRXMEE_INTERNAL_HOST || "127.0.0.1";
-const CHRXMEE_INTERNAL_PASS = process.env.CHRXMEE_INTERNAL_PASS || "chrxmee";
+// Read from chrxmee.config.json
+const CHRXMEE_INTERNAL_PORT = parseInt(process.env.CHRXMEE_INTERNAL_PORT) || chrxmeeConfig.server?.port || 2333;
+const CHRXMEE_INTERNAL_HOST = process.env.CHRXMEE_INTERNAL_HOST || chrxmeeConfig.server?.host || "127.0.0.1";
+const CHRXMEE_INTERNAL_PASS = process.env.CHRXMEE_INTERNAL_PASS || chrxmeeConfig.server?.password || "chrxmee";
+const CHRXMEE_AUDIO_DIR     = process.env.CHRXMEE_AUDIO_DIR     || chrxmeeConfig.server?.audioDir || "./audio";
 
-// Security check: only bind to localhost for internal use
+// Security check: only bind to localhost
 if (CHRXMEE_INTERNAL_HOST !== "127.0.0.1" && CHRXMEE_INTERNAL_HOST !== "localhost") {
-  console.warn("⚠️  SECURITY: ChrxmeeStream should bind to 127.0.0.1 when running inside the bot.");
-  console.warn(`   Current host: ${CHRXMEE_INTERNAL_HOST} — external connections possible.`);
+  console.warn(`⚠️ SECURITY: ChrxmeeStream bound to ${CHRXMEE_INTERNAL_HOST}. Use 127.0.0.1 for internal use.`);
+}
+
+// Password validation
+if (CHRXMEE_INTERNAL_PASS.length < 6) {
+  console.error("❌ ChrxmeeStream password must be at least 6 characters.");
+  process.exit(1);
+}
+if (CHRXMEE_INTERNAL_PASS === "chrxmee") {
+  console.warn("⚠️ Using default password. Consider changing CHRXMEE_INTERNAL_PASS.");
 }
 
 console.log("🎵 Starting ChrxmeeStream v2.0.0 inside bot...");
@@ -109,42 +133,26 @@ const chrxmeeServer = new ChrxmeeServer({
   port:     CHRXMEE_INTERNAL_PORT,
   host:     CHRXMEE_INTERNAL_HOST,
   password: CHRXMEE_INTERNAL_PASS,
-  audioDir: process.env.CHRXMEE_AUDIO_DIR || "./audio",
+  audioDir: CHRXMEE_AUDIO_DIR,
 });
 chrxmeeServer.start();
 console.log(`🎵 ChrxmeeStream running on ws://${CHRXMEE_INTERNAL_HOST}:${CHRXMEE_INTERNAL_PORT}`);
 
-// ── Internal WebSocket connection ───────────────────────────
+// ==================== INTERNAL WEBSOCKET CONNECTION ====================
 let chrxmeeWs = null;
 const chrxmeeQueue = new Map();
 let chrxmeeReconnectAttempts = 0;
-const CHRXMEE_MAX_RECONNECT_ATTEMPTS = 10;
+const CHRXMEE_MAX_RECONNECT = 10;
 const CHRXMEE_RECONNECT_DELAY = 5000;
 
-// ── Security: Password validation ───────────────────────────
-function validateChrxmeePassword(password) {
-  if (!password || password.length < 6) {
-    console.error("❌ SECURITY: ChrxmeeStream password must be at least 6 characters.");
-    return false;
-  }
-  if (password === "chrxmee") {
-    console.warn("⚠️  SECURITY: Using default ChrxmeeStream password. Consider changing it.");
-  }
-  return true;
-}
-
-if (!validateChrxmeePassword(CHRXMEE_INTERNAL_PASS)) {
-  console.error("❌ ChrxmeeStream password validation failed. Check your .env file.");
-}
-
 function connectToChrxmee() {
-  if (chrxmeeReconnectAttempts >= CHRXMEE_MAX_RECONNECT_ATTEMPTS) {
-    console.error(`❌ Failed to connect to ChrxmeeStream after ${CHRXMEE_MAX_RECONNECT_ATTEMPTS} attempts. Giving up.`);
+  if (chrxmeeReconnectAttempts >= CHRXMEE_MAX_RECONNECT) {
+    console.error(`❌ Failed to connect after ${CHRXMEE_MAX_RECONNECT} attempts. Giving up.`);
     return;
   }
 
   chrxmeeReconnectAttempts++;
-  console.log(`🔄 Connecting to ChrxmeeStream (attempt ${chrxmeeReconnectAttempts}/${CHRXMEE_MAX_RECONNECT_ATTEMPTS})...`);
+  console.log(`🔄 Connecting to ChrxmeeStream (${chrxmeeReconnectAttempts}/${CHRXMEE_MAX_RECONNECT})...`);
 
   chrxmeeWs = new WebSocket(`ws://${CHRXMEE_INTERNAL_HOST}:${CHRXMEE_INTERNAL_PORT}`, {
     headers: { Authorization: CHRXMEE_INTERNAL_PASS },
@@ -154,7 +162,6 @@ function connectToChrxmee() {
     console.log("✅ Connected to internal ChrxmeeStream");
     chrxmeeReconnectAttempts = 0;
 
-    // Flush queued messages
     for (const [guildId, ops] of chrxmeeQueue) {
       for (const op of ops) {
         chrxmeeWs.send(JSON.stringify({ guildId, ...op }));
@@ -165,47 +172,25 @@ function connectToChrxmee() {
 
   chrxmeeWs.on("message", (data, isBinary) => {
     if (isBinary) {
-      // ── Security: Validate binary frame length ──────────
-      if (data.length < 5) {
-        console.warn("⚠️  Received invalid binary frame (too short)");
-        return;
-      }
-
+      if (data.length < 5) return;
       const guildIdLen = data.readUInt32BE(0);
-
-      // Security: Prevent buffer overflow on malformed frames
-      if (guildIdLen > 64 || guildIdLen < 1) {
-        console.warn(`⚠️  Invalid guildId length in binary frame: ${guildIdLen}`);
-        return;
-      }
-      if (data.length < 4 + guildIdLen) {
-        console.warn("⚠️  Binary frame too short for claimed guildId length");
-        return;
-      }
-
+      if (guildIdLen > 64 || guildIdLen < 1) return;
+      if (data.length < 4 + guildIdLen) return;
       const guildId = data.subarray(4, 4 + guildIdLen).toString("utf8");
+      if (!/^\d{17,20}$/.test(guildId)) return;
       const pcm = data.subarray(4 + guildIdLen);
-
-      // Security: Validate guildId format (numeric Discord ID)
-      if (!/^\d{17,20}$/.test(guildId)) {
-        console.warn(`⚠️  Invalid guildId format in binary frame: ${guildId}`);
-        return;
-      }
-
       const stream = client.audioStreams.get(guildId);
       if (stream) stream.push(pcm);
     } else {
       try {
         const event = JSON.parse(data.toString());
-        handleChrxmeeEvent(event);
-      } catch (err) {
-        console.error("❌ Failed to parse ChrxmeeStream event:", err.message);
-      }
+        if (event.event === "error") console.error(`❌ [${event.guildId}] ${event.data?.message}`);
+      } catch {}
     }
   });
 
-  chrxmeeWs.on("close", (code) => {
-    console.warn(`⚠️ ChrxmeeStream disconnected (code: ${code}). Reconnecting in ${CHRXMEE_RECONNECT_DELAY / 1000}s...`);
+  chrxmeeWs.on("close", () => {
+    console.warn(`⚠️ ChrxmeeStream disconnected. Retrying in ${CHRXMEE_RECONNECT_DELAY / 1000}s...`);
     chrxmeeWs = null;
     setTimeout(connectToChrxmee, CHRXMEE_RECONNECT_DELAY);
   });
@@ -213,10 +198,13 @@ function connectToChrxmee() {
   chrxmeeWs.on("error", (err) => {
     console.error("ChrxmeeStream WS error:", err.message);
     chrxmeeWs = null;
+    if (err.message.includes("ECONNREFUSED")) {
+      setTimeout(connectToChrxmee, 3000);
+    }
   });
 }
 
-// ── Security: Op validation before sending ──────────────────
+// ==================== OP VALIDATION ====================
 const ALLOWED_OPS = new Set([
   "play", "stop", "pause", "resume", "volume", "seek", "filter", "destroy",
   "queue_add", "queue_remove", "queue_move", "queue_shuffle", "queue_clear",
@@ -227,194 +215,68 @@ const ALLOWED_OPS = new Set([
   "history", "history_search", "register",
 ]);
 
+const VALID_FILTERS = new Set([
+  "bassboost", "nightcore", "vaporwave", "slowed", "echo", "reverb",
+  "normalize", "earrape", "karaoke", "mono", "treble", "soft",
+  "underwater", "telephone", "chipmunk", "deep", "robot",
+]);
+
 function sendToChrxmee(guildId, op) {
-  // Security: Validate op type
-  if (!op || !op.op) {
-    console.error("❌ Invalid ChrxmeeStream op: missing op type");
-    return;
-  }
-  if (!ALLOWED_OPS.has(op.op)) {
-    console.error(`❌ Unknown ChrxmeeStream op rejected: ${op.op}`);
-    return;
-  }
-
-  // Security: Validate guildId
-  if (guildId && !/^\d{17,20}$/.test(guildId)) {
-    console.error(`❌ Invalid guildId format: ${guildId}`);
-    return;
-  }
-
-  // Security: Sanitize source string
+  if (!op?.op || !ALLOWED_OPS.has(op.op)) { console.error(`❌ Rejected op: ${op?.op}`); return; }
+  if (guildId && !/^\d{17,20}$/.test(guildId)) { console.error(`❌ Invalid guildId: ${guildId}`); return; }
   if (op.source && typeof op.source === "string") {
-    if (op.source.length > 2000) {
-      console.error("❌ Source URL too long (max 2000 chars)");
-      return;
-    }
-    // Block potentially dangerous protocols
-    if (/^(file|ftp|data|javascript):/i.test(op.source)) {
-      console.error(`❌ Blocked potentially dangerous source protocol: ${op.source.slice(0, 50)}`);
-      return;
-    }
+    if (op.source.length > 2000) return;
+    if (/^(file|ftp|data|javascript):/i.test(op.source)) return;
   }
-
-  // Security: Validate volume range
-  if (op.value !== undefined && op.op === "volume") {
-    if (op.value < 0 || op.value > 200) {
-      console.error(`❌ Volume out of range: ${op.value}`);
-      return;
-    }
-  }
-
-  // Security: Validate seek value
-  if (op.value !== undefined && op.op === "seek") {
-    if (op.value < 0 || op.value > 86400) {
-      console.error(`❌ Seek value out of range: ${op.value}`);
-      return;
-    }
-  }
-
-  // Security: Validate filter names
-  if (op.filters && Array.isArray(op.filters)) {
-    const VALID_FILTERS = new Set([
-      "bassboost", "nightcore", "vaporwave", "slowed", "echo", "reverb",
-      "normalize", "earrape", "karaoke", "mono", "treble", "soft",
-      "underwater", "telephone", "chipmunk", "deep", "robot",
-    ]);
-    for (const f of op.filters) {
-      if (!VALID_FILTERS.has(f)) {
-        console.error(`❌ Unknown filter rejected: ${f}`);
-        return;
-      }
-    }
+  if (op.op === "volume" && (op.value < 0 || op.value > 200)) return;
+  if (op.op === "seek"   && (op.value < 0 || op.value > 86400)) return;
+  if (op.filters) {
+    for (const f of op.filters) { if (!VALID_FILTERS.has(f)) return; }
   }
 
   const payload = JSON.stringify({ guildId, ...op });
-
-  if (chrxmeeWs && chrxmeeWs.readyState === WebSocket.OPEN) {
+  if (chrxmeeWs?.readyState === WebSocket.OPEN) {
     chrxmeeWs.send(payload);
   } else {
-    // Queue for when connection opens
     if (!chrxmeeQueue.has(guildId)) chrxmeeQueue.set(guildId, []);
     chrxmeeQueue.get(guildId).push(op);
   }
 }
 
-// Expose globally so command files can use it
 global.sendToChrxmee = sendToChrxmee;
-
-function handleChrxmeeEvent(event) {
-  const { event: type, guildId, data } = event;
-
-  // Security: Validate event type
-  if (!type || typeof type !== "string") return;
-
-  switch (type) {
-    case "trackStart":
-      console.log(`▶️  [${guildId}] Now playing: ${data?.source}`);
-      break;
-    case "trackEnd":
-      console.log(`⏹️  [${guildId}] Track ended`);
-      break;
-    case "paused":
-      console.log(`⏸️  [${guildId}] Paused`);
-      break;
-    case "resumed":
-      console.log(`▶️  [${guildId}] Resumed`);
-      break;
-    case "stopped":
-      console.log(`⏹️  [${guildId}] Stopped`);
-      break;
-    case "queueUpdated":
-      console.log(`📋 [${guildId}] Queue updated (${data?.length || 0} tracks)`);
-      break;
-    case "queueCleared":
-      console.log(`🗑️  [${guildId}] Queue cleared`);
-      break;
-    case "loopSet":
-      console.log(`🔁 [${guildId}] Loop mode: ${data?.mode}`);
-      break;
-    case "error":
-      console.error(`❌ [${guildId}] ChrxmeeStream error: ${data?.message}`);
-      break;
-    case "lowDataMode":
-      console.warn(`📉 [${guildId}] Low Data Mode: ${data?.enabled ? "ON" : "OFF"}`);
-      break;
-    case "trackStart":
-      console.log(`▶️  [${guildId}] Track started: ${data?.source}`);
-      break;
-    case "trackEnd":
-      console.log(`⏹️  [${guildId}] Track ended`);
-      break;
-    default:
-      // Silently ignore unknown events
-      break;
-  }
-}
 
 // ==================== VOICE HELPERS ====================
 async function ensureVoiceConnection(interaction) {
   const guildId = interaction.guildId;
-  const member = interaction.member;
-  const voiceChannel = member?.voice?.channel;
+  const vc = interaction.member?.voice?.channel;
+  if (!vc) { await interaction.reply({ content: "❌ Join a voice channel first.", ephemeral: true }); return null; }
 
-  if (!voiceChannel) {
-    await interaction.reply({ content: "❌ You need to be in a voice channel first.", ephemeral: true });
-    return null;
+  let conn = client.voiceConnections.get(guildId);
+  if (conn?.state?.status === VoiceConnectionStatus.Ready) return conn;
+
+  conn = joinVoiceChannel({ channelId: vc.id, guildId, adapterCreator: interaction.guild.voiceAdapterCreator });
+  try { await entersState(conn, VoiceConnectionStatus.Ready, 10000); } catch {
+    conn.destroy(); await interaction.reply({ content: "❌ Could not connect.", ephemeral: true }); return null;
   }
 
-  // Already connected?
-  let connection = client.voiceConnections.get(guildId);
-  if (connection && connection.state?.status === VoiceConnectionStatus.Ready) {
-    return connection;
-  }
+  client.voiceConnections.set(guildId, conn);
+  const stream = new PassThrough();
+  client.audioStreams.set(guildId, stream);
+  const player = createAudioPlayer();
+  player.play(createAudioResource(stream, { inputType: StreamType.Raw }));
+  conn.subscribe(player);
+  client.audioPlayers.set(guildId, player);
 
-  // Create new connection
-  connection = joinVoiceChannel({
-    channelId: voiceChannel.id,
-    guildId,
-    adapterCreator: interaction.guild.voiceAdapterCreator,
-  });
-
-  try {
-    await entersState(connection, VoiceConnectionStatus.Ready, 10000);
-  } catch (err) {
-    connection.destroy();
-    await interaction.reply({ content: "❌ Could not connect to voice channel.", ephemeral: true });
-    return null;
-  }
-
-  client.voiceConnections.set(guildId, connection);
-
-  // Create audio stream and player
-  const audioStream = new PassThrough();
-  client.audioStreams.set(guildId, audioStream);
-
-  const audioPlayer = createAudioPlayer();
-  const resource = createAudioResource(audioStream, { inputType: StreamType.Raw });
-  audioPlayer.play(resource);
-  connection.subscribe(audioPlayer);
-  client.audioPlayers.set(guildId, audioPlayer);
-
-  // Handle disconnect
-  connection.on(VoiceConnectionStatus.Disconnected, async () => {
-    try {
-      await Promise.race([
-        entersState(connection, VoiceConnectionStatus.Signalling, 5000),
-        entersState(connection, VoiceConnectionStatus.Connecting, 5000),
-      ]);
-    } catch {
-      connection.destroy();
-      client.voiceConnections.delete(guildId);
-      client.audioStreams.delete(guildId);
-      client.audioPlayers.delete(guildId);
+  conn.on(VoiceConnectionStatus.Disconnected, async () => {
+    try { await Promise.race([entersState(conn, VoiceConnectionStatus.Signalling, 5000), entersState(conn, VoiceConnectionStatus.Connecting, 5000)]); } catch {
+      conn.destroy(); client.voiceConnections.delete(guildId); client.audioStreams.delete(guildId); client.audioPlayers.delete(guildId);
       sendToChrxmee(guildId, { op: "destroy" });
     }
   });
 
-  return connection;
+  return conn;
 }
 
-// Expose globally
 global.ensureVoiceConnection = ensureVoiceConnection;
 
 // ==================== SNIPE SYSTEM ====================
@@ -427,13 +289,9 @@ client.on("messageDelete", (message) => {
 
   const text = message.content.toLowerCase();
   let roast = "";
-  if (text.includes("kill") || text.includes("die") || text.includes("murder")) {
-    roast = `Whoa ${message.author}, threats already? Taking notes... God mode engaged.`;
-  } else if (text.includes("fuck") || text.includes("bitch") || text.includes("shit")) {
-    roast = `God, I guess? ${message.author} typed that with full chest and zero brain cells. Touch grass.`;
-  } else if (text.includes("ugly") || text.includes("stupid") || text.includes("loser")) {
-    roast = `Oof ${message.author}... projecting much? Mirror called, wants its feelings back.`;
-  }
+  if (text.includes("kill") || text.includes("die") || text.includes("murder")) roast = `Whoa ${message.author}, threats already? Taking notes... God mode engaged.`;
+  else if (text.includes("fuck") || text.includes("bitch") || text.includes("shit")) roast = `God, I guess? ${message.author} typed that with full chest and zero brain cells. Touch grass.`;
+  else if (text.includes("ugly") || text.includes("stupid") || text.includes("loser")) roast = `Oof ${message.author}... projecting much? Mirror called, wants its feelings back.`;
   if (roast) message.channel.send(roast).catch(() => {});
 });
 
@@ -447,24 +305,21 @@ client.on("messageUpdate", (oldMsg, newMsg) => {
 
 // ==================== COMMAND & EVENT LOADING ====================
 const commandsPath = path.join(__dirname, "commands");
-const commandFiles = fs.readdirSync(commandsPath).filter((file) => file.endsWith(".js"));
-for (const file of commandFiles) {
-  const filePath = path.join(commandsPath, file);
-  const command = require(filePath);
-  if ("data" in command && "execute" in command) {
-    client.commands.set(command.data.name, command);
+if (fs.existsSync(commandsPath)) {
+  const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith(".js"));
+  for (const file of commandFiles) {
+    const cmd = require(path.join(commandsPath, file));
+    if (cmd.data && cmd.execute) client.commands.set(cmd.data.name, cmd);
   }
 }
 
 const eventsPath = path.join(__dirname, "events");
-const eventFiles = fs.readdirSync(eventsPath).filter((file) => file.endsWith(".js"));
-for (const file of eventFiles) {
-  const filePath = path.join(eventsPath, file);
-  const event = require(filePath);
-  if (event.once) {
-    client.once(event.name, (...args) => event.execute(...args));
-  } else {
-    client.on(event.name, (...args) => event.execute(...args));
+if (fs.existsSync(eventsPath)) {
+  const eventFiles = fs.readdirSync(eventsPath).filter(f => f.endsWith(".js"));
+  for (const file of eventFiles) {
+    const evt = require(path.join(eventsPath, file));
+    if (evt.once) client.once(evt.name, (...args) => evt.execute(...args));
+    else client.on(evt.name, (...args) => evt.execute(...args));
   }
 }
 
@@ -482,9 +337,7 @@ setInterval(() => {
       `Handling ${heartbeatCount} heartbeats | High Traffic Mode 🚀`,
       "🎵 ChrxmeeStream v2.0",
     ];
-    const activity = activities[Math.floor(Math.random() * activities.length)];
-    client.user.setPresence({ activities: [{ name: activity, type: 0 }], status: "online" });
-    console.log(`[HEARTBEAT #${heartbeatCount}] Presence: ${activity}`);
+    client.user.setPresence({ activities: [{ name: activities[Math.floor(Math.random() * activities.length)], type: 0 }], status: "online" });
   }
 }, 300000);
 
@@ -492,163 +345,33 @@ setInterval(() => {
 client.once("ready", async () => {
   try {
     console.log(`Logged in as ${client.user.tag}`);
-    console.log(`Chrxmee AI ready as ${client.user.tag}`);
 
-    // Connect to internal ChrxmeeStream
-    connectToChrxmee();
+    // Connect to internal ChrxmeeStream after a short delay
+    setTimeout(() => connectToChrxmee(), 2000);
 
     const pgClient = await pool.connect();
-    console.log("Postgres connected successfully on ready!");
+    console.log("Postgres connected!");
 
-    // ── Core Settings ──────────────────────────────────────────
-    await pgClient.query(`
-      CREATE TABLE IF NOT EXISTS guild_settings (
-        guild_id BIGINT PRIMARY KEY,
-        wake_up_mode TEXT DEFAULT 'default',
-        auto_respond BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT NOW()
-      )
-    `);
-    console.log("guild_settings table ready");
-
-    // ── Birthdays ──────────────────────────────────────────────
-    await pgClient.query(`
-      CREATE TABLE IF NOT EXISTS user_birthdays (
-        user_id BIGINT PRIMARY KEY,
-        birthday_date DATE NOT NULL,
-        timezone TEXT NOT NULL,
-        birthday_role_id BIGINT,
-        ping_role_id BIGINT,
-        set_at TIMESTAMP DEFAULT NOW()
-      )
-    `);
-    console.log("user_birthdays table ready");
-
-    // ── AI Interactions ────────────────────────────────────────
-    await pgClient.query(`
-      CREATE TABLE IF NOT EXISTS user_interactions (
-        user_id BIGINT PRIMARY KEY,
-        custom_prompt TEXT DEFAULT '',
-        preferred_model TEXT DEFAULT 'genius',
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
-      )
-    `);
-    console.log("user_interactions table ready");
-
-    await pgClient.query(`
-      CREATE TABLE IF NOT EXISTS user_personal_info (
-        user_id BIGINT PRIMARY KEY,
-        personal_info TEXT DEFAULT '{}',
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
-      )
-    `);
-    console.log("user_personal_info table ready");
-
-    // ── Message Deduplication ──────────────────────────────────
-    await pgClient.query(`
-      CREATE TABLE IF NOT EXISTS processed_messages (
-        message_id BIGINT PRIMARY KEY,
-        processed_at TIMESTAMP DEFAULT NOW()
-      )
-    `);
-    console.log("processed_messages table ready");
-
-    // ── Keyword Responder ──────────────────────────────────────
-    await pgClient.query(`
-      CREATE TABLE IF NOT EXISTS keyword_responder (
-        id SERIAL PRIMARY KEY,
-        guild_id BIGINT NOT NULL,
-        keyword TEXT NOT NULL,
-        response TEXT NOT NULL,
-        match_type TEXT DEFAULT 'contains',
-        created_by BIGINT,
-        created_at TIMESTAMP DEFAULT NOW(),
-        UNIQUE (guild_id, keyword)
-      )
-    `);
-    console.log("keyword_responder table ready");
-
-    // ── XP System ─────────────────────────────────────────────
-    await pgClient.query(`
-      CREATE TABLE IF NOT EXISTS user_xp (
-        user_id BIGINT NOT NULL,
-        guild_id BIGINT NOT NULL,
-        xp INTEGER DEFAULT 0,
-        level INTEGER DEFAULT 0,
-        prestige INTEGER DEFAULT 0,
-        PRIMARY KEY (user_id, guild_id)
-      )
-    `);
-    console.log("user_xp table ready");
-
-    await pgClient.query(`
-      CREATE TABLE IF NOT EXISTS xp_blacklisted_channels (
-        guild_id BIGINT NOT NULL,
-        channel_id BIGINT NOT NULL,
-        PRIMARY KEY (guild_id, channel_id)
-      )
-    `);
-    console.log("xp_blacklisted_channels table ready");
-
-    await pgClient.query(`
-      CREATE TABLE IF NOT EXISTS xp_multipliers (
-        guild_id BIGINT NOT NULL,
-        role_id BIGINT NOT NULL,
-        multiplier NUMERIC DEFAULT 1,
-        PRIMARY KEY (guild_id, role_id)
-      )
-    `);
-    console.log("xp_multipliers table ready");
-
-    await pgClient.query(`
-      CREATE TABLE IF NOT EXISTS xp_level_roles (
-        guild_id BIGINT NOT NULL,
-        level INTEGER NOT NULL,
-        role_id BIGINT NOT NULL,
-        PRIMARY KEY (guild_id, level)
-      )
-    `);
-    console.log("xp_level_roles table ready");
-
-    // ── Playlists ──────────────────────────────────────────────
-    await pgClient.query(`
-      CREATE TABLE IF NOT EXISTS playlists (
-        id SERIAL PRIMARY KEY,
-        user_id BIGINT NOT NULL,
-        name TEXT NOT NULL,
-        is_public BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT NOW(),
-        UNIQUE (user_id, name)
-      )
-    `);
-    console.log("playlists table ready");
-
-    await pgClient.query(`
-      CREATE TABLE IF NOT EXISTS playlist_tracks (
-        id SERIAL PRIMARY KEY,
-        playlist_id INTEGER REFERENCES playlists(id) ON DELETE CASCADE,
-        title TEXT NOT NULL,
-        uri TEXT NOT NULL,
-        author TEXT,
-        duration BIGINT,
-        added_at TIMESTAMP DEFAULT NOW()
-      )
-    `);
-    console.log("playlist_tracks table ready");
-
-    // ── Migrations ─────────────────────────────────────────────
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS guild_settings (guild_id BIGINT PRIMARY KEY, wake_up_mode TEXT DEFAULT 'default', auto_respond BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT NOW())`);
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS user_birthdays (user_id BIGINT PRIMARY KEY, birthday_date DATE NOT NULL, timezone TEXT NOT NULL, birthday_role_id BIGINT, ping_role_id BIGINT, set_at TIMESTAMP DEFAULT NOW())`);
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS user_interactions (user_id BIGINT PRIMARY KEY, custom_prompt TEXT DEFAULT '', preferred_model TEXT DEFAULT 'genius', created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW())`);
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS user_personal_info (user_id BIGINT PRIMARY KEY, personal_info TEXT DEFAULT '{}', created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW())`);
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS processed_messages (message_id BIGINT PRIMARY KEY, processed_at TIMESTAMP DEFAULT NOW())`);
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS keyword_responder (id SERIAL PRIMARY KEY, guild_id BIGINT NOT NULL, keyword TEXT NOT NULL, response TEXT NOT NULL, match_type TEXT DEFAULT 'contains', created_by BIGINT, created_at TIMESTAMP DEFAULT NOW(), UNIQUE (guild_id, keyword))`);
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS user_xp (user_id BIGINT NOT NULL, guild_id BIGINT NOT NULL, xp INTEGER DEFAULT 0, level INTEGER DEFAULT 0, prestige INTEGER DEFAULT 0, PRIMARY KEY (user_id, guild_id))`);
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS xp_blacklisted_channels (guild_id BIGINT NOT NULL, channel_id BIGINT NOT NULL, PRIMARY KEY (guild_id, channel_id))`);
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS xp_multipliers (guild_id BIGINT NOT NULL, role_id BIGINT NOT NULL, multiplier NUMERIC DEFAULT 1, PRIMARY KEY (guild_id, role_id))`);
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS xp_level_roles (guild_id BIGINT NOT NULL, level INTEGER NOT NULL, role_id BIGINT NOT NULL, PRIMARY KEY (guild_id, level))`);
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS playlists (id SERIAL PRIMARY KEY, user_id BIGINT NOT NULL, name TEXT NOT NULL, is_public BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT NOW(), UNIQUE (user_id, name))`);
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS playlist_tracks (id SERIAL PRIMARY KEY, playlist_id INTEGER REFERENCES playlists(id) ON DELETE CASCADE, title TEXT NOT NULL, uri TEXT NOT NULL, author TEXT, duration BIGINT, added_at TIMESTAMP DEFAULT NOW())`);
     await pgClient.query(`ALTER TABLE user_interactions ADD COLUMN IF NOT EXISTS preferred_model TEXT DEFAULT 'genius'`);
 
-    const res = await pgClient.query("SELECT 1");
-    console.log("Test query worked:", res.rows);
     pgClient.release();
-    console.log("All tables ready — pool pre-warmed successfully");
+    console.log("All tables ready.");
 
     setupAntinukeEvents(client);
 
-    // ── Birthday Checker ───────────────────────────────────────
+    // Birthday checker
     setInterval(async () => {
       try {
         const today = new Date();
@@ -662,133 +385,52 @@ client.once("ready", async () => {
             if (!member) continue;
             if (row.birthday_role_id) {
               const role = guild.roles.cache.get(row.birthday_role_id);
-              if (role) {
-                await member.roles.add(role).catch(console.error);
-                setTimeout(() => member.roles.remove(role).catch(console.error), 86400000);
-              }
+              if (role) { await member.roles.add(role).catch(() => {}); setTimeout(() => member.roles.remove(role).catch(() => {}), 86400000); }
             }
             if (row.ping_role_id) {
-              const channel = guild.systemChannel || guild.channels.cache.find((ch) => ch.isTextBased());
-              if (channel) await channel.send(`<@&${row.ping_role_id}> Happy birthday to ${member}! 🎂`).catch(console.error);
+              const channel = guild.systemChannel || guild.channels.cache.find(ch => ch.isTextBased());
+              if (channel) await channel.send(`<@&${row.ping_role_id}> Happy birthday to ${member}! 🎂`).catch(() => {});
             }
           }
         }
-      } catch (err) {
-        console.error("Birthday check failed:", err);
-      }
+      } catch {}
     }, 86400000);
 
-    client.user.setPresence({
-      status: "online",
-      activities: [{ name: "Discord World AI Competition", type: 0 }],
-    });
-
+    // Interaction handler
     client.on("interactionCreate", async (i) => {
       if (i.isCommand()) {
-        const command = client.commands.get(i.commandName);
-        if (!command) return;
-        try {
-          await command.execute(i, client);
-        } catch (err) {
-          console.error(`Command ${i.commandName} error:`, err);
-          if (!i.replied && !i.deferred) {
-            await i.reply({ content: "❌ An error occurred while executing this command.", ephemeral: true }).catch(() => {});
-          }
+        const cmd = client.commands.get(i.commandName);
+        if (!cmd) return;
+        try { await cmd.execute(i, client); } catch (err) {
+          console.error(`Command ${i.commandName}:`, err.message);
+          if (!i.replied && !i.deferred) await i.reply({ content: "❌ Error executing command.", ephemeral: true }).catch(() => {});
         }
       }
 
-      if (!i.isStringSelectMenu()) return;
-      if (i.customId !== "help_select") return;
+      if (!i.isStringSelectMenu() || i.customId !== "help_select") return;
       await i.deferReply({ ephemeral: true });
 
       let title = "", desc = "";
       switch (i.values[0]) {
-        case "help_ai":
-          title = "AI-Powered Commands";
-          desc = "`/ask` — Ask anything to the AI\n`/chat` — Chat with the bot\n`/summarize` — Summarize text\n`/translate` — Translate text\n`/debate` — Debate with the bot\n`/dream` — Generate dream/image\n`/model` — Switch AI model\n`/news` — Get news\n`/oracle` — Oracle prediction\n`/code-generate` — Generate code";
-          break;
-        case "help_visual":
-          title = "Visual Imagination";
-          desc = "`/image` — Search images\n`/imagine` — Imagine something\n`/generate-qr` — QR code\n`/avatar` — User avatar";
-          break;
-        case "help_fun":
-          title = "Fun & Games";
-          desc = "`/roast` — Roast someone\n`/roastme` — Get roasted\n`/burn @user` — Burn someone\n`/coinflip` — Coin flip\n`/dice` — Roll dice\n`/poll` — Create poll\n`/trivia` — Trivia game\n`/ship` — Ship two users\n`/8ball` — Magic 8-ball";
-          break;
-        case "help_music":
-          title = "🎵 Music (ChrxmeeStream v2.0)";
-          desc = "`/music play` — Play a song\n`/music stop` — Stop playback\n`/music pause` — Pause\n`/music resume` — Resume\n`/music skip` — Skip track\n`/music volume` — Set volume\n`/music seek` — Seek to position\n`/music filter` — Apply filters\n`/music loop` — Loop mode\n`/music shuffle` — Shuffle queue\n`/music queue` — View queue\n`/music clearqueue` — Clear queue\n`/music autoplay` — Toggle Auto DJ\n`/music leave` — Leave VC\n`/music player-set` — Set start marker\n`/music player-end` — Set end marker\n`/music player-loop` — Toggle marker loop\n`/music nowplaying` — Now playing\n`/music lyrics` — Get lyrics";
-          break;
-        case "help_utility":
-          title = "Utility";
-          desc = "`/snipe` — Snipe messages\n`/ping` — Ping bot\n`/serverinfo` — Server info\n`/user @user` — User info\n`/remind-me` — Reminders\n`/quote` — Random quote\n`/status` — Bot status\n`/history` — Conversation history";
-          break;
-        case "help_mod":
-          title = "Moderation & Advanced";
-          desc = "`/auto-respond` — Toggle auto-responses\n`/guild-settings` — Server settings\n`/dashboard` — Bot dashboard\n`/brain-dump` — Memory dump\n`/clear-brain` — Clear memory";
-          break;
-        default:
-          return i.editReply({ content: "Unknown section.", ephemeral: true });
+        case "help_ai": title = "AI-Powered Commands"; desc = "`/ask` `/chat` `/summarize` `/translate` `/debate` `/dream` `/model` `/news` `/oracle` `/code-generate`"; break;
+        case "help_visual": title = "Visual"; desc = "`/image` `/imagine` `/generate-qr` `/avatar`"; break;
+        case "help_fun": title = "Fun & Games"; desc = "`/roast` `/roastme` `/burn @user` `/coinflip` `/dice` `/poll` `/trivia` `/ship` `/8ball`"; break;
+        case "help_music": title = "🎵 Music (ChrxmeeStream v2.0)"; desc = "`/music play` `/music stop` `/music pause` `/music resume` `/music skip` `/music volume` `/music seek` `/music filter` `/music loop` `/music shuffle` `/music queue` `/music clearqueue` `/music autoplay` `/music leave` `/music player-set` `/music player-end` `/music player-loop` `/music nowplaying` `/music lyrics`"; break;
+        case "help_utility": title = "Utility"; desc = "`/snipe` `/ping` `/serverinfo` `/user @user` `/remind-me` `/quote` `/status` `/history`"; break;
+        case "help_mod": title = "Moderation"; desc = "`/auto-respond` `/guild-settings` `/dashboard` `/brain-dump` `/clear-brain`"; break;
+        default: return i.editReply({ content: "Unknown section.", ephemeral: true });
       }
-
-      return i.editReply({
-        embeds: [new EmbedBuilder().setColor("#2f3136").setTitle(title).setDescription(desc)],
-        ephemeral: true,
-      });
+      return i.editReply({ embeds: [new EmbedBuilder().setColor("#2f3136").setTitle(title).setDescription(desc)], ephemeral: true });
     });
 
   } catch (err) {
     console.error("READY EVENT CRASHED:", err);
-    console.error("Stack trace:", err.stack);
   }
 });
 
-// ==================== RECONNECTION LOGIC ====================
-client.on("disconnect", () => {
-  console.log("Bot disconnected! Attempting to reconnect...");
-});
-client.on("error", (err) => {
-  console.error("Discord client error:", err.message);
-});
-client.on("warn", (info) => {
-  console.warn("Discord client warning:", info);
-});
-
-// ==================== GLOBAL ERROR HANDLERS ====================
-process.on("unhandledRejection", (reason, promise) => {
-  console.error("Unhandled Rejection at:", promise, "reason:", reason);
-});
-process.on("uncaughtException", (err) => {
-  console.error("Uncaught Exception thrown:", err);
-});
-
-// ==================== GRACEFUL SHUTDOWN ====================
-process.on("SIGINT", () => {
-  console.log("\n👋 Shutting down gracefully...");
-  chrxmeeServer.stop();
-  for (const [guildId, connection] of client.voiceConnections) {
-    connection.destroy();
-    client.voiceConnections.delete(guildId);
-  }
-  process.exit(0);
-});
-
-process.on("SIGTERM", () => {
-  console.log("\n👋 Shutting down gracefully...");
-  chrxmeeServer.stop();
-  for (const [guildId, connection] of client.voiceConnections) {
-    connection.destroy();
-    client.voiceConnections.delete(guildId);
-  }
-  process.exit(0);
-});
+// ==================== SHUTDOWN ====================
+process.on("SIGINT", () => { stopAllWatchers(); chrxmeeServer.stop(); process.exit(0); });
+process.on("SIGTERM", () => { stopAllWatchers(); chrxmeeServer.stop(); process.exit(0); });
 
 // ==================== LOGIN ====================
-console.log("BOT_TOKEN value:", process.env.BOT_TOKEN ? `exists, length: ${process.env.BOT_TOKEN.length}` : "MISSING OR EMPTY");
-
-client.login(process.env.BOT_TOKEN).then(() => {
-  console.log("Discord login successful!");
-}).catch((err) => {
-  console.error("Discord login FAILED:", err.message);
-  console.error("Full error:", err);
-});
+client.login(process.env.BOT_TOKEN).then(() => console.log("Discord login successful!")).catch(err => console.error("Login failed:", err.message));
