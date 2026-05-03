@@ -1,6 +1,6 @@
 {
   "server": {
-    "port": 2333,
+    "port": 2334,
     "host": "127.0.0.1",
     "password": "chrxmee",
     "audioDir": "./audio"
