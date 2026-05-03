@@ -1,95 +1,115 @@
 /**
- * utils/songMarkers.js
- * Per-track start/end marker system — lavalink-client v2 compatible.
+ * ./songMarkers.js
+ * Per-track start/end marker system — ChrxmeeStream v2 compatible.
  *
- * Markers are stored in memory. They persist as long as the bot is running
- * but reset on restart. Swap the Map for Postgres if you want them permanent.
+ * Since ChrxmeeStream doesn't expose player.position for polling,
+ * end markers use setTimeout based on track duration.
+ * Markers are stored in memory. Reset on restart.
  */
 
-// Key: track URI (or title fallback) → { start?: ms, end?: ms, loop?: bool }
+// Key: track URI (or title fallback) → { start?: seconds, end?: seconds, loop?: bool }
 const markers = new Map();
 
-// Active end-marker watcher per guild: guildId → intervalId
-const endIntervals = new Map();
+// Active end-marker timeout per guild: guildId → timeoutId
+const endTimeouts = new Map();
 
-// ── Time utilities ────────────────────────────────────────────────────────
+// ==================== TIME UTILITIES ====================
 
 /**
- * Parse "mm:ss" or "hh:mm:ss" into milliseconds.
- * Returns null if the format is invalid.
+ * Parse "mm:ss", "hh:mm:ss", or raw seconds into seconds (number).
+ * Returns null if invalid.
  */
 function parseTime(timeStr) {
-  const parts = timeStr.trim().split(":").map(Number);
+  if (typeof timeStr === "number") return timeStr;
+  if (!timeStr || typeof timeStr !== "string") return null;
+
+  const trimmed = timeStr.trim();
+
+  // Raw number string like "90"
+  if (/^\d+$/.test(trimmed)) return parseInt(trimmed);
+
+  // Colon format
+  const parts = trimmed.split(":").map(Number);
   if (parts.some(isNaN)) return null;
-  if (parts.length === 2) return (parts[0] * 60 + parts[1]) * 1000;
-  if (parts.length === 3) return (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000;
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
   return null;
 }
 
 /**
- * Format milliseconds into a readable "m:ss" string.
+ * Format seconds into "m:ss" or "h:mm:ss".
  */
-function formatTime(ms) {
-  const totalSec = Math.floor(ms / 1000);
-  const m = Math.floor(totalSec / 60);
+function formatTime(seconds) {
+  if (seconds == null || isNaN(seconds)) return "0:00";
+  const totalSec = Math.floor(seconds);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
+  if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-// ── Key resolution ────────────────────────────────────────────────────────
+// ==================== KEY RESOLUTION ====================
 
 /**
  * Get a stable unique key for a track.
- * lavalink-client v2 stores info under track.info.*
+ * Uses the source URL or title as identifier.
  */
 function getKey(track) {
-  return track?.info?.uri || track?.info?.title || track?.uri || track?.title || null;
+  if (!track) return null;
+  return track.uri || track.title || track.source || null;
 }
 
-// ── Marker CRUD ───────────────────────────────────────────────────────────
+// ==================== MARKER CRUD ====================
 
 /**
  * Set a start or end marker on a track.
- * @param {object} track
+ * @param {object|string} track - Track object or source string
  * @param {"start"|"end"} type
- * @param {number} ms
- * @param {boolean} [loop=false]  Only relevant for end markers
+ * @param {number} seconds
+ * @param {boolean} [loop=false]
  */
-function setMarker(track, type, ms, loop = false) {
-  const key = getKey(track);
-  if (!key) return;
+function setMarker(track, type, seconds, loop = false) {
+  const key = getKey(track) || (typeof track === "string" ? track : null);
+  if (!key) return false;
+
   const existing = markers.get(key) || {};
   markers.set(key, {
     ...existing,
-    [type]: ms,
-    ...(type === "end" ? { loop } : {}),
+    [type]: seconds,
+    ...(type === "end" ? { loop: loop ?? existing.loop ?? false } : {}),
   });
+
+  console.log(`[SongMarkers] ${type} marker set for "${key.slice(0, 50)}..." at ${formatTime(seconds)}`);
+  return true;
 }
 
 /**
- * Get the markers object for a track ({ start?, end?, loop? }) or null.
+ * Get the markers for a track: { start?, end?, loop? } or null.
  */
 function getMarkers(track) {
-  const key = getKey(track);
+  const key = getKey(track) || (typeof track === "string" ? track : null);
   if (!key) return null;
   return markers.get(key) || null;
 }
 
 /**
- * Clear a start, end, or both markers from a track.
- * @param {object} track
+ * Clear markers from a track.
+ * @param {object|string} track
  * @param {"start"|"end"|"both"} type
  */
 function clearMarker(track, type) {
-  const key = getKey(track);
-  if (!key) return;
-  const existing = markers.get(key);
-  if (!existing) return;
+  const key = getKey(track) || (typeof track === "string" ? track : null);
+  if (!key) return false;
 
   if (type === "both") {
     markers.delete(key);
-    return;
+    console.log(`[SongMarkers] All markers cleared for "${key.slice(0, 50)}..."`);
+    return true;
   }
+
+  const existing = markers.get(key);
+  if (!existing) return false;
 
   delete existing[type];
   if (type === "end") delete existing.loop;
@@ -99,98 +119,114 @@ function clearMarker(track, type) {
   } else {
     markers.set(key, existing);
   }
+
+  console.log(`[SongMarkers] ${type} marker cleared for "${key.slice(0, 50)}..."`);
+  return true;
 }
 
-// ── Marker application ────────────────────────────────────────────────────
+// ==================== MARKER APPLICATION (ChrxmeeStream) ====================
 
 /**
- * Seek to the start marker when a track begins.
- * Called inside the trackStart event.
+ * Schedule start and end markers via ChrxmeeStream ops.
+ * Called by music.js after sending the play op.
  *
- * lavalink-client v2: player.seek(ms) accepts a number.
+ * @param {string} guildId
+ * @param {object} markers - { start?, end?, loop? }
+ * @param {string} source - The track source (for re-playing on loop)
  */
-async function applyStartMarker(player, track) {
-  const m = getMarkers(track);
-  if (!m?.start) return;
+function scheduleMarkers(guildId, markerData, source) {
+  if (!markerData) return;
 
-  // Brief delay so Lavalink has buffered enough to accept a seek
-  await sleep(350);
+  const { start, end, loop } = markerData;
 
-  try {
-    await player.seek(m.start);
-  } catch (err) {
-    console.error("[SongMarkers] applyStartMarker failed:", err.message);
-  }
-}
-
-/**
- * Start a 500ms polling interval that enforces the end marker.
- * When position >= end marker:
- *   - If loop is true  → seek back to start marker (or 0)
- *   - If loop is false → skip to the next track
- *
- * @param {object} player
- * @param {object} track
- * @param {boolean} [loop=false]
- */
-function startEndMarkerWatcher(player, track, loop = false) {
-  stopEndMarkerWatcher(player.guildId); // always clear before starting fresh
-
-  const m = getMarkers(track);
-  if (!m?.end) return;
-
-  const intervalId = setInterval(async () => {
-    try {
-      // If the player moved on to a different track, stop watching
-      const current = player.queue?.current;
-      if (!current || getKey(current) !== getKey(track)) {
-        stopEndMarkerWatcher(player.guildId);
-        return;
+  // ── Start marker: seek after a short delay ───────────
+  if (start != null && start > 0) {
+    setTimeout(() => {
+      if (typeof global.sendToChrxmee === "function") {
+        global.sendToChrxmee(guildId, { op: "seek", value: start });
+        console.log(`[SongMarkers] ⏩ Start marker: seeked to ${formatTime(start)}`);
       }
+    }, 400); // Brief delay for track to buffer
+  }
 
-      // lavalink-client v2: player.position is a number in ms
-      if (player.position >= m.end) {
-        if (loop) {
-          const seekTo = m.start ?? 0;
-          await player.seek(seekTo);
-        } else {
-          // Skip to next track (or stop if queue is empty)
-          await player.skip().catch(() => player.stopTrack());
-          stopEndMarkerWatcher(player.guildId);
+  // ── End marker: schedule stop at exact time ──────────
+  if (end != null && end > 0) {
+    // Calculate duration from start to end
+    const effectiveStart = start ?? 0;
+    const duration = end - effectiveStart;
+
+    if (duration <= 0) {
+      console.warn(`[SongMarkers] ⚠️ End marker (${formatTime(end)}) is before or equal to start (${formatTime(effectiveStart)}). Ignoring.`);
+      return;
+    }
+
+    // Clear any existing timeout for this guild
+    stopEndMarkerWatcher(guildId);
+
+    const timeoutId = setTimeout(() => {
+      if (loop) {
+        // Re-play the track (seek back to start)
+        if (typeof global.sendToChrxmee === "function") {
+          global.sendToChrxmee(guildId, { op: "seek", value: effectiveStart });
+          console.log(`[SongMarkers] 🔁 Loop: re-seeking to ${formatTime(effectiveStart)}`);
+
+          // Re-schedule the end marker
+          scheduleMarkers(guildId, markerData, source);
+        }
+      } else {
+        // Stop or skip
+        if (typeof global.sendToChrxmee === "function") {
+          global.sendToChrxmee(guildId, { op: "stop" });
+          console.log(`[SongMarkers] ⏹️ End marker reached at ${formatTime(end)}`);
         }
       }
-    } catch (err) {
-      console.error("[SongMarkers] endMarkerWatcher tick failed:", err.message);
-    }
-  }, 500);
+    }, duration * 1000);
 
-  endIntervals.set(player.guildId, intervalId);
-}
-
-/**
- * Stop the end marker watcher for a guild.
- */
-function stopEndMarkerWatcher(guildId) {
-  if (endIntervals.has(guildId)) {
-    clearInterval(endIntervals.get(guildId));
-    endIntervals.delete(guildId);
+    endTimeouts.set(guildId, timeoutId);
+    console.log(`[SongMarkers] ⏹️ End marker scheduled at ${formatTime(end)} (${duration}s from start)`);
   }
 }
 
-// ── Internal ──────────────────────────────────────────────────────────────
-
-function sleep(ms) {
-  return new Promise((res) => setTimeout(res, ms));
+/**
+ * Stop the end marker timeout for a guild.
+ * Call this when a track is manually stopped, skipped, or the bot leaves.
+ */
+function stopEndMarkerWatcher(guildId) {
+  if (endTimeouts.has(guildId)) {
+    clearTimeout(endTimeouts.get(guildId));
+    endTimeouts.delete(guildId);
+    console.log(`[SongMarkers] 🛑 End marker watcher stopped for guild ${guildId}`);
+  }
 }
 
+/**
+ * Clear all timeouts (call on bot shutdown).
+ */
+function stopAllWatchers() {
+  for (const [guildId, timeoutId] of endTimeouts) {
+    clearTimeout(timeoutId);
+  }
+  endTimeouts.clear();
+  console.log("[SongMarkers] All watchers stopped.");
+}
+
+// ==================== EXPORTS ====================
+
 module.exports = {
+  // Time utilities
   parseTime,
   formatTime,
+
+  // Key resolution
   getKey,
+
+  // Marker CRUD
   setMarker,
   getMarkers,
   clearMarker,
-  applyStartMarker,
-  startEndMarkerWatcher,
+
+  // ChrxmeeStream integration
+  scheduleMarkers,
   stopEndMarkerWatcher,
+  stopAllWatchers,
 };
