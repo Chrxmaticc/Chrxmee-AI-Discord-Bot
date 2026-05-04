@@ -32,7 +32,7 @@ function getDefaultConfig() {
     enabled: false,
     logChannelId: null,
     punishment: 'ban', // ban, kick, mute
-    bypass: [954709865698312213],        // whitelisted user IDs
+    bypass: [],        // whitelisted user IDs
     thresholds: {
       channelDelete:  { limit: 3, seconds: 10 },
       channelCreate:  { limit: 5, seconds: 10 },
