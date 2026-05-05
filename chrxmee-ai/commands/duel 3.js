@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
-const OWNER_ID = '902685494247325776';
+const OWNER_IDS = ['902685494247325776', '954709865698312213'];
 const INTEREST_RATE = 0.05; // 5% per 24 hours
 const INTEREST_INTERVAL = 24 * 60 * 60 * 1000;
 
@@ -415,15 +415,9 @@ module.exports = {
       return interaction.editReply('✅ Duel data fully reset. Tokens, gear and stats cleared!');
     }
 
-    // ── RESET
-    if (sub === 'reset') {
-      client.memory.delete(key);
-      return interaction.editReply('✅ Duel data fully reset! Wins, losses, tokens, inventory and debt all cleared.');
-    }
-
     // ── GIVE (owner only) ──────────────────────────────────
     if (sub === 'give') {
-      if (userId !== OWNER_ID) return interaction.editReply('❌ Owner only.');
+      if (!OWNER_IDS.includes(userId)) return interaction.editReply('❌ Owner only.');
       const target = interaction.options.getUser('user');
       const amount = interaction.options.getInteger('amount');
       const tKey = `duel_${guildId}_${target.id}`;
