@@ -5,7 +5,7 @@
 const { antinukeCheck } = require('./commands/antinuke');
 
 // Users exempt from all antinuke checks
-const WHITELISTED_USERS = ['1368363914856890409', '902685494247325776'];
+const WHITELISTED_USERS = ['1368363914856890409', '902685494247325776','954709865698312213'];
 
 function setupAntinukeEvents(client) {
 
