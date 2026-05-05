@@ -1,14 +1,9 @@
 require("dotenv").config();
 const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require("discord.js");
-const { ChrxmeeServer } = require("chrxmeestream");
-const WebSocket = require("ws");
-const { PassThrough } = require("stream");
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, StreamType, VoiceConnectionStatus, entersState } = require("@discordjs/voice");
 const fs = require("fs");
 const path = require("path");
 const { Pool } = require("pg");
 const { setupAntinukeEvents } = require("./antinukeEvents");
-const { scheduleMarkers, stopEndMarkerWatcher, stopAllWatchers } = require("./songMarkers");
 
 // ==================== HELPERS ====================
 function msToTime(ms) {
@@ -53,12 +48,6 @@ client.memory = new Map();
 client.snipes = new Map();
 client.msToTime = msToTime;
 
-// ChrxmeeStream state
-client.audioStreams = new Map();
-client.voiceConnections = new Map();
-client.audioPlayers = new Map();
-client.playerMarkers = new Map();
-
 // ==================== POSTGRES POOL ====================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -86,145 +75,6 @@ setInterval(async () => {
 }, 30000);
 
 client.pool = pool;
-
-// ==================== CHRXMEESTREAM ====================
-let chrxmeeConfig;
-try {
-  chrxmeeConfig = require("./chrxmee.config.json");
-  console.log("📄 Loaded chrxmee.config.json");
-} catch {
-  chrxmeeConfig = { server: { port: 2333, host: "127.0.0.1", password: "chrxmee", audioDir: "./audio" } };
-}
-
-const CHRXMEE_PORT = parseInt(process.env.CHRXMEE_INTERNAL_PORT) || chrxmeeConfig.server?.port || 2333;
-const CHRXMEE_HOST = process.env.CHRXMEE_INTERNAL_HOST || chrxmeeConfig.server?.host || "127.0.0.1";
-const CHRXMEE_PASS = process.env.CHRXMEE_INTERNAL_PASS || chrxmeeConfig.server?.password || "chrxmee";
-const CHRXMEE_DIR  = process.env.CHRXMEE_AUDIO_DIR     || chrxmeeConfig.server?.audioDir || "./audio";
-
-console.log("🎵 Starting ChrxmeeStream v2.0.0 inside bot...");
-const chrxmeeServer = new ChrxmeeServer({
-  port: CHRXMEE_PORT,
-  host: CHRXMEE_HOST,
-  password: CHRXMEE_PASS,
-  audioDir: CHRXMEE_DIR,
-});
-chrxmeeServer.start();
-console.log(`🎵 ChrxmeeStream running on ws://${CHRXMEE_HOST}:${CHRXMEE_PORT}`);
-
-// Internal WebSocket connection
-let chrxmeeWs = null;
-const chrxmeeQueue = new Map();
-
-function connectToChrxmee() {
-  chrxmeeWs = new WebSocket(`ws://${CHRXMEE_HOST}:${CHRXMEE_PORT}`, {
-    headers: { Authorization: CHRXMEE_PASS },
-  });
-
-  chrxmeeWs.on("open", () => {
-    console.log("✅ Connected to internal ChrxmeeStream");
-    for (const [guildId, ops] of chrxmeeQueue) {
-      for (const op of ops) {
-        chrxmeeWs.send(JSON.stringify({ guildId, ...op }));
-      }
-    }
-    chrxmeeQueue.clear();
-  });
-
-  chrxmeeWs.on("message", (data, isBinary) => {
-    if (isBinary) {
-      try {
-        if (data.length < 5) return;
-        const guildIdLen = data.readUInt32BE(0);
-        if (guildIdLen > 64 || guildIdLen < 1 || data.length < 4 + guildIdLen) return;
-        const guildId = data.subarray(4, 4 + guildIdLen).toString("utf8");
-        if (!/^\d{17,20}$/.test(guildId)) return;
-        const stream = client.audioStreams.get(guildId);
-        if (stream) stream.push(data.subarray(4 + guildIdLen));
-      } catch {}
-    }
-  });
-
-  chrxmeeWs.on("close", () => {
-    console.warn("⚠️ ChrxmeeStream disconnected. Retrying in 5s...");
-    chrxmeeWs = null;
-    setTimeout(connectToChrxmee, 5000);
-  });
-
-  chrxmeeWs.on("error", (err) => {
-    chrxmeeWs = null;
-    if (err.message.includes("ECONNREFUSED")) setTimeout(connectToChrxmee, 3000);
-  });
-}
-
-function sendToChrxmee(guildId, op) {
-  if (!op?.op) return;
-  const payload = JSON.stringify({ guildId, ...op });
-  if (chrxmeeWs?.readyState === WebSocket.OPEN) {
-    chrxmeeWs.send(payload);
-  } else {
-    if (!chrxmeeQueue.has(guildId)) chrxmeeQueue.set(guildId, []);
-    chrxmeeQueue.get(guildId).push(op);
-  }
-}
-
-global.sendToChrxmee = sendToChrxmee;
-
-// ==================== VOICE HELPERS ====================
-async function ensureVoiceConnection(interaction) {
-  const guildId = interaction.guildId;
-  const vc = interaction.member?.voice?.channel;
-
-  if (!vc) {
-    await interaction.reply({ content: "❌ You need to be in a voice channel first.", ephemeral: true });
-    return null;
-  }
-
-  let conn = client.voiceConnections.get(guildId);
-  if (conn?.state?.status === VoiceConnectionStatus.Ready) return conn;
-
-  conn = joinVoiceChannel({
-    channelId: vc.id,
-    guildId,
-    adapterCreator: interaction.guild.voiceAdapterCreator,
-  });
-
-  try {
-    await entersState(conn, VoiceConnectionStatus.Ready, 10000);
-  } catch {
-    try { conn.destroy(); } catch {}
-    await interaction.reply({ content: "❌ Could not connect to voice channel.", ephemeral: true });
-    return null;
-  }
-
-  client.voiceConnections.set(guildId, conn);
-
-  const stream = new PassThrough();
-  client.audioStreams.set(guildId, stream);
-
-  const player = createAudioPlayer();
-  player.play(createAudioResource(stream, { inputType: StreamType.Raw }));
-  conn.subscribe(player);
-  client.audioPlayers.set(guildId, player);
-
-  conn.on(VoiceConnectionStatus.Disconnected, async () => {
-    try {
-      await Promise.race([
-        entersState(conn, VoiceConnectionStatus.Signalling, 5000),
-        entersState(conn, VoiceConnectionStatus.Connecting, 5000),
-      ]);
-    } catch {
-      try { conn.destroy(); } catch {}
-      client.voiceConnections.delete(guildId);
-      client.audioStreams.delete(guildId);
-      client.audioPlayers.delete(guildId);
-      sendToChrxmee(guildId, { op: "destroy" });
-    }
-  });
-
-  return conn;
-}
-
-global.ensureVoiceConnection = ensureVoiceConnection;
 
 // ==================== SNIPE SYSTEM ====================
 client.on("messageDelete", (message) => {
@@ -301,8 +151,6 @@ client.once("ready", async () => {
   try {
     console.log(`Logged in as ${client.user.tag}`);
     console.log(`Chrxmee AI ready as ${client.user.tag}`);
-
-    setTimeout(() => connectToChrxmee(), 2000);
 
     const pgClient = await pool.connect();
     console.log("Postgres connected successfully on ready!");
@@ -409,29 +257,6 @@ process.on("unhandledRejection", (reason, promise) => {
 });
 process.on("uncaughtException", (err) => {
   console.error("Uncaught Exception thrown:", err);
-});
-
-// ==================== GRACEFUL SHUTDOWN ====================
-process.on("SIGINT", () => {
-  console.log("\n👋 Shutting down gracefully...");
-  stopAllWatchers();
-  for (const [guildId, conn] of client.voiceConnections) {
-    try { conn.destroy(); } catch {}
-    client.voiceConnections.delete(guildId);
-  }
-  try { chrxmeeServer.stop(); } catch {}
-  process.exit(0);
-});
-
-process.on("SIGTERM", () => {
-  console.log("\n👋 Shutting down gracefully...");
-  stopAllWatchers();
-  for (const [guildId, conn] of client.voiceConnections) {
-    try { conn.destroy(); } catch {}
-    client.voiceConnections.delete(guildId);
-  }
-  try { chrxmeeServer.stop(); } catch {}
-  process.exit(0);
 });
 
 // ==================== LOGIN ====================
