@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 
-const OWNER_ID = '902685494247325776';
+const OWNER_IDS = ['902685494247325776', '954709865698312213']; // multiple owners
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -29,11 +29,11 @@ module.exports = {
     const guildId = interaction.guild.id;
     const key = `givelogs_${guildId}`;
 
-    // Only owner or admins can configure logs
-    const isOwner = userId === OWNER_ID;
+    // Only owners (any of them) or admins can configure logs
+    const isOwner = OWNER_IDS.includes(userId);
     const isAdmin = interaction.member?.permissions.has('Administrator');
     if (!isOwner && !isAdmin) {
-      return interaction.editReply('❌ Only the bot owner or server admins can configure give logs.');
+      return interaction.editReply('❌ Only the bot owners or server admins can configure give logs.');
     }
 
     let config = client.memory.get(key) || { channelId: null, enabled: false };
