@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { getSkillBonus, getPrestigeBonus, getRoomXP, getBossXP, xpForLevel, getPrestigeKey, NIGHTMARE_ROOMS, PRESTIGE_BOSSES } = require('./dungeon-prestige');
 
-const OWNER_ID = '902685494247325776';
+const OWNER_IDS = ['902685494247325776', '954709865698312213'];
 
 const ROOM_THEMES = [
   "🌲 Enchanted Forest", "🪦 Haunted Crypt", "🏛️ Ancient Ruins", "🔥 Lava Cavern",
@@ -347,11 +347,12 @@ module.exports = {
     const sub = interaction.options.getSubcommand();
 
     if (sub === 'give') {
-      if (userId !== OWNER_ID && !isMod(interaction)) return interaction.editReply('❌ Moderators or owner only.');
+      // Updated permission check: owners OR mods
+      if (!OWNER_IDS.includes(userId) && !isMod(interaction)) return interaction.editReply('❌ Moderators or owner only.');
       const target = interaction.options.getUser('user');
       const amount = interaction.options.getInteger('amount');
       const MOD_CAP = 5000;
-      const isOwnerGive = userId === OWNER_ID;
+      const isOwnerGive = OWNER_IDS.includes(userId);
       if (!isOwnerGive && amount > MOD_CAP) return interaction.editReply(`❌ Mods can only give up to **${MOD_CAP}g** at a time.`);
       const tKey = `dungeon_${guildId}_${target.id}`;
       let tData = client.memory.get(tKey) || getDefaultData(target.id);
