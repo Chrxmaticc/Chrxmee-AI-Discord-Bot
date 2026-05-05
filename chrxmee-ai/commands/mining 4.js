@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
-const OWNER_ID = '902685494247325776';
+const OWNER_IDS = ['902685494247325776', '954709865698312213']; // multiple owners
 
 // ── DEPTHS ─────────────────────────────────────────────────────────────────
 const DEPTHS = [
@@ -307,7 +307,7 @@ module.exports = {
 
     // ── GIVE ──────────────────────────────────────────────
     if (sub === 'give') {
-      const isOwner = userId === OWNER_ID;
+      const isOwner = OWNER_IDS.includes(userId);
       const isMod = interaction.member?.permissions?.has('KickMembers');
       if (!isOwner && !isMod) return interaction.editReply('❌ Mods only.');
       const target = interaction.options.getUser('user');
