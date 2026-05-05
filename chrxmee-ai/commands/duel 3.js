@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
-const OWNER_ID = '902685494247325776','954709865698312213';
+const OWNER_ID = '902685494247325776';
 const INTEREST_RATE = 0.05; // 5% per 24 hours
 const INTEREST_INTERVAL = 24 * 60 * 60 * 1000;
 
