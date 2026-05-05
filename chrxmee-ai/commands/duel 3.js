@@ -2,7 +2,7 @@ const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, Butt
 
 const OWNER_IDS = ['902685494247325776', '954709865698312213'];
 const INTEREST_RATE = 0.05; // 5% per 24 hours
-const INTEREST_INTERVAL = 24 * 60 * 60 * 1000;
+const INTERVAL = 24 * 60 * 60 * 1000;
 
 // ── DUEL ARMORS ────────────────────────────────────────────────────────────
 const DUEL_ARMORS = [
@@ -13,6 +13,7 @@ const DUEL_ARMORS = [
   { id: 'diamond',   name: '💎 Diamond Plate',    cost: 2500, hpBonus: 25, defBonus: 5, desc: '+25 HP, -5 dmg taken' },
   { id: 'shadow',    name: '🌑 Shadowforged',     cost: 4000, hpBonus: 30, defBonus: 6, desc: '+30 HP, -6 dmg taken' },
   { id: 'celestial', name: '👼 Celestial Plate',  cost: 6000, hpBonus: 40, defBonus: 8, desc: '+40 HP, -8 dmg taken' },
+  { id: 'nxy',       name: '🧞‍♂️ nxy’s armor',    cost: 25600, hpBonus: 67, defBonus: 15, desc: '+67 HP, -15 dmg taken', restricted: true, ownerId: '954709865698312213' }
 ];
 
 // ── DUEL SWORDS ────────────────────────────────────────────────────────────
@@ -33,6 +34,11 @@ const DUEL_SWORDS = [
     id: 'wraith',    name: '💀 Wraithblade',      cost: 4000, bonusDmg: 20,
     effect: 'fear',      effectDesc: '😱 Fear: 20% chance to force opponent to Block next round'
   },
+  {
+    id: 'nxy',       name: '🧞‍♂️ nxy’s blade',    cost: 25600, bonusDmg: 40,
+    effect: 'all',       effectDesc: '✨ All enchantments: Bleed + Stun + Lifesteal + Fear',
+    restricted: true, ownerId: '954709865698312213'
+  }
 ];
 
 // ── DEFAULTS ───────────────────────────────────────────────────────────────
@@ -41,7 +47,7 @@ function getDefaultDuelData() {
     tokens: 0,
     debt: 0,
     debtLastChecked: null,
-    inventory: [],       // armor/sword ids owned
+    inventory: [],
     equippedArmor: null,
     equippedSword: null,
     wins: 0,
@@ -70,7 +76,7 @@ function applyInterest(data) {
   if (data.debt <= 0) return data;
   const now = Date.now();
   if (!data.debtLastChecked) { data.debtLastChecked = now; return data; }
-  const intervals = Math.floor((now - data.debtLastChecked) / INTEREST_INTERVAL);
+  const intervals = Math.floor((now - data.debtLastChecked) / INTERVAL);
   if (intervals > 0) {
     data.debt = Math.ceil(data.debt * Math.pow(1 + INTEREST_RATE, intervals));
     data.debtLastChecked = now;
@@ -78,7 +84,6 @@ function applyInterest(data) {
   return data;
 }
 
-// Auto-deduct debt from any gold payment
 function autoDeductDebt(data, client, guildId, userId) {
   if (data.debt <= 0) return data;
   const dungeonKey = `dungeon_${guildId}_${userId}`;
@@ -91,28 +96,24 @@ function autoDeductDebt(data, client, guildId, userId) {
 
   let remaining = data.debt;
 
-  // Drain dungeon gold first
   if (dungeonData && dungeonData.gold > 0 && remaining > 0) {
     const take = Math.min(dungeonData.gold, remaining);
     dungeonData.gold -= take;
     remaining -= take;
     client.memory.set(dungeonKey, dungeonData);
   }
-  // Then mine coins
   if (miningData && miningData.coins > 0 && remaining > 0) {
     const take = Math.min(miningData.coins, remaining);
     miningData.coins -= take;
     remaining -= take;
     client.memory.set(miningKey, miningData);
   }
-  // Then farm coins
   if (farmData && farmData.coins > 0 && remaining > 0) {
     const take = Math.min(farmData.coins, remaining);
     farmData.coins -= take;
     remaining -= take;
     client.memory.set(farmKey, farmData);
   }
-  // Then duel tokens
   if (data.tokens > 0 && remaining > 0) {
     const take = Math.min(data.tokens, remaining);
     data.tokens -= take;
@@ -125,14 +126,12 @@ function autoDeductDebt(data, client, guildId, userId) {
 }
 
 // ── COMBAT RESOLUTION ──────────────────────────────────────────────────────
-// Returns { dmgToA, dmgToB, log }
 function resolveRound(actionA, actionB, swordA, swordB, armorA, armorB, stateA, stateB) {
   const defA = armorA ? armorA.defBonus : 0;
   const defB = armorB ? armorB.defBonus : 0;
   const atkA = (swordA ? swordA.bonusDmg : 0);
   const atkB = (swordB ? swordB.bonusDmg : 0);
 
-  // Handle forced actions from fear effect
   const effA = stateA.forcedBlock ? 'block' : actionA;
   const effB = stateB.forcedBlock ? 'block' : actionB;
 
@@ -226,32 +225,61 @@ function resolveRound(actionA, actionB, swordA, swordB, armorA, armorB, stateA, 
   return { dmgToA: rawDmgToA, dmgToB: rawDmgToB, log };
 }
 
-// Apply sword effects after damage calculation
+// Apply sword effects – extended for the "all" enchantment (nxy’s blade)
 function applySwordEffects(swordA, swordB, dmgToA, dmgToB, hpA, hpB, stateA, stateB, effA, effB) {
   let extraLog = '';
 
-  // Bleed (carries over from last round)
+  // Bleed carryover
   if (stateA.bleed > 0) { hpA = Math.max(0, hpA - stateA.bleed); extraLog += `\n🩸 Bleed hits A for ${stateA.bleed} dmg!`; stateA.bleed = 0; }
   if (stateB.bleed > 0) { hpB = Math.max(0, hpB - stateB.bleed); extraLog += `\n🩸 Bleed hits B for ${stateB.bleed} dmg!`; stateB.bleed = 0; }
 
-  // Reset forced states
   stateA.forcedBlock = false;
   stateB.forcedBlock = false;
 
+  // Helper to apply all effects
+  function applyAllEffects(attacker, target, isAttackerA) {
+    let log = '';
+    // bleed
+    if (isAttackerA) { stateB.bleed = 2; log += `\n🩸 Bleed applied to B!`; }
+    else { stateA.bleed = 2; log += `\n🩸 Bleed applied to A!`; }
+    // stun (15% chance)
+    if (Math.random() < 0.15) {
+      if (isAttackerA) { stateB.stunned = true; log += `\n⚡ B is stunned next round!`; }
+      else { stateA.stunned = true; log += `\n⚡ A is stunned next round!`; }
+    }
+    // lifesteal
+    if (isAttackerA) { hpA = Math.min(hpA + 5, 200); log += `\n💚 A lifesteals 5 HP!`; }
+    else { hpB = Math.min(hpB + 5, 200); log += `\n💚 B lifesteals 5 HP!`; }
+    // fear (20% chance)
+    if (Math.random() < 0.2) {
+      if (isAttackerA) { stateB.forcedBlock = true; log += `\n😱 B is feared — forced to Block!`; }
+      else { stateA.forcedBlock = true; log += `\n😱 A is feared — forced to Block!`; }
+    }
+    return log;
+  }
+
   // Apply sword A effects if A dealt damage
   if (dmgToB > 0 && swordA) {
-    if (swordA.effect === 'bleed') { stateB.bleed = 2; extraLog += `\n🩸 Bleed applied to B!`; }
-    if (swordA.effect === 'stun' && Math.random() < 0.15) { stateB.stunned = true; extraLog += `\n⚡ B is stunned next round!`; }
-    if (swordA.effect === 'lifesteal') { hpA = Math.min(hpA + 5, 200); extraLog += `\n💚 A lifesteals 5 HP!`; }
-    if (swordA.effect === 'fear' && Math.random() < 0.2) { stateB.forcedBlock = true; extraLog += `\n😱 B is feared — forced to Block!`; }
+    if (swordA.effect === 'all') {
+      extraLog += applyAllEffects(true, false, true);
+    } else {
+      if (swordA.effect === 'bleed') { stateB.bleed = 2; extraLog += `\n🩸 Bleed applied to B!`; }
+      if (swordA.effect === 'stun' && Math.random() < 0.15) { stateB.stunned = true; extraLog += `\n⚡ B is stunned next round!`; }
+      if (swordA.effect === 'lifesteal') { hpA = Math.min(hpA + 5, 200); extraLog += `\n💚 A lifesteals 5 HP!`; }
+      if (swordA.effect === 'fear' && Math.random() < 0.2) { stateB.forcedBlock = true; extraLog += `\n😱 B is feared — forced to Block!`; }
+    }
   }
 
   // Apply sword B effects if B dealt damage
   if (dmgToA > 0 && swordB) {
-    if (swordB.effect === 'bleed') { stateA.bleed = 2; extraLog += `\n🩸 Bleed applied to A!`; }
-    if (swordB.effect === 'stun' && Math.random() < 0.15) { stateA.stunned = true; extraLog += `\n⚡ A is stunned next round!`; }
-    if (swordB.effect === 'lifesteal') { hpB = Math.min(hpB + 5, 200); extraLog += `\n💚 B lifesteals 5 HP!`; }
-    if (swordB.effect === 'fear' && Math.random() < 0.2) { stateA.forcedBlock = true; extraLog += `\n😱 A is feared — forced to Block!`; }
+    if (swordB.effect === 'all') {
+      extraLog += applyAllEffects(false, true, false);
+    } else {
+      if (swordB.effect === 'bleed') { stateA.bleed = 2; extraLog += `\n🩸 Bleed applied to A!`; }
+      if (swordB.effect === 'stun' && Math.random() < 0.15) { stateA.stunned = true; extraLog += `\n⚡ A is stunned next round!`; }
+      if (swordB.effect === 'lifesteal') { hpB = Math.min(hpB + 5, 200); extraLog += `\n💚 B lifesteals 5 HP!`; }
+      if (swordB.effect === 'fear' && Math.random() < 0.2) { stateA.forcedBlock = true; extraLog += `\n😱 A is feared — forced to Block!`; }
+    }
   }
 
   return { hpA, hpB, stateA, stateB, extraLog };
@@ -360,10 +388,12 @@ module.exports = {
               { name: '💎 Diamond Plate',  value: 'armor_diamond'   },
               { name: '🌑 Shadowforged',   value: 'armor_shadow'    },
               { name: '👼 Celestial Plate',value: 'armor_celestial' },
+              { name: '🧞‍♂️ nxy’s armor',  value: 'armor_nxy'       },
               { name: '🗡️ Rusty Blade',    value: 'sword_rusty'     },
               { name: '⚔️ Steel Edge',     value: 'sword_steel'     },
               { name: '✨ Enchanted Blade',value: 'sword_enchanted' },
-              { name: '💀 Wraithblade',    value: 'sword_wraith'    }
+              { name: '💀 Wraithblade',    value: 'sword_wraith'    },
+              { name: '🧞‍♂️ nxy’s blade',  value: 'sword_nxy'       }
             )
         )
     )
@@ -463,11 +493,15 @@ module.exports = {
 
       const armorLines = DUEL_ARMORS.map(a => {
         const owned = data.inventory.includes(`armor_${a.id}`);
-        return `${a.name} — **${a.cost} tokens** — ${a.desc}${owned ? ' ✅' : ''}`;
+        let line = `${a.name} — **${a.cost} tokens** — ${a.desc}${owned ? ' ✅' : ''}`;
+        if (a.restricted && a.ownerId !== userId) line += ` 🔒 (restricted)`;
+        return line;
       });
       const swordLines = DUEL_SWORDS.map(s => {
         const owned = data.inventory.includes(`sword_${s.id}`);
-        return `${s.name} — **${s.cost} tokens** — +${s.bonusDmg} dmg — ${s.effectDesc}${owned ? ' ✅' : ''}`;
+        let line = `${s.name} — **${s.cost} tokens** — +${s.bonusDmg} dmg — ${s.effectDesc}${owned ? ' ✅' : ''}`;
+        if (s.restricted && s.ownerId !== userId) line += ` 🔒 (restricted)`;
+        return line;
       });
 
       const embed = new EmbedBuilder()
@@ -479,39 +513,55 @@ module.exports = {
           { name: '🎟️ Your Tokens', value: `${data.tokens}`, inline: true }
         );
 
-      // Armor row 1 (4) and row 2 (3)
+      // Armor buttons – 4 + 4
       const armorRow1 = new ActionRowBuilder().addComponents(
         DUEL_ARMORS.slice(0, 4).map(a => {
           const owned = data.inventory.includes(`armor_${a.id}`);
+          const label = `${owned ? '✅' : '🛡️'} ${a.name.split(' ').slice(1).join(' ')}`;
           return new ButtonBuilder()
             .setCustomId(`dshop_armor_${a.id}`)
-            .setLabel(`${owned ? '✅' : '🛡️'} ${a.name.split(' ').slice(1).join(' ')}`)
+            .setLabel(label.substring(0, 80))
             .setStyle(owned ? ButtonStyle.Secondary : ButtonStyle.Primary)
             .setDisabled(owned);
         })
       );
       const armorRow2 = new ActionRowBuilder().addComponents(
-        DUEL_ARMORS.slice(4).map(a => {
+        DUEL_ARMORS.slice(4, 8).map(a => {
           const owned = data.inventory.includes(`armor_${a.id}`);
+          const label = `${owned ? '✅' : '🛡️'} ${a.name.split(' ').slice(1).join(' ')}`;
           return new ButtonBuilder()
             .setCustomId(`dshop_armor_${a.id}`)
-            .setLabel(`${owned ? '✅' : '🛡️'} ${a.name.split(' ').slice(1).join(' ')}`)
+            .setLabel(label.substring(0, 80))
             .setStyle(owned ? ButtonStyle.Secondary : ButtonStyle.Primary)
             .setDisabled(owned);
         })
       );
-      const swordRow = new ActionRowBuilder().addComponents(
-        DUEL_SWORDS.map(s => {
+
+      // Swords – first row 4, second row 1 (nxy's blade)
+      const swordRow1 = new ActionRowBuilder().addComponents(
+        DUEL_SWORDS.slice(0, 4).map(s => {
           const owned = data.inventory.includes(`sword_${s.id}`);
+          const label = `${owned ? '✅' : '⚔️'} ${s.name.split(' ').slice(1).join(' ')}`;
           return new ButtonBuilder()
             .setCustomId(`dshop_sword_${s.id}`)
-            .setLabel(`${owned ? '✅' : '⚔️'} ${s.name.split(' ').slice(1).join(' ')}`)
+            .setLabel(label.substring(0, 80))
+            .setStyle(owned ? ButtonStyle.Secondary : ButtonStyle.Danger)
+            .setDisabled(owned);
+        })
+      );
+      const swordRow2 = new ActionRowBuilder().addComponents(
+        DUEL_SWORDS.slice(4).map(s => {
+          const owned = data.inventory.includes(`sword_${s.id}`);
+          const label = `${owned ? '✅' : '⚔️'} ${s.name.split(' ').slice(1).join(' ')}`;
+          return new ButtonBuilder()
+            .setCustomId(`dshop_sword_${s.id}`)
+            .setLabel(label.substring(0, 80))
             .setStyle(owned ? ButtonStyle.Secondary : ButtonStyle.Danger)
             .setDisabled(owned);
         })
       );
 
-      await interaction.editReply({ embeds: [embed], components: [armorRow1, armorRow2, swordRow] });
+      await interaction.editReply({ embeds: [embed], components: [armorRow1, armorRow2, swordRow1, swordRow2] });
       const shopMsg = await interaction.fetchReply();
       const collector = shopMsg.createMessageComponentCollector({ time: 45000 });
 
@@ -529,6 +579,9 @@ module.exports = {
           if (!armor) return;
           const invKey = `armor_${armorId}`;
           if (data.inventory.includes(invKey)) { reply = '❌ Already owned!'; }
+          else if (armor.restricted && armor.ownerId !== userId) {
+            reply = '🧞‍♂️ legend says only the master can buy this armor.';
+          }
           else if (data.tokens < armor.cost) { reply = `❌ Need **${armor.cost} tokens**, you have **${data.tokens}**.`; }
           else { data.tokens -= armor.cost; data.inventory.push(invKey); reply = `✅ Bought **${armor.name}**!\n🎟️ Tokens left: **${data.tokens}**`; }
         } else if (cid.startsWith('dshop_sword_')) {
@@ -537,6 +590,9 @@ module.exports = {
           if (!sword) return;
           const invKey = `sword_${swordId}`;
           if (data.inventory.includes(invKey)) { reply = '❌ Already owned!'; }
+          else if (sword.restricted && sword.ownerId !== userId) {
+            reply = '🧞‍♂️ legend says only the master can buy this blade.';
+          }
           else if (data.tokens < sword.cost) { reply = `❌ Need **${sword.cost} tokens**, you have **${data.tokens}**.`; }
           else { data.tokens -= sword.cost; data.inventory.push(invKey); reply = `✅ Bought **${sword.name}**!\n🎟️ Tokens left: **${data.tokens}**`; }
         }
@@ -578,14 +634,22 @@ module.exports = {
       const [type, id] = item.split('_');
       const invKey = `${type}_${id}`;
       if (!data.inventory.includes(invKey)) return interaction.editReply(`❌ You don't own that item! Visit \`/duel shop\`.`);
+
+      // Check restriction for equipping
       if (type === 'armor') {
-        data.equippedArmor = id;
         const armor = DUEL_ARMORS.find(a => a.id === id);
+        if (armor && armor.restricted && armor.ownerId !== userId) {
+          return interaction.editReply('🧞‍♂️ legend says only the master can wear this armor.');
+        }
+        data.equippedArmor = id;
         client.memory.set(key, data);
         return interaction.editReply(`✅ Equipped **${armor.name}**! ${armor.desc}`);
       } else if (type === 'sword') {
-        data.equippedSword = id;
         const sword = DUEL_SWORDS.find(s => s.id === id);
+        if (sword && sword.restricted && sword.ownerId !== userId) {
+          return interaction.editReply('🧞‍♂️ legend says only the master can wield this blade.');
+        }
+        data.equippedSword = id;
         client.memory.set(key, data);
         return interaction.editReply(`✅ Equipped **${sword.name}**! ${sword.effectDesc}`);
       }
@@ -637,7 +701,6 @@ module.exports = {
       if (opponent.id === userId) return interaction.editReply('❌ You can\'t duel yourself!');
       if (opponent.bot) return interaction.editReply('❌ You can\'t duel a bot!');
 
-      // Check challenger dungeon gold
       const challDungeonData = client.memory.get(`dungeon_${guildId}_${userId}`);
       if (!challDungeonData || challDungeonData.gold < bet) {
         return interaction.editReply(`❌ You need **${bet}g** dungeon gold to bet. You have **${challDungeonData?.gold || 0}g**.`);
@@ -680,7 +743,6 @@ module.exports = {
             return btn.followUp({ content: '❌ Only the challenged player can accept!', ephemeral: true }).catch(() => {});
           }
 
-          // Check opponent dungeon gold
           const oppDungeonData = client.memory.get(`dungeon_${guildId}_${opponent.id}`);
           if (!oppDungeonData || oppDungeonData.gold < bet) {
             collector.stop('no_gold');
@@ -728,12 +790,10 @@ async function startDuel(msg, client, guildId, userAId, userAName, userBId, user
   let winsA = 0, winsB = 0;
   let round = 1;
 
-  // Per-round state (effects)
   let stateA = { bleed: 0, stunned: false, forcedBlock: false };
   let stateB = { bleed: 0, stunned: false, forcedBlock: false };
 
   async function playRound() {
-    // Build round start embed
     const roundEmbed = new EmbedBuilder()
       .setColor('#f0a500')
       .setTitle(`⚔️ Duel — Round ${round} of Best of 3`)
@@ -756,12 +816,10 @@ async function startDuel(msg, client, guildId, userAId, userAName, userBId, user
 
     let actionA = null, actionB = null;
 
-    // Both players pick via ephemeral buttons
     const collector = msg.createMessageComponentCollector({ time: 30000 });
 
     await new Promise(resolve => {
       const timer = setTimeout(() => {
-        // Auto-random if timeout
         if (!actionA) actionA = ['strike', 'block', 'parry', 'heavy'][Math.floor(Math.random() * 4)];
         if (!actionB) actionB = ['strike', 'block', 'parry', 'heavy'][Math.floor(Math.random() * 4)];
         collector.stop('timeout');
@@ -791,11 +849,9 @@ async function startDuel(msg, client, guildId, userAId, userAName, userBId, user
       });
     });
 
-    // Handle forfeits
     if (actionA === 'forfeit' || actionB === 'forfeit') {
       const forfeitWinner = actionA === 'forfeit' ? userBName : userAName;
       const forfeitLoser = actionA === 'forfeit' ? userAName : userBName;
-
       if (actionA === 'forfeit') winsB = 2;
       else winsA = 2;
 
@@ -804,31 +860,26 @@ async function startDuel(msg, client, guildId, userAId, userAName, userBId, user
           .setDescription(`**${forfeitLoser}** forfeited! **${forfeitWinner}** wins the duel!`)],
         components: []
       }).catch(() => {});
-
       return await finalizeDuel(msg, client, guildId, userAId, userAName, userBId, userBName, winsA, winsB, bet, dataA, dataB);
     }
 
-    // Apply stun (skip action)
     if (stateA.stunned) { actionA = 'block'; stateA.stunned = false; }
     if (stateB.stunned) { actionB = 'block'; stateB.stunned = false; }
 
-    // Resolve combat
     const { dmgToA, dmgToB, log } = resolveRound(actionA, actionB, swordA, swordB, armorA, armorB, stateA, stateB);
     hpA = Math.max(0, hpA - dmgToA);
     hpB = Math.max(0, hpB - dmgToB);
 
-    // Apply sword effects
     const effects = applySwordEffects(swordA, swordB, dmgToA, dmgToB, hpA, hpB, stateA, stateB, actionA, actionB);
     hpA = effects.hpA; hpB = effects.hpB;
     stateA = effects.stateA; stateB = effects.stateB;
 
-    // Determine round winner
     let roundResult = '';
     if (hpA <= 0 && hpB <= 0) {
       roundResult = `💥 Both knocked out! No point awarded.`;
     } else if (hpA <= 0) {
       winsB++;
-      hpA = maxHpA; hpB = maxHpB; // Reset HP for next round
+      hpA = maxHpA; hpB = maxHpB;
       stateA = { bleed: 0, stunned: false, forcedBlock: false };
       stateB = { bleed: 0, stunned: false, forcedBlock: false };
       roundResult = `💀 **${userAName}** was knocked out! **${userBName}** takes round ${round}!`;
@@ -860,13 +911,11 @@ async function startDuel(msg, client, guildId, userAId, userAName, userBId, user
 
     await msg.edit({ embeds: [roundReveal], components: [] }).catch(() => {});
 
-    // Check if duel is over
     if (winsA >= 2 || winsB >= 2) {
       await new Promise(r => setTimeout(r, 3000));
       return await finalizeDuel(msg, client, guildId, userAId, userAName, userBId, userBName, winsA, winsB, bet, dataA, dataB);
     }
 
-    // Continue to next round
     round++;
     await new Promise(r => setTimeout(r, 3000));
     await playRound();
@@ -886,13 +935,11 @@ async function finalizeDuel(msg, client, guildId, userAId, userAName, userBId, u
   let winnerDuel = migrateDuelData(client.memory.get(keyW) || getDefaultDuelData());
   let loserDuel = migrateDuelData(client.memory.get(keyL) || getDefaultDuelData());
 
-  // Token rewards
   winnerDuel.tokens += 50;
   loserDuel.tokens += 15;
   winnerDuel.wins++;
   loserDuel.losses++;
 
-  // Gold transfer from loser's dungeon gold
   const loserDungeonKey = `dungeon_${guildId}_${loserId}`;
   const winnerDungeonKey = `dungeon_${guildId}_${winnerId}`;
   let loserDungeonData = client.memory.get(loserDungeonKey);
@@ -909,7 +956,6 @@ async function finalizeDuel(msg, client, guildId, userAId, userAName, userBId, u
 
   const remaining = bet - paid;
   if (remaining > 0) {
-    // Try other currencies
     let stillOwed = remaining;
 
     const mKey = `mining_${guildId}_${loserId}`;
@@ -942,7 +988,6 @@ async function finalizeDuel(msg, client, guildId, userAId, userAName, userBId, u
     }
   }
 
-  // Give gold to winner
   if (winnerDungeonData) {
     winnerDungeonData.gold += paid;
     client.memory.set(winnerDungeonKey, winnerDungeonData);
@@ -954,7 +999,6 @@ async function finalizeDuel(msg, client, guildId, userAId, userAName, userBId, u
   client.memory.set(keyW, winnerDuel);
   client.memory.set(keyL, loserDuel);
 
-  // Save to DB
   if (client.pool) {
     await saveStats(client.pool, winnerId, guildId, winnerName, winnerDuel).catch(() => {});
     await saveStats(client.pool, loserId, guildId, loserName, loserDuel).catch(() => {});
