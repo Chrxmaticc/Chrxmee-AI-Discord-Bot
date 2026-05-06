@@ -2,7 +2,6 @@ const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, Butt
 
 const OWNER_IDS = ['902685494247325776', '954709865698312213'];
 
-// ── HELPER: LOAD ALL USER INVENTORIES (for display & validation) ──────────
 function getAllInventories(client, guildId, userId) {
   const farmKey = `farm2_${guildId}_${userId}`;
   const miningKey = `mining2_${guildId}_${userId}`;
@@ -18,65 +17,52 @@ function getAllInventories(client, guildId, userId) {
 
   const inventory = {};
 
-  // Farm crops
   if (farmData.inventory) {
     for (const [cropId, qty] of Object.entries(farmData.inventory)) {
       inventory[`farm:crop:${cropId}`] = (inventory[`farm:crop:${cropId}`] || 0) + qty;
     }
   }
-  // Farm fertilizers
   if (farmData.fertilizers) {
     for (const [fertId, qty] of Object.entries(farmData.fertilizers)) {
       if (qty > 0) inventory[`farm:fertilizer:${fertId}`] = (inventory[`farm:fertilizer:${fertId}`] || 0) + qty;
     }
   }
-  // Farm crystal crops (special count)
   if (farmData.crystalCrops > 0) {
     inventory['farm:crystal_crop'] = (inventory['farm:crystal_crop'] || 0) + farmData.crystalCrops;
   }
-  // Farm coins
   if (farmData.coins > 0) inventory['farm:coins'] = (inventory['farm:coins'] || 0) + farmData.coins;
 
-  // Mining ores/bars
   if (miningData.inventory) {
     for (const [oreId, qty] of Object.entries(miningData.inventory)) {
       inventory[`mining:${oreId}`] = (inventory[`mining:${oreId}`] || 0) + qty;
     }
   }
-  // Mining coins
   if (miningData.coins > 0) inventory['mining:coins'] = (inventory['mining:coins'] || 0) + miningData.coins;
 
-  // Dungeon items: armor, swords (stored as strings in array)
   if (dungeonData.inventory) {
     for (const item of dungeonData.inventory) {
       inventory[`dungeon:item:${item}`] = (inventory[`dungeon:item:${item}`] || 0) + 1;
     }
   }
-  // Dungeon potions
   if (dungeonData.potions) {
     for (const [potionId, qty] of Object.entries(dungeonData.potions)) {
       if (qty > 0) inventory[`dungeon:potion:${potionId}`] = (inventory[`dungeon:potion:${potionId}`] || 0) + qty;
     }
   }
-  // Dungeon spells
   if (dungeonData.spells) {
     for (const [spellId, qty] of Object.entries(dungeonData.spells)) {
       if (qty > 0) inventory[`dungeon:spell:${spellId}`] = (inventory[`dungeon:spell:${spellId}`] || 0) + qty;
     }
   }
-  // Dungeon gold
   if (dungeonData.gold > 0) inventory['dungeon:gold'] = (inventory['dungeon:gold'] || 0) + dungeonData.gold;
 
-  // Duel tokens
   if (duelData.tokens > 0) inventory['duel:tokens'] = (inventory['duel:tokens'] || 0) + duelData.tokens;
-  // Duel inventory (armor/sword items)
   if (duelData.inventory) {
     for (const item of duelData.inventory) {
       inventory[`duel:${item}`] = (inventory[`duel:${item}`] || 0) + 1;
     }
   }
 
-  // Pets (entire pet as an item)
   if (petData.owned) {
     for (const petId of petData.owned) {
       inventory[`pet:${petId}`] = (inventory[`pet:${petId}`] || 0) + 1;
@@ -86,7 +72,6 @@ function getAllInventories(client, guildId, userId) {
   return inventory;
 }
 
-// ── HELPER: REMOVE ITEMS FROM ACTUAL STORAGE (non-owner execution) ────────
 async function removeItems(client, guildId, userId, items) {
   const farmKey = `farm2_${guildId}_${userId}`;
   const miningKey = `mining2_${guildId}_${userId}`;
@@ -134,7 +119,6 @@ async function removeItems(client, guildId, userId, items) {
       const itemName = itemId.slice(14);
       const idx = dungeonData.inventory?.indexOf(itemName);
       if (idx === -1) throw new Error(`Not enough dungeon item ${itemName}`);
-      // remove first 'amount' occurrences
       let removed = 0;
       dungeonData.inventory = dungeonData.inventory.filter(i => {
         if (i === itemName && removed < amount) { removed++; return false; }
@@ -181,7 +165,6 @@ async function removeItems(client, guildId, userId, items) {
         if (id === petId && removed < amount) { removed++; return false; }
         return true;
       });
-      // Also remove from active if present
       for (let i = 0; i < amount; i++) {
         const activeIdx = petData.active.indexOf(petId);
         if (activeIdx !== -1) petData.active.splice(activeIdx, 1);
@@ -199,7 +182,6 @@ async function removeItems(client, guildId, userId, items) {
   client.memory.set(petKey, petData);
 }
 
-// ── HELPER: ADD ITEMS TO STORAGE ──────────────────────────────────────────
 async function addItems(client, guildId, userId, items) {
   const farmKey = `farm2_${guildId}_${userId}`;
   const miningKey = `mining2_${guildId}_${userId}`;
@@ -269,7 +251,6 @@ async function addItems(client, guildId, userId, items) {
       for (let i = 0; i < amount; i++) petData.owned.push(petId);
     }
     else {
-      // Owner-added custom items – store in duel inventory with "custom_" prefix
       duelData.inventory = duelData.inventory || [];
       for (let i = 0; i < amount; i++) duelData.inventory.push(`custom_${itemId}`);
     }
@@ -282,7 +263,6 @@ async function addItems(client, guildId, userId, items) {
   client.memory.set(petKey, petData);
 }
 
-// ── TRADE SESSION CLASS ────────────────────────────────────────────────────
 class TradeSession {
   constructor(initiatorId, targetId, guildId) {
     this.initiatorId = initiatorId;
@@ -295,11 +275,10 @@ class TradeSession {
   }
 
   isExpired() {
-    return Date.now() - this.createdAt > 5 * 60 * 1000; // 5 minutes
+    return Date.now() - this.createdAt > 5 * 60 * 1000;
   }
 }
 
-// ── COMMAND ─────────────────────────────────────────────────────────────────
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('trade')
@@ -326,7 +305,6 @@ module.exports = {
     const guildId = interaction.guild.id;
     const sub = interaction.options.getSubcommand();
 
-    // Find existing trade session
     let session = null;
     for (const [key, value] of client.memory.entries()) {
       if (key.startsWith(`trade_${guildId}_`) && value.active && (value.initiatorId === userId || value.targetId === userId)) {
@@ -335,14 +313,12 @@ module.exports = {
       }
     }
 
-    // If session exists but expired, cancel it automatically
     if (session && session.isExpired()) {
       session.active = false;
       client.memory.set(`trade_${guildId}_${session.initiatorId}_${session.targetId}`, session);
       session = null;
     }
 
-    // ── INVENTORY ────────────────────────────────────────────────────
     if (sub === 'inventory') {
       const inv = getAllInventories(client, guildId, userId);
       if (Object.keys(inv).length === 0) {
@@ -364,14 +340,12 @@ module.exports = {
       return interaction.editReply({ embeds: [new EmbedBuilder().setColor('#9b59b6').setTitle('📋 Your Tradable Items'), ...embeds] });
     }
 
-    // ── START ────────────────────────────────────────────────────────
     if (sub === 'start') {
       if (session) return interaction.editReply('❌ You are already in a trade. Use `/trade cancel` first.');
       const target = interaction.options.getUser('user');
       if (target.id === userId) return interaction.editReply('❌ You cannot trade with yourself.');
       if (target.bot) return interaction.editReply('❌ Cannot trade with bots.');
 
-      // Check if target is already in a trade
       for (const [key, value] of client.memory.entries()) {
         if (key.startsWith(`trade_${guildId}_`) && value.active && (value.initiatorId === target.id || value.targetId === target.id)) {
           return interaction.editReply(`❌ ${target.username} is already in a trade.`);
@@ -425,7 +399,6 @@ module.exports = {
       return;
     }
 
-    // ── ADD ──────────────────────────────────────────────────────────
     if (sub === 'add') {
       if (!session) return interaction.editReply('❌ You are not in an active trade. Use `/trade start` first.');
       if (!session.active) return interaction.editReply('❌ This trade session is no longer active.');
@@ -452,7 +425,6 @@ module.exports = {
 
       session.offers[userId][item] = (session.offers[userId][item] || 0) + amount;
       if (session.offers[userId][item] <= 0) delete session.offers[userId][item];
-      // Reset ready status when adding new items
       session.ready[userId] = false;
       session.ready[session.initiatorId === userId ? session.targetId : session.initiatorId] = false;
       client.memory.set(`trade_${guildId}_${session.initiatorId}_${session.targetId}`, session);
@@ -460,7 +432,6 @@ module.exports = {
       return interaction.editReply(`✅ Added **${amount}x ${item}** to your offer. Use \`/trade ready\` when done.`);
     }
 
-    // ── READY ────────────────────────────────────────────────────────
     if (sub === 'ready') {
       if (!session) return interaction.editReply('❌ You are not in a trade.');
       if (!session.active) return interaction.editReply('❌ Trade is no longer active.');
@@ -474,7 +445,6 @@ module.exports = {
       client.memory.set(`trade_${guildId}_${session.initiatorId}_${session.targetId}`, session);
 
       if (session.ready[session.initiatorId] && session.ready[session.targetId]) {
-        // Execute trade
         try {
           await removeItems(client, guildId, session.initiatorId, session.offers[session.initiatorId]);
           await removeItems(client, guildId, session.targetId, session.offers[session.targetId]);
@@ -504,7 +474,6 @@ module.exports = {
       }
     }
 
-    // ── CANCEL ───────────────────────────────────────────────────────
     if (sub === 'cancel') {
       if (!session) return interaction.editReply('❌ You are not in a trade.');
       session.active = false;
@@ -512,7 +481,6 @@ module.exports = {
       return interaction.editReply('🚫 Trade cancelled.');
     }
 
-    // ── STATUS ───────────────────────────────────────────────────────
     if (sub === 'status') {
       if (!session) return interaction.editReply('❌ You are not in a trade.');
       if (!session.active) return interaction.editReply('❌ Trade is not active.');
@@ -530,7 +498,6 @@ module.exports = {
       const initiatorOffers = Object.entries(session.offers[initiatorId]).map(([item, qty]) => `${qty}x ${item}`).join('\n') || 'Nothing';
       const targetOffers = Object.entries(session.offers[targetId]).map(([item, qty]) => `${qty}x ${item}`).join('\n') || 'Nothing';
 
-      // Add a button to expire/cancel the trade
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('trade_expire').setLabel('⏱️ Expire Trade').setStyle(ButtonStyle.Danger)
       );
