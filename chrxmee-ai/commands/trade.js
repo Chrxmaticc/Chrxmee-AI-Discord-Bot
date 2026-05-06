@@ -2,6 +2,7 @@ const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, Butt
 
 const OWNER_IDS = ['902685494247325776', '954709865698312213'];
 
+// ── HELPER: LOAD ALL USER INVENTORIES (for display & validation) ──────────
 function getAllInventories(client, guildId, userId) {
   const farmKey = `farm2_${guildId}_${userId}`;
   const miningKey = `mining2_${guildId}_${userId}`;
@@ -15,52 +16,67 @@ function getAllInventories(client, guildId, userId) {
   const duelData = client.memory.get(duelKey) || {};
   const petData = client.memory.get(petKey) || { owned: [], active: [] };
 
-  const inventory = {} 
+  const inventory = {};
+
+  // Farm crops
   if (farmData.inventory) {
     for (const [cropId, qty] of Object.entries(farmData.inventory)) {
       inventory[`farm:crop:${cropId}`] = (inventory[`farm:crop:${cropId}`] || 0) + qty;
     }
   }
+  // Farm fertilizers
   if (farmData.fertilizers) {
     for (const [fertId, qty] of Object.entries(farmData.fertilizers)) {
       if (qty > 0) inventory[`farm:fertilizer:${fertId}`] = (inventory[`farm:fertilizer:${fertId}`] || 0) + qty;
     }
   }
+  // Farm crystal crops (special count)
   if (farmData.crystalCrops > 0) {
     inventory['farm:crystal_crop'] = (inventory['farm:crystal_crop'] || 0) + farmData.crystalCrops;
   }
+  // Farm coins
   if (farmData.coins > 0) inventory['farm:coins'] = (inventory['farm:coins'] || 0) + farmData.coins;
 
+  // Mining ores/bars
   if (miningData.inventory) {
     for (const [oreId, qty] of Object.entries(miningData.inventory)) {
       inventory[`mining:${oreId}`] = (inventory[`mining:${oreId}`] || 0) + qty;
     }
   }
+  // Mining coins
   if (miningData.coins > 0) inventory['mining:coins'] = (inventory['mining:coins'] || 0) + miningData.coins;
+
+  // Dungeon items: armor, swords (stored as strings in array)
   if (dungeonData.inventory) {
     for (const item of dungeonData.inventory) {
       inventory[`dungeon:item:${item}`] = (inventory[`dungeon:item:${item}`] || 0) + 1;
     }
   }
+  // Dungeon potions
   if (dungeonData.potions) {
     for (const [potionId, qty] of Object.entries(dungeonData.potions)) {
       if (qty > 0) inventory[`dungeon:potion:${potionId}`] = (inventory[`dungeon:potion:${potionId}`] || 0) + qty;
     }
   }
+  // Dungeon spells
   if (dungeonData.spells) {
     for (const [spellId, qty] of Object.entries(dungeonData.spells)) {
       if (qty > 0) inventory[`dungeon:spell:${spellId}`] = (inventory[`dungeon:spell:${spellId}`] || 0) + qty;
     }
   }
+  // Dungeon gold
   if (dungeonData.gold > 0) inventory['dungeon:gold'] = (inventory['dungeon:gold'] || 0) + dungeonData.gold;
 
+  // Duel tokens
   if (duelData.tokens > 0) inventory['duel:tokens'] = (inventory['duel:tokens'] || 0) + duelData.tokens;
+  // Duel inventory (armor/sword items)
   if (duelData.inventory) {
     for (const item of duelData.inventory) {
       inventory[`duel:${item}`] = (inventory[`duel:${item}`] || 0) + 1;
     }
   }
 
+  // Pets (entire pet as an item)
   if (petData.owned) {
     for (const petId of petData.owned) {
       inventory[`pet:${petId}`] = (inventory[`pet:${petId}`] || 0) + 1;
@@ -70,6 +86,7 @@ function getAllInventories(client, guildId, userId) {
   return inventory;
 }
 
+// ── HELPER: REMOVE ITEMS FROM ACTUAL STORAGE (non-owner execution) ────────
 async function removeItems(client, guildId, userId, items) {
   const farmKey = `farm2_${guildId}_${userId}`;
   const miningKey = `mining2_${guildId}_${userId}`;
@@ -117,6 +134,7 @@ async function removeItems(client, guildId, userId, items) {
       const itemName = itemId.slice(14);
       const idx = dungeonData.inventory?.indexOf(itemName);
       if (idx === -1) throw new Error(`Not enough dungeon item ${itemName}`);
+      // remove first 'amount' occurrences
       let removed = 0;
       dungeonData.inventory = dungeonData.inventory.filter(i => {
         if (i === itemName && removed < amount) { removed++; return false; }
@@ -156,7 +174,6 @@ async function removeItems(client, guildId, userId, items) {
     else if (itemId.startsWith('pet:')) {
       const petId = itemId.slice(4);
       if (!petData.owned?.includes(petId)) throw new Error(`You don't own pet ${petId}`);
-      // Remove only if they have enough (assume 1 per pet)
       const count = petData.owned.filter(id => id === petId).length;
       if (count < amount) throw new Error(`Not enough of pet ${petId}`);
       let removed = 0;
@@ -175,7 +192,6 @@ async function removeItems(client, guildId, userId, items) {
     }
   }
 
-  // Save back
   client.memory.set(farmKey, farmData);
   client.memory.set(miningKey, miningData);
   client.memory.set(dungeonKey, dungeonData);
@@ -251,11 +267,9 @@ async function addItems(client, guildId, userId, items) {
     else if (itemId.startsWith('pet:')) {
       const petId = itemId.slice(4);
       for (let i = 0; i < amount; i++) petData.owned.push(petId);
-      // Optionally auto-activate? We'll not auto-activate to avoid conflicts.
     }
     else {
-      // Owner-added custom items – just store as a generic custom item attached to duel module? We'll store in duel inventory with prefix "custom_"
-      // To keep it simple, we'll append to duel inventory as `custom_${itemId}`
+      // Owner-added custom items – store in duel inventory with "custom_" prefix
       duelData.inventory = duelData.inventory || [];
       for (let i = 0; i < amount; i++) duelData.inventory.push(`custom_${itemId}`);
     }
@@ -279,6 +293,10 @@ class TradeSession {
     this.createdAt = Date.now();
     this.active = true;
   }
+
+  isExpired() {
+    return Date.now() - this.createdAt > 5 * 60 * 1000; // 5 minutes
+  }
 }
 
 // ── COMMAND ─────────────────────────────────────────────────────────────────
@@ -287,7 +305,7 @@ module.exports = {
     .setName('trade')
     .setDescription('Trade items with another player')
     .addSubcommand(sub =>
-      sub.setName('offer')
+      sub.setName('start')
         .setDescription('Start a trade with someone')
         .addUserOption(opt => opt.setName('user').setDescription('Who to trade with').setRequired(true))
     )
@@ -317,6 +335,13 @@ module.exports = {
       }
     }
 
+    // If session exists but expired, cancel it automatically
+    if (session && session.isExpired()) {
+      session.active = false;
+      client.memory.set(`trade_${guildId}_${session.initiatorId}_${session.targetId}`, session);
+      session = null;
+    }
+
     // ── INVENTORY ────────────────────────────────────────────────────
     if (sub === 'inventory') {
       const inv = getAllInventories(client, guildId, userId);
@@ -339,8 +364,8 @@ module.exports = {
       return interaction.editReply({ embeds: [new EmbedBuilder().setColor('#9b59b6').setTitle('📋 Your Tradable Items'), ...embeds] });
     }
 
-    // ── OFFER ────────────────────────────────────────────────────────
-    if (sub === 'offer') {
+    // ── START ────────────────────────────────────────────────────────
+    if (sub === 'start') {
       if (session) return interaction.editReply('❌ You are already in a trade. Use `/trade cancel` first.');
       const target = interaction.options.getUser('user');
       if (target.id === userId) return interaction.editReply('❌ You cannot trade with yourself.');
@@ -361,7 +386,10 @@ module.exports = {
         .setColor('#9b59b6')
         .setTitle('💱 Trade Offer Sent!')
         .setDescription(`**${interaction.user.username}** wants to trade with **${target.username}**.\nThey have 60 seconds to accept or decline.`)
-        .addFields({ name: '⏳ To accept', value: `Use \`/trade add\` to add items, then \`/trade ready\`.`, inline: false });
+        .addFields(
+          { name: '⏳ To accept', value: `Click the **Accept** button below, then use \`/trade add\` and \`/trade ready\`.`, inline: false },
+          { name: '⏱️ Time limit', value: 'Trade expires in **5 minutes**.', inline: false }
+        );
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`trade_accept_${sessionKey}`).setLabel('✅ Accept').setStyle(ButtonStyle.Success),
@@ -378,7 +406,7 @@ module.exports = {
         if (!currentSession || !currentSession.active) return btn.followUp({ content: '❌ Trade session expired.', ephemeral: true });
         if (btn.customId === `trade_accept_${sessionKey}`) {
           collector.stop('accepted');
-          await msg.edit({ embeds: [new EmbedBuilder().setColor('#4caf50').setTitle('✅ Trade Accepted!').setDescription(`Trade started between ${interaction.user.username} and ${target.username}. Use \`/trade add\` to add items, then \`/trade ready\`.`)], components: [] }).catch(() => {});
+          await msg.edit({ embeds: [new EmbedBuilder().setColor('#4caf50').setTitle('✅ Trade Accepted!').setDescription(`Trade started between ${interaction.user.username} and ${target.username}. Use \`/trade add\` to add items, then \`/trade ready\`. The trade will expire in 5 minutes if not completed.`)], components: [] }).catch(() => {});
         } else {
           collector.stop('declined');
           currentSession.active = false;
@@ -399,8 +427,13 @@ module.exports = {
 
     // ── ADD ──────────────────────────────────────────────────────────
     if (sub === 'add') {
-      if (!session) return interaction.editReply('❌ You are not in an active trade. Use `/trade offer` first.');
+      if (!session) return interaction.editReply('❌ You are not in an active trade. Use `/trade start` first.');
       if (!session.active) return interaction.editReply('❌ This trade session is no longer active.');
+      if (session.isExpired()) {
+        session.active = false;
+        client.memory.set(`trade_${guildId}_${session.initiatorId}_${session.targetId}`, session);
+        return interaction.editReply('❌ This trade has expired (5 minutes). Start a new trade with `/trade start`.');
+      }
       const item = interaction.options.getString('item');
       let amount = interaction.options.getInteger('amount');
       if (amount <= 0) return interaction.editReply('❌ Amount must be positive.');
@@ -431,6 +464,11 @@ module.exports = {
     if (sub === 'ready') {
       if (!session) return interaction.editReply('❌ You are not in a trade.');
       if (!session.active) return interaction.editReply('❌ Trade is no longer active.');
+      if (session.isExpired()) {
+        session.active = false;
+        client.memory.set(`trade_${guildId}_${session.initiatorId}_${session.targetId}`, session);
+        return interaction.editReply('❌ This trade has expired (5 minutes). Start a new trade with `/trade start`.');
+      }
       if (session.ready[userId]) return interaction.editReply('✅ You already readied up!');
       session.ready[userId] = true;
       client.memory.set(`trade_${guildId}_${session.initiatorId}_${session.targetId}`, session);
@@ -438,10 +476,8 @@ module.exports = {
       if (session.ready[session.initiatorId] && session.ready[session.targetId]) {
         // Execute trade
         try {
-          // Remove items from both
           await removeItems(client, guildId, session.initiatorId, session.offers[session.initiatorId]);
           await removeItems(client, guildId, session.targetId, session.offers[session.targetId]);
-          // Add items to opposite
           await addItems(client, guildId, session.targetId, session.offers[session.initiatorId]);
           await addItems(client, guildId, session.initiatorId, session.offers[session.targetId]);
 
@@ -480,6 +516,12 @@ module.exports = {
     if (sub === 'status') {
       if (!session) return interaction.editReply('❌ You are not in a trade.');
       if (!session.active) return interaction.editReply('❌ Trade is not active.');
+      if (session.isExpired()) {
+        session.active = false;
+        client.memory.set(`trade_${guildId}_${session.initiatorId}_${session.targetId}`, session);
+        return interaction.editReply('❌ This trade has expired (5 minutes). Start a new trade with `/trade start`.');
+      }
+
       const initiatorId = session.initiatorId;
       const targetId = session.targetId;
       const initiatorName = (await client.users.fetch(initiatorId).catch(() => ({ username: 'Unknown' }))).username;
@@ -488,15 +530,35 @@ module.exports = {
       const initiatorOffers = Object.entries(session.offers[initiatorId]).map(([item, qty]) => `${qty}x ${item}`).join('\n') || 'Nothing';
       const targetOffers = Object.entries(session.offers[targetId]).map(([item, qty]) => `${qty}x ${item}`).join('\n') || 'Nothing';
 
+      // Add a button to expire/cancel the trade
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('trade_expire').setLabel('⏱️ Expire Trade').setStyle(ButtonStyle.Danger)
+      );
+
       const embed = new EmbedBuilder()
         .setColor('#9b59b6')
         .setTitle('💱 Current Trade')
         .addFields(
           { name: `${initiatorName} offers`, value: initiatorOffers, inline: true },
           { name: `${targetName} offers`, value: targetOffers, inline: true },
-          { name: '⚡ Ready Status', value: `${initiatorName}: ${session.ready[initiatorId] ? '✅ Ready' : '❌ Not ready'} | ${targetName}: ${session.ready[targetId] ? '✅ Ready' : '❌ Not ready'}`, inline: false }
+          { name: '⚡ Ready Status', value: `${initiatorName}: ${session.ready[initiatorId] ? '✅ Ready' : '❌ Not ready'} | ${targetName}: ${session.ready[targetId] ? '✅ Ready' : '❌ Not ready'}`, inline: false },
+          { name: '⏱️ Expires', value: `In ${Math.max(0, Math.ceil((session.createdAt + 5*60*1000 - Date.now())/1000))} seconds`, inline: true }
         );
-      return interaction.editReply({ embeds: [embed] });
+
+      const statusMsg = await interaction.editReply({ embeds: [embed], components: [row] });
+      const collector = statusMsg.createMessageComponentCollector({ time: 30000 });
+      collector.on('collect', async btn => {
+        try { await btn.deferUpdate(); } catch (e) { return; }
+        if (btn.customId === 'trade_expire') {
+          if (btn.user.id !== session.initiatorId && btn.user.id !== session.targetId) {
+            return btn.followUp({ content: '❌ Only the two traders can expire this trade.', ephemeral: true }).catch(() => {});
+          }
+          session.active = false;
+          client.memory.set(`trade_${guildId}_${session.initiatorId}_${session.targetId}`, session);
+          await btn.followUp({ content: '⏱️ Trade expired by a participant.', ephemeral: false }).catch(() => {});
+          await statusMsg.edit({ embeds: [new EmbedBuilder().setColor('#888888').setTitle('⏰ Trade Expired').setDescription('The trade has been manually expired.')], components: [] }).catch(() => {});
+        }
+      });
     }
   }
 };
