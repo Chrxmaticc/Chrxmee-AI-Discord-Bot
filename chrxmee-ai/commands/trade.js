@@ -2,7 +2,6 @@ const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, Butt
 
 const OWNER_IDS = ['902685494247325776', '954709865698312213'];
 
-// ── HELPER: LOAD ALL USER INVENTORIES (for display & validation) ──────────
 function getAllInventories(client, guildId, userId) {
   const farmKey = `farm2_${guildId}_${userId}`;
   const miningKey = `mining2_${guildId}_${userId}`;
@@ -16,67 +15,52 @@ function getAllInventories(client, guildId, userId) {
   const duelData = client.memory.get(duelKey) || {};
   const petData = client.memory.get(petKey) || { owned: [], active: [] };
 
-  const inventory = {};
-
-  // Farm crops
+  const inventory = {} 
   if (farmData.inventory) {
     for (const [cropId, qty] of Object.entries(farmData.inventory)) {
       inventory[`farm:crop:${cropId}`] = (inventory[`farm:crop:${cropId}`] || 0) + qty;
     }
   }
-  // Farm fertilizers
   if (farmData.fertilizers) {
     for (const [fertId, qty] of Object.entries(farmData.fertilizers)) {
       if (qty > 0) inventory[`farm:fertilizer:${fertId}`] = (inventory[`farm:fertilizer:${fertId}`] || 0) + qty;
     }
   }
-  // Farm crystal crops (special count)
   if (farmData.crystalCrops > 0) {
     inventory['farm:crystal_crop'] = (inventory['farm:crystal_crop'] || 0) + farmData.crystalCrops;
   }
-  // Farm coins
   if (farmData.coins > 0) inventory['farm:coins'] = (inventory['farm:coins'] || 0) + farmData.coins;
 
-  // Mining ores/bars
   if (miningData.inventory) {
     for (const [oreId, qty] of Object.entries(miningData.inventory)) {
       inventory[`mining:${oreId}`] = (inventory[`mining:${oreId}`] || 0) + qty;
     }
   }
-  // Mining coins
   if (miningData.coins > 0) inventory['mining:coins'] = (inventory['mining:coins'] || 0) + miningData.coins;
-
-  // Dungeon items: armor, swords (stored as strings in array)
   if (dungeonData.inventory) {
     for (const item of dungeonData.inventory) {
       inventory[`dungeon:item:${item}`] = (inventory[`dungeon:item:${item}`] || 0) + 1;
     }
   }
-  // Dungeon potions
   if (dungeonData.potions) {
     for (const [potionId, qty] of Object.entries(dungeonData.potions)) {
       if (qty > 0) inventory[`dungeon:potion:${potionId}`] = (inventory[`dungeon:potion:${potionId}`] || 0) + qty;
     }
   }
-  // Dungeon spells
   if (dungeonData.spells) {
     for (const [spellId, qty] of Object.entries(dungeonData.spells)) {
       if (qty > 0) inventory[`dungeon:spell:${spellId}`] = (inventory[`dungeon:spell:${spellId}`] || 0) + qty;
     }
   }
-  // Dungeon gold
   if (dungeonData.gold > 0) inventory['dungeon:gold'] = (inventory['dungeon:gold'] || 0) + dungeonData.gold;
 
-  // Duel tokens
   if (duelData.tokens > 0) inventory['duel:tokens'] = (inventory['duel:tokens'] || 0) + duelData.tokens;
-  // Duel inventory (armor/sword items)
   if (duelData.inventory) {
     for (const item of duelData.inventory) {
       inventory[`duel:${item}`] = (inventory[`duel:${item}`] || 0) + 1;
     }
   }
 
-  // Pets (entire pet as an item)
   if (petData.owned) {
     for (const petId of petData.owned) {
       inventory[`pet:${petId}`] = (inventory[`pet:${petId}`] || 0) + 1;
@@ -86,7 +70,6 @@ function getAllInventories(client, guildId, userId) {
   return inventory;
 }
 
-// ── HELPER: REMOVE ITEMS FROM ACTUAL STORAGE (non-owner execution) ────────
 async function removeItems(client, guildId, userId, items) {
   const farmKey = `farm2_${guildId}_${userId}`;
   const miningKey = `mining2_${guildId}_${userId}`;
@@ -134,7 +117,6 @@ async function removeItems(client, guildId, userId, items) {
       const itemName = itemId.slice(14);
       const idx = dungeonData.inventory?.indexOf(itemName);
       if (idx === -1) throw new Error(`Not enough dungeon item ${itemName}`);
-      // remove first 'amount' occurrences
       let removed = 0;
       dungeonData.inventory = dungeonData.inventory.filter(i => {
         if (i === itemName && removed < amount) { removed++; return false; }
