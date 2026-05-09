@@ -261,7 +261,7 @@ module.exports = {
       userData.history.push({ role: "assistant", content: answer });
       client.memory.set(activeSessionUser, userData);
 
-      if (answer.length > 2000) {
+      if (answer.length > 3000) {
         const chunks = answer.match(/[\s\S]{1,1900}/g);
         for (const chunk of chunks) await message.reply(chunk).catch(console.error);
       } else {
