@@ -2,6 +2,8 @@ const fs = require("fs");
 const path = require("path");
 const { Client } = require("pg");
 const { handleKeywords } = require("../commands/keyword-responder");
+// ─── UWUIFY IMPORT ─────────────────────────────
+const { handleMessage: handleUwuify } = require("../commands/uwuify");
 
 const db = new Client({
   connectionString: process.env.DATABASE_URL,
@@ -48,6 +50,10 @@ module.exports = {
   name: "messageCreate",
   async execute(message) {
     if (message.author.bot) return;
+
+    // ─── UWUIFY HANDLER ─────────────────────────
+    await handleUwuify(message);
+    // ────────────────────────────────────────────
 
     await handleKeywords(message, message.client);
 
