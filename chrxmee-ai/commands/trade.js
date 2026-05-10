@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
-const OWNER_ID = ['902685494247325776', '954709865698312213'];
+const OWNER_IDS = ['902685494247325776', '954709865698312213'];
 
 function getAllInventories(client, guildId, userId) {
   const farmKey = `farm2_${guildId}_${userId}`;
@@ -27,9 +27,7 @@ function getAllInventories(client, guildId, userId) {
       if (qty > 0) inventory[`farm:fertilizer:${fertId}`] = (inventory[`farm:fertilizer:${fertId}`] || 0) + qty;
     }
   }
-  if (farmData.crystalCrops > 0) {
-    inventory['farm:crystal_crop'] = (inventory['farm:crystal_crop'] || 0) + farmData.crystalCrops;
-  }
+  if (farmData.crystalCrops > 0) inventory['farm:crystal_crop'] = (inventory['farm:crystal_crop'] || 0) + farmData.crystalCrops;
   if (farmData.coins > 0) inventory['farm:coins'] = (inventory['farm:coins'] || 0) + farmData.coins;
 
   if (miningData.inventory) {
@@ -72,7 +70,7 @@ function getAllInventories(client, guildId, userId) {
   return inventory;
 }
 
-async function removeItems(client, guildId, userId, items) {
+async function removeItems(client, guildId, userId, items, isOwner = false) {
   const farmKey = `farm2_${guildId}_${userId}`;
   const miningKey = `mining2_${guildId}_${userId}`;
   const dungeonKey = `dungeon_${guildId}_${userId}`;
@@ -86,80 +84,68 @@ async function removeItems(client, guildId, userId, items) {
   let petData = client.memory.get(petKey) || { owned: [], active: [] };
 
   for (const [itemId, amount] of Object.entries(items)) {
+    const inventory = getAllInventories(client, guildId, userId);
+    const available = inventory[itemId] || 0;
+    if (available < amount) {
+      if (isOwner) continue;
+      throw new Error(`Not enough ${itemId} (need ${amount}, have ${available})`);
+    }
+
     if (itemId.startsWith('farm:crop:')) {
       const cropId = itemId.slice(11);
-      if (!farmData.inventory?.[cropId] || farmData.inventory[cropId] < amount) throw new Error(`Not enough crop ${cropId}`);
       farmData.inventory[cropId] -= amount;
       if (farmData.inventory[cropId] <= 0) delete farmData.inventory[cropId];
     }
     else if (itemId.startsWith('farm:fertilizer:')) {
       const fertId = itemId.slice(16);
-      if (!farmData.fertilizers?.[fertId] || farmData.fertilizers[fertId] < amount) throw new Error(`Not enough fertilizer ${fertId}`);
       farmData.fertilizers[fertId] -= amount;
     }
     else if (itemId === 'farm:crystal_crop') {
-      if (!farmData.crystalCrops || farmData.crystalCrops < amount) throw new Error(`Not enough crystal crops`);
       farmData.crystalCrops -= amount;
     }
     else if (itemId === 'farm:coins') {
-      if (!farmData.coins || farmData.coins < amount) throw new Error(`Not enough farm coins`);
       farmData.coins -= amount;
     }
     else if (itemId.startsWith('mining:')) {
       const oreId = itemId.slice(7);
-      if (!miningData.inventory?.[oreId] || miningData.inventory[oreId] < amount) throw new Error(`Not enough mining ${oreId}`);
       miningData.inventory[oreId] -= amount;
       if (miningData.inventory[oreId] <= 0) delete miningData.inventory[oreId];
     }
     else if (itemId === 'mining:coins') {
-      if (!miningData.coins || miningData.coins < amount) throw new Error(`Not enough mining coins`);
       miningData.coins -= amount;
     }
     else if (itemId.startsWith('dungeon:item:')) {
       const itemName = itemId.slice(14);
-      const idx = dungeonData.inventory?.indexOf(itemName);
-      if (idx === -1) throw new Error(`Not enough dungeon item ${itemName}`);
       let removed = 0;
       dungeonData.inventory = dungeonData.inventory.filter(i => {
         if (i === itemName && removed < amount) { removed++; return false; }
         return true;
       });
-      if (removed < amount) throw new Error(`Not enough ${itemName} (only ${removed})`);
     }
     else if (itemId.startsWith('dungeon:potion:')) {
       const potId = itemId.slice(15);
-      if (!dungeonData.potions?.[potId] || dungeonData.potions[potId] < amount) throw new Error(`Not enough potion ${potId}`);
       dungeonData.potions[potId] -= amount;
     }
     else if (itemId.startsWith('dungeon:spell:')) {
       const spellId = itemId.slice(14);
-      if (!dungeonData.spells?.[spellId] || dungeonData.spells[spellId] < amount) throw new Error(`Not enough spell ${spellId}`);
       dungeonData.spells[spellId] -= amount;
     }
     else if (itemId === 'dungeon:gold') {
-      if (!dungeonData.gold || dungeonData.gold < amount) throw new Error(`Not enough dungeon gold`);
       dungeonData.gold -= amount;
     }
     else if (itemId === 'duel:tokens') {
-      if (!duelData.tokens || duelData.tokens < amount) throw new Error(`Not enough duel tokens`);
       duelData.tokens -= amount;
     }
     else if (itemId.startsWith('duel:')) {
       const duelItem = itemId.slice(5);
-      const idx = duelData.inventory?.indexOf(duelItem);
-      if (idx === -1) throw new Error(`Not enough duel item ${duelItem}`);
       let removed = 0;
       duelData.inventory = duelData.inventory.filter(i => {
         if (i === duelItem && removed < amount) { removed++; return false; }
         return true;
       });
-      if (removed < amount) throw new Error(`Not enough ${duelItem}`);
     }
     else if (itemId.startsWith('pet:')) {
       const petId = itemId.slice(4);
-      if (!petData.owned?.includes(petId)) throw new Error(`You don't own pet ${petId}`);
-      const count = petData.owned.filter(id => id === petId).length;
-      if (count < amount) throw new Error(`Not enough of pet ${petId}`);
       let removed = 0;
       petData.owned = petData.owned.filter(id => {
         if (id === petId && removed < amount) { removed++; return false; }
@@ -171,7 +157,7 @@ async function removeItems(client, guildId, userId, items) {
       }
     }
     else {
-      throw new Error(`Unknown item type: ${itemId}`);
+      if (!isOwner) throw new Error(`Unknown item type: ${itemId}`);
     }
   }
 
@@ -446,8 +432,10 @@ module.exports = {
 
       if (session.ready[session.initiatorId] && session.ready[session.targetId]) {
         try {
-          await removeItems(client, guildId, session.initiatorId, session.offers[session.initiatorId]);
-          await removeItems(client, guildId, session.targetId, session.offers[session.targetId]);
+          const isOwnerA = OWNER_IDS.includes(session.initiatorId);
+          const isOwnerB = OWNER_IDS.includes(session.targetId);
+          await removeItems(client, guildId, session.initiatorId, session.offers[session.initiatorId], isOwnerA);
+          await removeItems(client, guildId, session.targetId, session.offers[session.targetId], isOwnerB);
           await addItems(client, guildId, session.targetId, session.offers[session.initiatorId]);
           await addItems(client, guildId, session.initiatorId, session.offers[session.targetId]);
 
