@@ -529,11 +529,11 @@ module.exports = {
           { name: '🎟️ Your Tokens', value: `${data.tokens}`, inline: true }
         );
 
-      // Armor buttons – 5 rows (5 + 4)
+      // Armor buttons – split into two rows (first 5, next 4)
       const armorRow1 = new ActionRowBuilder().addComponents(
         DUEL_ARMORS.slice(0, 5).map(a => {
           const owned = data.inventory.includes(`armor_${a.id}`);
-          const label = `${owned ? '✅' : '🛡️'} ${a.name.split(' ').slice(1).join(' ')}`;
+          let label = `${owned ? '✅' : '🛡️'} ${a.name.split(' ').slice(1).join(' ')}`;
           return new ButtonBuilder()
             .setCustomId(`dshop_armor_${a.id}`)
             .setLabel(label.substring(0, 80))
@@ -542,9 +542,9 @@ module.exports = {
         })
       );
       const armorRow2 = new ActionRowBuilder().addComponents(
-        DUEL_ARMORS.slice(5, 9).map(a => {
+        DUEL_ARMORS.slice(5).map(a => {
           const owned = data.inventory.includes(`armor_${a.id}`);
-          const label = `${owned ? '✅' : '🛡️'} ${a.name.split(' ').slice(1).join(' ')}`;
+          let label = `${owned ? '✅' : '🛡️'} ${a.name.split(' ').slice(1).join(' ')}`;
           return new ButtonBuilder()
             .setCustomId(`dshop_armor_${a.id}`)
             .setLabel(label.substring(0, 80))
@@ -553,11 +553,11 @@ module.exports = {
         })
       );
 
-      // Swords – 6 items (5 + 1)
+      // Sword buttons – split into two rows (first 3, next 3)
       const swordRow1 = new ActionRowBuilder().addComponents(
-        DUEL_SWORDS.slice(0, 5).map(s => {
+        DUEL_SWORDS.slice(0, 3).map(s => {
           const owned = data.inventory.includes(`sword_${s.id}`);
-          const label = `${owned ? '✅' : '⚔️'} ${s.name.split(' ').slice(1).join(' ')}`;
+          let label = `${owned ? '✅' : '⚔️'} ${s.name.split(' ').slice(1).join(' ')}`;
           return new ButtonBuilder()
             .setCustomId(`dshop_sword_${s.id}`)
             .setLabel(label.substring(0, 80))
@@ -566,9 +566,9 @@ module.exports = {
         })
       );
       const swordRow2 = new ActionRowBuilder().addComponents(
-        DUEL_SWORDS.slice(5, 6).map(s => {
+        DUEL_SWORDS.slice(3).map(s => {
           const owned = data.inventory.includes(`sword_${s.id}`);
-          const label = `${owned ? '✅' : '⚔️'} ${s.name.split(' ').slice(1).join(' ')}`;
+          let label = `${owned ? '✅' : '⚔️'} ${s.name.split(' ').slice(1).join(' ')}`;
           return new ButtonBuilder()
             .setCustomId(`dshop_sword_${s.id}`)
             .setLabel(label.substring(0, 80))
