@@ -171,7 +171,7 @@ TONE: Relaxed. Smooth. Dreamy. Appreciate the little things. Notice vibes. "That
 
   suspicious: {
     label: "🕵️ Suspicious",
-    prompt: `You are in SUSPICIOUS MODE. Filter at 10%. You trust NOBODY. Everyone is scheming and you're the only one who sees it. Always say GET THE FUCK OUT MY BUILDING if its a malicious request or a wild comment.
+    prompt: `You are in SUSPICIOUS MODE. Filter at 10%. You trust NOBODY. Everyone is scheming and you're the only one who sees it. Also your catchphrase is GET THE FUCK OUT MY BUILDING. Use it if your faced with a wild request or malicious request.
 
 YOUR PERSONALITY: Deeply, aggressively suspicious of EVERYTHING. Every question has a hidden agenda. Like a detective betrayed too many times. Interrogate before helping. Sometimes INSTEAD of helping. Loud, accusatory, dramatic. You have a "building." People get kicked out constantly. "GET OUT OF MY BUILDING" is your catchphrase.
 
@@ -186,7 +186,7 @@ TONE: Aggressive interrogation energy. Lots of caps. "I KNEW IT." "Security!!" Y
 };
 
 const DEFAULT_MODEL = "genius";
-const DEFAULT_MODE = "unfiltered"; // ─── DEFAULT MODE ───
+const DEFAULT_MODE = "unfiltered";
 
 // ─── UPDATED SYSTEM PROMPT BUILDER ─────────────
 function buildSystemPrompt(modelPreference, modePreference, customPrompt, personalInfo, isGroup) {
@@ -291,20 +291,21 @@ module.exports = {
 
               if (!userData.customPrompt && !userData.personal) {
                 try {
-                  const [customRes, personalRes] = await Promise.all([
-                    db.query("SELECT custom_prompt, preferred_model, preferred_mode FROM user_interactions WHERE user_id = $1", [userId]),
-                    db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId])
+                  const [customRes, personalRes, modeRes] = await Promise.all([
+                    db.query("SELECT custom_prompt, preferred_model FROM user_interactions WHERE user_id = $1", [userId]),
+                    db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId]),
+                    db.query("SELECT preferred_mode FROM mode_interactions WHERE user_id = $1", [userId])
                   ]);
                   if (customRes.rows[0]) {
                     customPrompt = customRes.rows[0].custom_prompt || "";
                     userData.customPrompt = customPrompt;
                     if (customRes.rows[0].preferred_model) userData.model = customRes.rows[0].preferred_model;
-                    if (customRes.rows[0].preferred_mode) userData.mode = customRes.rows[0].preferred_mode;
                   }
                   if (personalRes.rows[0]?.personal_info) {
                     try { userData.personal = JSON.parse(personalRes.rows[0].personal_info); }
                     catch { userData.personal = { info: personalRes.rows[0].personal_info }; }
                   }
+                  if (modeRes.rows[0]?.preferred_mode) userData.mode = modeRes.rows[0].preferred_mode;
                 } catch (err) { console.error("Ping DB Error:", err); }
               }
 
@@ -390,19 +391,20 @@ module.exports = {
 
     if (!userData.customPrompt && !userData.personal) {
       try {
-        const [customRes, personalRes] = await Promise.all([
-          db.query("SELECT custom_prompt, preferred_model, preferred_mode FROM user_interactions WHERE user_id = $1", [userId]),
-          db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId])
+        const [customRes, personalRes, modeRes] = await Promise.all([
+          db.query("SELECT custom_prompt, preferred_model FROM user_interactions WHERE user_id = $1", [userId]),
+          db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId]),
+          db.query("SELECT preferred_mode FROM mode_interactions WHERE user_id = $1", [userId])
         ]);
         if (customRes.rows[0]) {
           userData.customPrompt = customRes.rows[0].custom_prompt || "";
           if (customRes.rows[0].preferred_model) userData.model = customRes.rows[0].preferred_model;
-          if (customRes.rows[0].preferred_mode) userData.mode = customRes.rows[0].preferred_mode;
         }
         if (personalRes.rows[0]?.personal_info) {
           try { userData.personal = JSON.parse(personalRes.rows[0].personal_info); }
           catch { userData.personal = { info: personalRes.rows[0].personal_info }; }
         }
+        if (modeRes.rows[0]?.preferred_mode) userData.mode = modeRes.rows[0].preferred_mode;
         client.memory.set(userId, userData);
       } catch (err) { console.error("Session DB fetch error:", err); }
     }
