@@ -25,13 +25,13 @@ module.exports = {
             .setDescription("Choose a model")
             .setRequired(true)
             .addChoices(
-              { name: "🧠 Genius — llama 3.3 70B",      value: "genius" },
-              { name: "⚡ Speedster — llama 3.1 8B",     value: "speedster" },
-              { name: "🤔 Thinker — GPT-OSS 120B",       value: "thinker" },
-              { name: "🎨 Creative — Qwen3 32B",         value: "creative" },
-              { name: "🔋 Efficient — QwQ 32B",          value: "efficient" },
-              { name: "👁️ Vision — llama 3.2 11B",       value: "vision" },
-              { name: "🌐 Agent — Compound Beta",        value: "agent" }
+              { name: " Genius — llama 3.3 70B",      value: "genius" },
+              { name: " Speedster — llama 3.1 8B",     value: "speedster" },
+              { name: "Thinker — GPT-OSS 120B",       value: "thinker" },
+              { name: " Creative — Qwen3 32B",         value: "creative" },
+              { name: "Efficient — QwQ 32B",          value: "efficient" },
+              { name: "Vision — llama 3.2 11B",       value: "vision" },
+              { name: " Agent — Compound Beta",        value: "agent" }
             )
         )
     )
