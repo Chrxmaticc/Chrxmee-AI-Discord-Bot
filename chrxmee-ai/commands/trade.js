@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
-const OWNER_IDS = ['902685494247325776', '954709865698312213'];
+const OWNER_ID = ['902685494247325776', '954709865698312213'];
 
 function getAllInventories(client, guildId, userId) {
   const farmKey = `farm2_${guildId}_${userId}`;
