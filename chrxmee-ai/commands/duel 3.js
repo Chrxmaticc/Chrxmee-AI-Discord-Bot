@@ -13,7 +13,8 @@ const DUEL_ARMORS = [
   { id: 'diamond',   name: '💎 Diamond Plate',    cost: 2500, hpBonus: 25, defBonus: 5, desc: '+25 HP, -5 dmg taken' },
   { id: 'shadow',    name: '🌑 Shadowforged',     cost: 4000, hpBonus: 30, defBonus: 6, desc: '+30 HP, -6 dmg taken' },
   { id: 'celestial', name: '👼 Celestial Plate',  cost: 6000, hpBonus: 40, defBonus: 8, desc: '+40 HP, -8 dmg taken' },
-  { id: 'nxy',       name: '🧞‍♂️ nxy’s armor',    cost: 25600, hpBonus: 67, defBonus: 15, desc: '+67 HP, -15 dmg taken', restricted: true, ownerId: '954709865698312213' }
+  { id: 'nxy',       name: '🧞‍♂️ Nxy\'s Plate',    cost: 25600, hpBonus: 67, defBonus: 15, desc: '+67 HP, -15 dmg taken', restricted: true, ownerId: '954709865698312213' },
+  { id: 'chrxmee',   name: '👽 Chrxmee\'s Plate', cost: 25600, hpBonus: 70, defBonus: 15, desc: '+70 HP, -15 dmg taken', restricted: true, ownerId: '902685494247325776' }
 ];
 
 // ── DUEL SWORDS ────────────────────────────────────────────────────────────
@@ -35,9 +36,14 @@ const DUEL_SWORDS = [
     effect: 'fear',      effectDesc: '😱 Fear: 20% chance to force opponent to Block next round'
   },
   {
-    id: 'nxy',       name: '🧞‍♂️ nxy’s blade',    cost: 25600, bonusDmg: 40,
+    id: 'nxy',       name: '🧞‍♂️ Nxy\'s Blade',    cost: 25600, bonusDmg: 40,
     effect: 'all',       effectDesc: '✨ All enchantments: Bleed + Stun + Lifesteal + Fear',
     restricted: true, ownerId: '954709865698312213'
+  },
+  {
+    id: 'chrxmee',   name: '👽 Chrxmee\'s Blade', cost: 25600, bonusDmg: 40,
+    effect: 'all',       effectDesc: '✨ All enchantments: Bleed + Stun + Lifesteal + Fear',
+    restricted: true, ownerId: '902685494247325776'
   }
 ];
 
@@ -225,7 +231,7 @@ function resolveRound(actionA, actionB, swordA, swordB, armorA, armorB, stateA, 
   return { dmgToA: rawDmgToA, dmgToB: rawDmgToB, log };
 }
 
-// Apply sword effects – extended for the "all" enchantment (nxy’s blade)
+// Apply sword effects – extended for the "all" enchantment (nxy’s blade & chrxmee’s blade)
 function applySwordEffects(swordA, swordB, dmgToA, dmgToB, hpA, hpB, stateA, stateB, effA, effB) {
   let extraLog = '';
 
@@ -381,19 +387,21 @@ module.exports = {
         .addStringOption(opt =>
           opt.setName('item').setDescription('Item to equip').setRequired(true)
             .addChoices(
-              { name: '🟤 Leather Plate',  value: 'armor_leather'   },
-              { name: '⛓️ Chainmail',      value: 'armor_chainmail' },
-              { name: '🔵 Steel Plate',    value: 'armor_steel'     },
-              { name: '🟡 Gold Plate',     value: 'armor_gold'      },
-              { name: '💎 Diamond Plate',  value: 'armor_diamond'   },
-              { name: '🌑 Shadowforged',   value: 'armor_shadow'    },
-              { name: '👼 Celestial Plate',value: 'armor_celestial' },
-              { name: '🧞‍♂️ nxy’s armor',  value: 'armor_nxy'       },
-              { name: '🗡️ Rusty Blade',    value: 'sword_rusty'     },
-              { name: '⚔️ Steel Edge',     value: 'sword_steel'     },
-              { name: '✨ Enchanted Blade',value: 'sword_enchanted' },
-              { name: '💀 Wraithblade',    value: 'sword_wraith'    },
-              { name: '🧞‍♂️ nxy’s blade',  value: 'sword_nxy'       }
+              { name: '🟤 Leather Plate',      value: 'armor_leather'   },
+              { name: '⛓️ Chainmail',          value: 'armor_chainmail' },
+              { name: '🔵 Steel Plate',        value: 'armor_steel'     },
+              { name: '🟡 Gold Plate',         value: 'armor_gold'      },
+              { name: '💎 Diamond Plate',      value: 'armor_diamond'   },
+              { name: '🌑 Shadowforged',       value: 'armor_shadow'    },
+              { name: '👼 Celestial Plate',    value: 'armor_celestial' },
+              { name: '🧞‍♂️ Nxy\'s Plate',      value: 'armor_nxy'       },
+              { name: '👽 Chrxmee\'s Plate',   value: 'armor_chrxmee'   },
+              { name: '🗡️ Rusty Blade',        value: 'sword_rusty'     },
+              { name: '⚔️ Steel Edge',         value: 'sword_steel'     },
+              { name: '✨ Enchanted Blade',    value: 'sword_enchanted' },
+              { name: '💀 Wraithblade',        value: 'sword_wraith'    },
+              { name: '🧞‍♂️ Nxy\'s Blade',      value: 'sword_nxy'       },
+              { name: '👽 Chrxmee\'s Blade',   value: 'sword_chrxmee'   }
             )
         )
     )
@@ -494,13 +502,21 @@ module.exports = {
       const armorLines = DUEL_ARMORS.map(a => {
         const owned = data.inventory.includes(`armor_${a.id}`);
         let line = `${a.name} — **${a.cost} tokens** — ${a.desc}${owned ? ' ✅' : ''}`;
-        if (a.restricted && a.ownerId !== userId) line += ` 🔒 (restricted)`;
+        if (a.restricted && a.ownerId !== userId) {
+          const masterName = a.ownerId === '954709865698312213' ? 'nxy' : 'chrxmee';
+          const emoji = a.ownerId === '954709865698312213' ? '🧞‍♂️' : '👽';
+          line += ` 🔒 (${emoji} ${masterName} only)`;
+        }
         return line;
       });
       const swordLines = DUEL_SWORDS.map(s => {
         const owned = data.inventory.includes(`sword_${s.id}`);
         let line = `${s.name} — **${s.cost} tokens** — +${s.bonusDmg} dmg — ${s.effectDesc}${owned ? ' ✅' : ''}`;
-        if (s.restricted && s.ownerId !== userId) line += ` 🔒 (restricted)`;
+        if (s.restricted && s.ownerId !== userId) {
+          const masterName = s.ownerId === '954709865698312213' ? 'nxy' : 'chrxmee';
+          const emoji = s.ownerId === '954709865698312213' ? '🧞‍♂️' : '👽';
+          line += ` 🔒 (${emoji} ${masterName} only)`;
+        }
         return line;
       });
 
@@ -513,9 +529,9 @@ module.exports = {
           { name: '🎟️ Your Tokens', value: `${data.tokens}`, inline: true }
         );
 
-      // Armor buttons – 4 + 4
+      // Armor buttons – 5 rows (5 + 4)
       const armorRow1 = new ActionRowBuilder().addComponents(
-        DUEL_ARMORS.slice(0, 4).map(a => {
+        DUEL_ARMORS.slice(0, 5).map(a => {
           const owned = data.inventory.includes(`armor_${a.id}`);
           const label = `${owned ? '✅' : '🛡️'} ${a.name.split(' ').slice(1).join(' ')}`;
           return new ButtonBuilder()
@@ -526,7 +542,7 @@ module.exports = {
         })
       );
       const armorRow2 = new ActionRowBuilder().addComponents(
-        DUEL_ARMORS.slice(4, 8).map(a => {
+        DUEL_ARMORS.slice(5, 9).map(a => {
           const owned = data.inventory.includes(`armor_${a.id}`);
           const label = `${owned ? '✅' : '🛡️'} ${a.name.split(' ').slice(1).join(' ')}`;
           return new ButtonBuilder()
@@ -537,9 +553,9 @@ module.exports = {
         })
       );
 
-      // Swords – first row 4, second row 1 (nxy's blade)
+      // Swords – 6 items (5 + 1)
       const swordRow1 = new ActionRowBuilder().addComponents(
-        DUEL_SWORDS.slice(0, 4).map(s => {
+        DUEL_SWORDS.slice(0, 5).map(s => {
           const owned = data.inventory.includes(`sword_${s.id}`);
           const label = `${owned ? '✅' : '⚔️'} ${s.name.split(' ').slice(1).join(' ')}`;
           return new ButtonBuilder()
@@ -550,7 +566,7 @@ module.exports = {
         })
       );
       const swordRow2 = new ActionRowBuilder().addComponents(
-        DUEL_SWORDS.slice(4).map(s => {
+        DUEL_SWORDS.slice(5, 6).map(s => {
           const owned = data.inventory.includes(`sword_${s.id}`);
           const label = `${owned ? '✅' : '⚔️'} ${s.name.split(' ').slice(1).join(' ')}`;
           return new ButtonBuilder()
@@ -580,7 +596,9 @@ module.exports = {
           const invKey = `armor_${armorId}`;
           if (data.inventory.includes(invKey)) { reply = '❌ Already owned!'; }
           else if (armor.restricted && armor.ownerId !== userId) {
-            reply = '🧞‍♂️ legend says only the master can buy this armor.';
+            const masterName = armor.ownerId === '954709865698312213' ? 'nxy' : 'chrxmee';
+            const emoji = armor.ownerId === '954709865698312213' ? '🧞‍♂️' : '👽';
+            reply = `${emoji} legend says only the master ${masterName} can buy this armor.`;
           }
           else if (data.tokens < armor.cost) { reply = `❌ Need **${armor.cost} tokens**, you have **${data.tokens}**.`; }
           else { data.tokens -= armor.cost; data.inventory.push(invKey); reply = `✅ Bought **${armor.name}**!\n🎟️ Tokens left: **${data.tokens}**`; }
@@ -591,7 +609,9 @@ module.exports = {
           const invKey = `sword_${swordId}`;
           if (data.inventory.includes(invKey)) { reply = '❌ Already owned!'; }
           else if (sword.restricted && sword.ownerId !== userId) {
-            reply = '🧞‍♂️ legend says only the master can buy this blade.';
+            const masterName = sword.ownerId === '954709865698312213' ? 'nxy' : 'chrxmee';
+            const emoji = sword.ownerId === '954709865698312213' ? '🧞‍♂️' : '👽';
+            reply = `${emoji} legend says only the master ${masterName} can buy this blade.`;
           }
           else if (data.tokens < sword.cost) { reply = `❌ Need **${sword.cost} tokens**, you have **${data.tokens}**.`; }
           else { data.tokens -= sword.cost; data.inventory.push(invKey); reply = `✅ Bought **${sword.name}**!\n🎟️ Tokens left: **${data.tokens}**`; }
@@ -635,11 +655,12 @@ module.exports = {
       const invKey = `${type}_${id}`;
       if (!data.inventory.includes(invKey)) return interaction.editReply(`❌ You don't own that item! Visit \`/duel shop\`.`);
 
-      // Check restriction for equipping
       if (type === 'armor') {
         const armor = DUEL_ARMORS.find(a => a.id === id);
         if (armor && armor.restricted && armor.ownerId !== userId) {
-          return interaction.editReply('🧞‍♂️ legend says only the master can wear this armor.');
+          const masterName = armor.ownerId === '954709865698312213' ? 'nxy' : 'chrxmee';
+          const emoji = armor.ownerId === '954709865698312213' ? '🧞‍♂️' : '👽';
+          return interaction.editReply(`${emoji} legend says only the master ${masterName} can wear this armor.`);
         }
         data.equippedArmor = id;
         client.memory.set(key, data);
@@ -647,7 +668,9 @@ module.exports = {
       } else if (type === 'sword') {
         const sword = DUEL_SWORDS.find(s => s.id === id);
         if (sword && sword.restricted && sword.ownerId !== userId) {
-          return interaction.editReply('🧞‍♂️ legend says only the master can wield this blade.');
+          const masterName = sword.ownerId === '954709865698312213' ? 'nxy' : 'chrxmee';
+          const emoji = sword.ownerId === '954709865698312213' ? '🧞‍♂️' : '👽';
+          return interaction.editReply(`${emoji} legend says only the master ${masterName} can wield this blade.`);
         }
         data.equippedSword = id;
         client.memory.set(key, data);
