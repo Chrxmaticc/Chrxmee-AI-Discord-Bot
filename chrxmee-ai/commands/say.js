@@ -1,9 +1,6 @@
-const {
-    SlashCommandBuilder,
-    PermissionFlagsBits
-} = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 
-const OWNER_ID = '902685494247325776';
+const OWNER_IDS = ['902685494247325776', '954709865698312213'];
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -17,9 +14,8 @@ module.exports = {
         ),
 
     async execute(interaction) {
-
-        // Owner check
-        if (interaction.user.id !== OWNER_ID) {
+        // Owner check (both IDs)
+        if (!OWNER_IDS.includes(interaction.user.id)) {
             return interaction.reply({
                 content: 'You are NOT the owner brotato.',
                 ephemeral: true
