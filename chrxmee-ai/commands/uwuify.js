@@ -76,6 +76,19 @@ if (!interaction.member.roles.cache.has(UWUIFY_ROLE_ID)) {
     });
 }
 
+// Check if target is protected
+const protectedCheck = await pool.query(
+    'SELECT 1 FROM uwuify_protected WHERE guild_id = $1 AND user_id = $2',
+    [interaction.guild.id, target.id]
+);
+
+if (protectedCheck.rows.length > 0) {
+    return interaction.reply({
+        content: `🛡️ **${target.displayName}** is protected and cannot be uwuified!`,
+        ephemeral: true
+    });
+}
+
 // Check if already uwuified in this channel
 const existing = await pool.query(
     'SELECT * FROM uwuify_active WHERE guild_id = $1 AND user_id = $2 AND channel_id = $3',
