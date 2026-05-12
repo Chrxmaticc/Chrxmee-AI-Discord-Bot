@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require(‘discord.js’);
+const { SlashCommandBuilder } = require("discord.js");
 const { Pool } = require(‘pg’);
 
 const UWUIFY_ROLE_ID = ‘1503853457013084241’;
