@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, WebhookClient, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, WebhookClient, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 const { Pool } = require('pg');
 
 // PostgreSQL connection
@@ -56,6 +56,24 @@ module.exports = {
                 .setDescription('List all currently uwuified users in this server')),
 
     async execute(interaction) {
+        // ─── PERMISSION CHECKS ───────────────────
+        
+        // Check if user has Manage Messages
+        if (!interaction.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
+            return interaction.reply({
+                content: '❌ You need **Manage Messages** permission to use this command.',
+                ephemeral: true
+            });
+        }
+
+        // Check if bot has Manage Webhooks
+        if (!interaction.channel.permissionsFor(interaction.guild.members.me).has('ManageWebhooks')) {
+            return interaction.reply({
+                content: '❌ I need **Manage Webhooks** permission for this command to work.',
+                ephemeral: true
+            });
+        }
+
         const subcommand = interaction.options.getSubcommand();
 
         if (subcommand === 'apply') {
@@ -86,19 +104,11 @@ async function handleApply(interaction) {
         });
     }
 
-    // Check bot permissions
-    if (!interaction.channel.permissionsFor(interaction.guild.members.me).has('ManageWebhooks')) {
-        return interaction.reply({
-            content: '❌ I need **Manage Webhooks** permission for this to work!',
-            ephemeral: true
-        });
-    }
-
     await interaction.reply({
-        content: `✨ **${target.displayName}** is now uwuified! (${mode} mode) All their messages will be uwuified until removed.\nUse \`/uwuify remove\` to stop.`,
+        content: `✨ **${target.displayName}** is now uwuified! (${mode} mode)\nAll their messages will be uwuified until removed with \`/uwuify remove\`.`,
     });
 
-    // Store in database - webhook gets created on first message
+    // Store in database
     await pool.query(
         'INSERT INTO uwuify_active (guild_id, user_id, mode, channel_id, started_by) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (guild_id, user_id, channel_id) DO UPDATE SET mode = $3',
         [interaction.guild.id, target.id, mode, interaction.channel.id, interaction.user.id]
@@ -116,7 +126,7 @@ async function handleRemove(interaction) {
 
     if (result.rows.length === 0) {
         return interaction.reply({
-            content: `❌ **${target.displayName}** isn't uwuified in this channel!`,
+            content: `❌ **${target.displayName}** isn't uwuified in this channel.`,
             ephemeral: true
         });
     }
@@ -147,7 +157,8 @@ async function handleList(interaction) {
     const list = result.rows.map(row => {
         const user = interaction.guild.members.cache.get(row.user_id);
         const channel = interaction.guild.channels.cache.get(row.channel_id);
-        return `• **${user?.displayName || row.user_id}** in #${channel?.name || row.channel_id} (${row.mode})`;
+        const startedBy = interaction.guild.members.cache.get(row.started_by);
+        return `• **${user?.displayName || row.user_id}** in #${channel?.name || row.channel_id} (${row.mode}) — uwuified by ${startedBy?.displayName || row.started_by}`;
     }).join('\n');
 
     await interaction.reply({
@@ -173,7 +184,7 @@ async function handleMessage(message) {
         [message.guild.id, message.author.id, message.channel.id]
     );
 
-    if (result.rows.length === 0) return; // Not uwuified
+    if (result.rows.length === 0) return;
 
     const uwuData = result.rows[0];
 
@@ -202,8 +213,7 @@ async function handleMessage(message) {
 
     } catch (error) {
         console.error('Uwuify handler error:', error);
-        // If webhook fails, maybe the channel changed - don't spam errors
-        if (error.code === 10015) { // Unknown Webhook
+        if (error.code === 10015) {
             await pool.query(
                 'DELETE FROM uwuify_active WHERE guild_id = $1 AND user_id = $2 AND channel_id = $3',
                 [message.guild.id, message.author.id, message.channel.id]
@@ -223,7 +233,7 @@ async function getOrCreateWebhook(channel) {
 
     if (!webhook) {
         webhook = await channel.createWebhook({
-            name: 'UwU Magic',
+            name: 'UwUifying Magic',
             avatar: channel.client.user.displayAvatarURL(),
         });
     }
@@ -251,7 +261,6 @@ function uwuifyName(name, mode) {
 function lightUwu(text) {
     let result = text;
 
-    // Word replacements
     const replacements = {
         'the': 'da', 'you': 'u', 'your': 'ur', 'have': 'haz',
         'love': 'wuv', 'like': 'wike', 'little': 'widdle',
@@ -269,12 +278,10 @@ function lightUwu(text) {
         );
     }
 
-    // r/l → w (preserving first letter)
     result = result.replace(/\b(\w)(\w*)/g, (_, first, rest) => {
         return first + rest.replace(/[rl]/g, 'w').replace(/[RL]/g, 'W');
     });
 
-    // Endings (15%)
     if (Math.random() < 0.15) {
         result += [' ~', ' ✿', ' ♡', ' >w<', ''][Math.floor(Math.random() * 5)];
     }
@@ -286,10 +293,8 @@ function lightUwu(text) {
 function strongUwu(text) {
     let result = lightUwu(text);
 
-    // Aggressive r/l
     result = result.replace(/[rl]/gi, 'w');
 
-    // Vowel stretch (35%)
     result = result.replace(/[aeiou]+/gi, match => {
         if (Math.random() < 0.35) {
             const stretches = { 'a': 'aa', 'e': 'ee', 'i': 'ii', 'o': 'uwu', 'u': 'uwu' };
@@ -301,20 +306,16 @@ function strongUwu(text) {
         return match;
     });
 
-    // ny before consonants
     result = result.replace(/n(?=[bcdfghjklmnpqrstvwxyz])/gi, () =>
         Math.random() < 0.6 ? 'ny' : 'n'
     );
 
-    // Stutter (20%)
     result = result.replace(/\b(\w)(\w{3,})/g, (match, first, rest) =>
         Math.random() < 0.2 ? `${first}-${first}${rest}` : match
     );
 
-    // s → sh (25%)
     result = result.replace(/s\b/g, () => Math.random() < 0.25 ? 'sh' : 's');
 
-    // Kaomoji (30%)
     if (Math.random() < 0.3) {
         const kaos = [
             ' (◕ᴗ◕✿)', ' (⁄ ⁄>⁄ ▽ ⁄<⁄ ⁄)', ' (｡♥‿♥｡)', ' (◡ ω ◡)',
@@ -323,7 +324,6 @@ function strongUwu(text) {
         result += kaos[Math.floor(Math.random() * kaos.length)];
     }
 
-    // Actions (20%)
     if (Math.random() < 0.2) {
         const actions = [
             ' *blushes*', ' *wags tail*', ' *nuzzles*', ' *squeaks*',
@@ -332,10 +332,8 @@ function strongUwu(text) {
         result += actions[Math.floor(Math.random() * actions.length)];
     }
 
-    // Tildes
     if (Math.random() < 0.5) result += '~'.repeat(Math.floor(Math.random() * 3) + 1);
 
-    // Excited punctuation
     result = result.replace(/!/g, () => ['!!', '!!!', '! >w<'][Math.floor(Math.random() * 3)]);
     result = result.replace(/\?/g, () => ['??', '???', '? owo'][Math.floor(Math.random() * 3)]);
 
