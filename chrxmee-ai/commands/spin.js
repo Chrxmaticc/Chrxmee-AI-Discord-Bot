@@ -20,14 +20,13 @@ module.exports = new ChrxCommandBuilder({
       const avatar = await loadImage(avatarURL);
 
       const size = 256;
-      const frames = 24; // 24 frames for smooth 360
-      const delay = 40;  // 40ms between frames = ~25fps
+      const frames = 24;
+      const delay = 40;
 
       const encoder = new GIFEncoder(size, size);
       const canvas = createCanvas(size, size);
       const ctx = canvas.getContext("2d");
 
-      // Collect GIF chunks
       const chunks = [];
       encoder.createReadStream().on("data", chunk => chunks.push(chunk));
 
@@ -42,34 +41,27 @@ module.exports = new ChrxCommandBuilder({
       encoder.setDelay(delay);
       encoder.setQuality(10);
 
-      // Draw each rotation frame
       for (let i = 0; i < frames; i++) {
         const angle = (i / frames) * Math.PI * 2;
 
         ctx.clearRect(0, 0, size, size);
 
-        // Background
+        // Clean dark background
         ctx.fillStyle = "#1a1a1a";
         ctx.fillRect(0, 0, size, size);
 
-        // Subtle circle behind avatar
+        // Subtle circle behind
         ctx.beginPath();
-        ctx.arc(size / 2, size / 2, 100, 0, Math.PI * 2);
-        ctx.fillStyle = "#2a2a2a";
+        ctx.arc(size / 2, size / 2, 105, 0, Math.PI * 2);
+        ctx.fillStyle = "#252525";
         ctx.fill();
 
-        // Draw rotated avatar
+        // Spinning avatar
         ctx.save();
         ctx.translate(size / 2, size / 2);
         ctx.rotate(angle);
         ctx.drawImage(avatar, -100, -100, 200, 200);
         ctx.restore();
-
-        // "SPINNING..." text
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "bold 14px sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText("SPINNING...", size / 2, size - 15);
 
         encoder.addFrame(ctx);
       }
