@@ -7,13 +7,14 @@ connectionString: process.env.DATABASE_URL,
 ssl: { rejectUnauthorized: false }
 });
 
-// Initialize tables
+// Initialize table
 pool.query(`CREATE TABLE IF NOT EXISTS uwuify_active ( guild_id TEXT, user_id TEXT, mode TEXT, webhook_id TEXT, webhook_token TEXT, channel_id TEXT, started_by TEXT, started_at TIMESTAMP DEFAULT NOW(), PRIMARY KEY (guild_id, user_id, channel_id) )`);
-
-pool.query(`CREATE TABLE IF NOT EXISTS uwuify_protected ( guild_id TEXT, user_id TEXT, protected_by TEXT, protected_at TIMESTAMP DEFAULT NOW(), PRIMARY KEY (guild_id, user_id) )`);
 
 // Webhook cache
 const webhookCache = new Map();
+
+// Only this role can use /uwuify apply
+const UWUIFY_ROLE_ID = ‘1503853457013084241’;
 
 module.exports = {
 data: new SlashCommandBuilder()
@@ -67,6 +68,14 @@ const target = interaction.options.getUser(‘target’);
 const mode = interaction.options.getString(‘mode’);
 
 ```
+// Role check — only members with UWUIFY_ROLE_ID can uwuify people
+if (!interaction.member.roles.cache.has(UWUIFY_ROLE_ID)) {
+    return interaction.reply({
+        content: '❌ You don\'t have permission to uwuify people.',
+        ephemeral: true
+    });
+}
+
 // Check if already uwuified in this channel
 const existing = await pool.query(
     'SELECT * FROM uwuify_active WHERE guild_id = $1 AND user_id = $2 AND channel_id = $3',
@@ -76,19 +85,6 @@ const existing = await pool.query(
 if (existing.rows.length > 0) {
     return interaction.reply({
         content: `❌ **${target.displayName}** is already uwuified in this channel! Use \`/uwuify remove\` first.`,
-        ephemeral: true
-    });
-}
-
-// Check if target is protected
-const protectedCheck = await pool.query(
-    'SELECT 1 FROM uwuify_protected WHERE guild_id = $1 AND user_id = $2',
-    [interaction.guild.id, target.id]
-);
-
-if (protectedCheck.rows.length > 0) {
-    return interaction.reply({
-        content: `🛡️ **${target.displayName}** is protected and cannot be uwuified!`,
         ephemeral: true
     });
 }
@@ -218,7 +214,6 @@ try {
 
 } catch (error) {
     console.error('Uwuify handler error:', error);
-    // If webhook fails, maybe the channel changed - don't spam errors
     if (error.code === 10015) { // Unknown Webhook
         await pool.query(
             'DELETE FROM uwuify_active WHERE guild_id = $1 AND user_id = $2 AND channel_id = $3',
@@ -273,7 +268,6 @@ function lightUwu(text) {
 let result = text;
 
 ```
-// Word replacements
 const replacements = {
     'the': 'da', 'you': 'u', 'your': 'ur', 'have': 'haz',
     'love': 'wuv', 'like': 'wike', 'little': 'widdle',
@@ -291,12 +285,10 @@ for (const [key, val] of Object.entries(replacements)) {
     );
 }
 
-// r/l → w (preserving first letter)
 result = result.replace(/\b(\w)(\w*)/g, (_, first, rest) => {
     return first + rest.replace(/[rl]/g, 'w').replace(/[RL]/g, 'W');
 });
 
-// Endings (15%)
 if (Math.random() < 0.15) {
     result += [' ~', ' ✿', ' ♡', ' >w<', ''][Math.floor(Math.random() * 5)];
 }
@@ -311,10 +303,8 @@ function strongUwu(text) {
 let result = lightUwu(text);
 
 ```
-// Aggressive r/l
 result = result.replace(/[rl]/gi, 'w');
 
-// Vowel stretch (35%)
 result = result.replace(/[aeiou]+/gi, match => {
     if (Math.random() < 0.35) {
         const stretches = { 'a': 'aa', 'e': 'ee', 'i': 'ii', 'o': 'uwu', 'u': 'uwu' };
@@ -326,20 +316,16 @@ result = result.replace(/[aeiou]+/gi, match => {
     return match;
 });
 
-// ny before consonants
 result = result.replace(/n(?=[bcdfghjklmnpqrstvwxyz])/gi, () =>
     Math.random() < 0.6 ? 'ny' : 'n'
 );
 
-// Stutter (20%)
 result = result.replace(/\b(\w)(\w{3,})/g, (match, first, rest) =>
     Math.random() < 0.2 ? `${first}-${first}${rest}` : match
 );
 
-// s → sh (25%)
 result = result.replace(/s\b/g, () => Math.random() < 0.25 ? 'sh' : 's');
 
-// Kaomoji (30%)
 if (Math.random() < 0.3) {
     const kaos = [
         ' (◕ᴗ◕✿)', ' (⁄ ⁄>⁄ ▽ ⁄<⁄ ⁄)', ' (｡♥‿♥｡)', ' (◡ ω ◡)',
@@ -348,7 +334,6 @@ if (Math.random() < 0.3) {
     result += kaos[Math.floor(Math.random() * kaos.length)];
 }
 
-// Actions (20%)
 if (Math.random() < 0.2) {
     const actions = [
         ' *blushes*', ' *wags tail*', ' *nuzzles*', ' *squeaks*',
@@ -357,10 +342,8 @@ if (Math.random() < 0.2) {
     result += actions[Math.floor(Math.random() * actions.length)];
 }
 
-// Tildes
 if (Math.random() < 0.5) result += '~'.repeat(Math.floor(Math.random() * 3) + 1);
 
-// Excited punctuation
 result = result.replace(/!/g, () => ['!!', '!!!', '! >w<'][Math.floor(Math.random() * 3)]);
 result = result.replace(/\?/g, () => ['??', '???', '? owo'][Math.floor(Math.random() * 3)]);
 
