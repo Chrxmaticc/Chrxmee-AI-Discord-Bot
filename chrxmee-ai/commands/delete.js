@@ -1,7 +1,7 @@
 const { ChrxCommandBuilder } = require("chrxmaticc-framework");
 const { AttachmentBuilder } = require("discord.js");
 const { createCanvas, loadImage } = require("@napi-rs/canvas");
-const { GIFEncoder, quantize, applyPalette } = require("gifenc");
+const GIFEncoder = require("gif-encoder-2");
 
 module.exports = new ChrxCommandBuilder({
   name: "profile-delete",
@@ -17,7 +17,7 @@ module.exports = new ChrxCommandBuilder({
 
     try {
       const avatar = await loadImage(avatarURL);
-      const size = 512, grid = 32, cols = size / grid, rows = size / grid;
+      const size = 256, grid = 16, cols = size / grid, rows = size / grid;
       const total = cols * rows, frames = 20, bpf = Math.ceil(total / frames);
 
       const order = Array.from({ length: total }, (_, i) => i);
@@ -26,9 +26,15 @@ module.exports = new ChrxCommandBuilder({
         [order[i], order[j]] = [order[j], order[i]];
       }
 
+      const encoder = new GIFEncoder(size, size, "neuquant", true);
+      encoder.start();
+      encoder.setRepeat(0);
+      encoder.setDelay(50);
+      encoder.setQuality(10);
+      encoder.setTransparent(0x00000000);
+
       const canvas = createCanvas(size, size);
       const ctx = canvas.getContext("2d");
-      const gif = GIFEncoder();
 
       for (let i = 0; i < frames; i++) {
         ctx.clearRect(0, 0, size, size);
@@ -38,19 +44,16 @@ module.exports = new ChrxCommandBuilder({
           const idx = order[j], col = idx % cols, row = Math.floor(idx / cols);
           ctx.clearRect(col * grid, row * grid, grid, grid);
         }
-
-        const { data, width, height } = ctx.getImageData(0, 0, size, size);
-        const palette = quantize(data, 256);
-        gif.writeFrame(applyPalette(data, palette), width, height, { palette, delay: 5 });
+        encoder.addFrame(ctx);
       }
 
       ctx.clearRect(0, 0, size, size);
-      const { data, width, height } = ctx.getImageData(0, 0, size, size);
-      const palette = quantize(data, 256);
-      gif.writeFrame(applyPalette(data, palette), width, height, { palette, delay: 200 });
+      encoder.setDelay(2000);
+      encoder.addFrame(ctx);
 
-      gif.finish();
-      const attachment = new AttachmentBuilder(Buffer.from(gif.bytes()), { name: `${target.username}-deleted.gif` });
+      encoder.finish();
+      const gifBuffer = encoder.out.getData();
+      const attachment = new AttachmentBuilder(gifBuffer, { name: `${target.username}-deleted.gif` });
       await interaction.editReply({ content: `🗑️ **${target.displayName}** has been DELETED.`, files: [attachment] });
     } catch (err) {
       console.error("Delete error:", err);
