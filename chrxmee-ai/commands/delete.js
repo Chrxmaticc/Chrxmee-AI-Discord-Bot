@@ -26,12 +26,12 @@ module.exports = new ChrxCommandBuilder({
         [order[i], order[j]] = [order[j], order[i]];
       }
 
-      const encoder = new GIFEncoder(size, size, "neuquant", true);
-      encoder.start();
+      const encoder = new GIFEncoder(size, size, "octree", true);
+      encoder.setQuality(5);
       encoder.setRepeat(0);
       encoder.setDelay(50);
-      encoder.setQuality(10);
-      encoder.setTransparent(0x00000000);
+      encoder.setTransparent(0x000000);
+      encoder.start();
 
       const canvas = createCanvas(size, size);
       const ctx = canvas.getContext("2d");
