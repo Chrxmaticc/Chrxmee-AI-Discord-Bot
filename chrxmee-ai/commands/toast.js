@@ -1,7 +1,7 @@
 const { ChrxCommandBuilder } = require("chrxmaticc-framework");
 const { AttachmentBuilder } = require("discord.js");
 const { createCanvas, loadImage } = require("@napi-rs/canvas");
-const GIFEncoder = require("@zorner/gifencoder");
+const { GIFEncoder, quantize, applyPalette } = require("gifenc");
 
 module.exports = new ChrxCommandBuilder({
   name: "profile-toast",
@@ -17,92 +17,54 @@ module.exports = new ChrxCommandBuilder({
 
     try {
       const avatar = await loadImage(avatarURL);
-      const width = 350, height = 400, frames = 30, delay = 60;
+      const w = 280, h = 320, frames = 20;
 
-      const encoder = new GIFEncoder(width, height);
-      const canvas = createCanvas(width, height);
+      const canvas = createCanvas(w, h);
       const ctx = canvas.getContext("2d");
-
-      const chunks = [];
-      encoder.createReadStream().on("data", chunk => chunks.push(chunk));
-      const gifPromise = new Promise(resolve => {
-        encoder.createReadStream().on("end", () => resolve(Buffer.concat(chunks)));
-      });
-
-      encoder.start(); encoder.setRepeat(0); encoder.setDelay(delay); encoder.setQuality(10);
+      const gif = GIFEncoder();
 
       for (let i = 0; i < frames; i++) {
-        ctx.clearRect(0, 0, width, height);
-
-        // Counter
-        ctx.fillStyle = "#2a1a0a"; ctx.fillRect(0, 0, width, height);
-        const counterGrad = ctx.createLinearGradient(0, 0, 0, height);
+        ctx.clearRect(0, 0, w, h);
+        const counterGrad = ctx.createLinearGradient(0, 0, 0, h);
         counterGrad.addColorStop(0, "#3a2a1a"); counterGrad.addColorStop(1, "#1a0a00");
-        ctx.fillStyle = counterGrad; ctx.fillRect(0, 0, width, height);
+        ctx.fillStyle = counterGrad; ctx.fillRect(0, 0, w, h);
 
-        // Toaster body
-        const toasterY = 250, toasterH = 130;
-        ctx.fillStyle = "#c0c0c0";
-        ctx.fillRect(50, toasterY, 250, toasterH);
-        ctx.fillStyle = "#a0a0a0";
-        ctx.fillRect(55, toasterY+5, 240, toasterH-10);
-        ctx.fillStyle = "#888888";
-        ctx.fillRect(60, toasterY, 230, toasterH);
+        const toasterY = 200, toasterH = 100;
+        ctx.fillStyle = "#c0c0c0"; ctx.fillRect(35, toasterY, 210, toasterH);
+        ctx.fillStyle = "#a0a0a0"; ctx.fillRect(40, toasterY+5, 200, toasterH-10);
+        ctx.fillStyle = "#888888"; ctx.fillRect(45, toasterY, 190, toasterH);
+        ctx.fillStyle = "#1a1a1a"; ctx.fillRect(75, toasterY-5, 130, 12);
 
-        // Toaster slot
-        ctx.fillStyle = "#1a1a1a";
-        ctx.fillRect(100, toasterY-5, 150, 15);
+        const progress = i/frames;
+        const popHeight = Math.sin(progress*Math.PI)*90;
+        const toastY = toasterY-60-popHeight;
+        const burn = i > frames*0.4 ? (i-frames*0.4)/(frames*0.6) : 0;
 
-        // Toast popping up
-        const progress = i / frames;
-        const popHeight = Math.sin(progress * Math.PI) * 120;
-        const toastY = toasterY - 80 - popHeight;
-        const burnLevel = i > frames * 0.4 ? (i - frames * 0.4) / (frames * 0.6) : 0;
+        ctx.fillStyle = `rgb(${200+burn*55},${180-burn*100},${100-burn*80})`;
+        ctx.fillRect(70, toastY, 140, 90);
+        ctx.drawImage(avatar, 78, toastY+8, 124, 74);
 
-        // Toast slice
-        ctx.fillStyle = `rgb(${200 + burnLevel*55}, ${180 - burnLevel*100}, ${100 - burnLevel*80})`;
-        ctx.fillRect(95, toastY, 160, 110);
-
-        // Avatar as "burnt face" on toast
-        ctx.drawImage(avatar, 105, toastY+10, 140, 90);
-
-        // Burn overlay
-        if (burnLevel > 0) {
-          ctx.fillStyle = `rgba(${Math.floor(burnLevel*139)},${Math.floor(burnLevel*69)},${Math.floor(burnLevel*19)},${burnLevel*0.6})`;
-          ctx.fillRect(95, toastY, 160, 110);
+        if (burn > 0) {
+          ctx.fillStyle = `rgba(${Math.floor(burn*139)},${Math.floor(burn*69)},${Math.floor(burn*19)},${burn*0.6})`;
+          ctx.fillRect(70, toastY, 140, 90);
         }
 
-        // Smoke particles
-        if (burnLevel > 0.5) {
-          for (let s = 0; s < 5; s++) {
-            const sx = 120 + Math.sin(s*2.7 + i*0.3)*40;
-            const sy = toastY - 20 - s*15 - i*2;
-            ctx.fillStyle = `rgba(100,100,100,${0.3 - s*0.05})`;
-            ctx.beginPath(); ctx.arc(sx, sy, 5 + s*2, 0, Math.PI*2); ctx.fill();
-          }
-        }
+        ctx.fillStyle = "#666666"; ctx.fillRect(255, toasterY+40, 12, 24);
+        ctx.fillStyle = "#ff4444"; ctx.beginPath(); ctx.arc(261, toasterY+36, 10, 0, Math.PI*2); ctx.fill();
 
-        // Lever
-        ctx.fillStyle = "#666666";
-        ctx.fillRect(310, toasterY+50, 15, 30);
-        ctx.fillStyle = "#ff4444";
-        ctx.beginPath(); ctx.arc(317, toasterY+45, 12, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = "#ffffff"; ctx.font = "bold 16px Impact, sans-serif"; ctx.textAlign = "center";
+        if (burn > 0.7) ctx.fillText("BURNT!", w/2, 25);
+        else if (burn > 0.3) ctx.fillText("TOASTING...", w/2, 25);
+        else ctx.fillText("FRESH TOAST!", w/2, 25);
+        ctx.fillStyle = "#cccccc"; ctx.font = "12px monospace"; ctx.fillText(target.displayName, w/2, 45);
 
-        // Text
-        ctx.fillStyle = "#ffffff"; ctx.font = "bold 20px Impact, sans-serif"; ctx.textAlign = "center";
-        if (burnLevel > 0.7) ctx.fillText("BURNT!", width/2, 30);
-        else if (burnLevel > 0.3) ctx.fillText("TOASTING...", width/2, 30);
-        else ctx.fillText("FRESH TOAST!", width/2, 30);
-
-        ctx.fillStyle = "#cccccc"; ctx.font = "14px monospace";
-        ctx.fillText(target.displayName, width/2, 55);
-
-        encoder.addFrame(ctx);
+        const { data, width, height } = ctx.getImageData(0, 0, w, h);
+        const palette = quantize(data, 256);
+        gif.writeFrame(applyPalette(data, palette), width, height, { palette, delay: 6 });
       }
 
-      encoder.finish();
-      const gifBuffer = await gifPromise;
-      const attachment = new AttachmentBuilder(gifBuffer, { name: `${target.username}-toast.gif` });
+      gif.finish();
+      const attachment = new AttachmentBuilder(Buffer.from(gif.bytes()), { name: `${target.username}-toast.gif` });
       await interaction.editReply({ content: `🍞 **${target.displayName}** is now BURNT TOAST!`, files: [attachment] });
     } catch (err) {
       console.error("Toast error:", err);
