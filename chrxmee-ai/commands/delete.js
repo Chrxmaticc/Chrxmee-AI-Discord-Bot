@@ -1,7 +1,7 @@
 const { ChrxCommandBuilder } = require("chrxmaticc-framework");
 const { AttachmentBuilder } = require("discord.js");
 const { createCanvas, loadImage } = require("@napi-rs/canvas");
-const { GIFEncoder, quantize, applyPalette } = require("gifenc");
+const { encodeGif } = require("@napi-rs/canvas/gif");
 
 module.exports = new ChrxCommandBuilder({
   name: "profile-delete",
@@ -28,32 +28,27 @@ module.exports = new ChrxCommandBuilder({
 
       const canvas = createCanvas(size, size);
       const ctx = canvas.getContext("2d");
-      const gif = GIFEncoder();
+      const frameBuffers = [];
 
       for (let i = 0; i < frames; i++) {
         ctx.clearRect(0, 0, size, size);
         ctx.drawImage(avatar, 0, 0, size, size);
 
         const deleted = Math.min((i + 1) * bpf, total);
-
         for (let j = 0; j < deleted; j++) {
           const idx = order[j], col = idx % cols, row = Math.floor(idx / cols);
           ctx.clearRect(col * grid, row * grid, grid, grid);
         }
 
-        const { data, width, height } = ctx.getImageData(0, 0, size, size);
-        const palette = quantize(data, 256);
-        gif.writeFrame(applyPalette(data, palette), width, height, { palette, delay: 5 });
+        frameBuffers.push(canvas.toBuffer("image/png"));
       }
 
-      // Final frame: fully gone
+      // Final frame: fully deleted
       ctx.clearRect(0, 0, size, size);
-      const { data, width, height } = ctx.getImageData(0, 0, size, size);
-      const palette = quantize(data, 256);
-      gif.writeFrame(applyPalette(data, palette), width, height, { palette, delay: 200 });
+      frameBuffers.push(canvas.toBuffer("image/png"));
 
-      gif.finish();
-      const attachment = new AttachmentBuilder(Buffer.from(gif.bytes()), { name: `${target.username}-deleted.gif` });
+      const gifBuffer = await encodeGif(frameBuffers, { delay: 5, repeat: 0 });
+      const attachment = new AttachmentBuilder(gifBuffer, { name: `${target.username}-deleted.gif` });
       await interaction.editReply({ content: `🗑️ **${target.displayName}** has been DELETED.`, files: [attachment] });
     } catch (err) {
       console.error("Delete error:", err);
