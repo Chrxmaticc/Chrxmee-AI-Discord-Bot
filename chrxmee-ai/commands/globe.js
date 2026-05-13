@@ -20,13 +20,8 @@ module.exports = new ChrxCommandBuilder({
   async run(interaction) {
     await interaction.deferReply();
 
-    const target =
-      interaction.options.getUser("target") || interaction.user;
-
-    const avatarURL = target.displayAvatarURL({
-      extension: "png",
-      size: 512,
-    });
+    const target = interaction.options.getUser("target") || interaction.user;
+    const avatarURL = target.displayAvatarURL({ extension: "png", size: 512 });
 
     try {
       const avatar = await loadImage(avatarURL);
@@ -49,54 +44,37 @@ module.exports = new ChrxCommandBuilder({
 
         ctx.clearRect(0, 0, size, size);
 
-        // transparent background
         ctx.save();
 
-        // globe clipping
+        // Globe clipping
         ctx.beginPath();
         ctx.arc(cx, cy, radius, 0, Math.PI * 2);
         ctx.clip();
 
-        // squish amount
+        // Squish amount
         const squash = Math.cos(angle);
 
-        // width of visible side
+        // Width of visible side
         const width = Math.max(8, size * Math.abs(squash));
-
         const x = cx - width / 2;
 
         ctx.save();
 
-        // back side dimmer
+        // Back side dimmer
         ctx.globalAlpha = 0.92;
 
-        // flip when rotating behind
+        // Flip when rotating behind
         if (squash < 0) {
           ctx.translate(size, 0);
           ctx.scale(-1, 1);
         }
 
-        // draw stretched avatar
-        ctx.drawImage(
-          avatar,
-          x,
-          0,
-          width,
-          size
-        );
-
+        // Draw stretched avatar
+        ctx.drawImage(avatar, x, 0, width, size);
         ctx.restore();
 
-        // subtle shading for globe effect
-        const gradient = ctx.createRadialGradient(
-          cx - 40,
-          cy - 40,
-          20,
-          cx,
-          cy,
-          radius
-        );
-
+        // Subtle shading for globe effect
+        const gradient = ctx.createRadialGradient(cx - 40, cy - 40, 20, cx, cy, radius);
         gradient.addColorStop(0, "rgba(255,255,255,0.12)");
         gradient.addColorStop(0.5, "rgba(0,0,0,0)");
         gradient.addColorStop(1, "rgba(0,0,0,0.35)");
@@ -109,10 +87,7 @@ module.exports = new ChrxCommandBuilder({
         frameBuffers.push(canvas.toBuffer("image/png"));
       }
 
-      const gifBuffer = await encodeGif(frameBuffers, {
-        repeat: 0,
-        delay,
-      });
+      const gifBuffer = await encodeGif(frameBuffers, { repeat: 0, delay });
 
       const attachment = new AttachmentBuilder(gifBuffer, {
         name: `${target.username}-globe.gif`,
@@ -124,10 +99,7 @@ module.exports = new ChrxCommandBuilder({
       });
     } catch (err) {
       console.error(err);
-
-      await interaction.editReply({
-        content: "❌ globe machine exploded",
-      });
+      await interaction.editReply({ content: "❌ globe machine exploded" });
     }
   },
 });
