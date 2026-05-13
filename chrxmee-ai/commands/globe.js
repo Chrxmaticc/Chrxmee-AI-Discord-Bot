@@ -23,10 +23,10 @@ module.exports = new ChrxCommandBuilder({
 
     try {
       const avatar = await loadImage(avatarURL);
-      const size = 256, frames = 24;
+      const size = 256, frames = 30;
       const delays = { slow: 8, normal: 5, fast: 3 };
       const delay = delays[speed];
-      const cx = size/2, cy = size/2, radius = 90;
+      const cx = size / 2, cy = size / 2, radius = size / 2;
 
       const canvas = createCanvas(size, size);
       const ctx = canvas.getContext("2d");
@@ -34,43 +34,84 @@ module.exports = new ChrxCommandBuilder({
 
       for (let i = 0; i < frames; i++) {
         const angle = (i / frames) * Math.PI * 2;
+        
+        // Clear with transparency
         ctx.clearRect(0, 0, size, size);
-        ctx.fillStyle = "#0a0a1a"; ctx.fillRect(0, 0, size, size);
 
-        for (let s = 0; s < 15; s++) {
-          const sx = (Math.sin(s*137.5)*0.5+0.5)*size;
-          const sy = (Math.cos(s*273.1)*0.5+0.5)*size;
-          ctx.fillStyle = `rgb(${180},${180},${180})`; ctx.fillRect(sx, sy, 1.5, 1.5);
+        // Clip EVERYTHING to the circle (globe shape)
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius - 1, 0, Math.PI * 2);
+        ctx.clip();
+
+        if (sides === "all") {
+          // === ALL SIDES: avatar wraps around as sphere rotates ===
+          
+          // Front face (when facing camera)
+          const frontScale = Math.cos(angle);
+          const frontWidth = size * Math.abs(frontScale);
+          const frontX = cx - frontWidth / 2;
+          
+          if (frontWidth > 2) {
+            ctx.save();
+            if (frontScale < 0) {
+              // Back of sphere - flip horizontally
+              ctx.translate(cx * 2, 0);
+              ctx.scale(-1, 1);
+              ctx.globalAlpha = Math.abs(frontScale);
+              ctx.drawImage(avatar, cx * 2 - frontX - frontWidth, 0, frontWidth, size);
+            } else {
+              ctx.globalAlpha = frontScale;
+              ctx.drawImage(avatar, frontX, 0, frontWidth, size);
+            }
+            ctx.restore();
+          }
+
+          // Back face visible through (when semi-transparent sides)
+          const backScale = Math.cos(angle + Math.PI);
+          const backWidth = size * Math.abs(backScale);
+          const backX = cx - backWidth / 2;
+          
+          if (backWidth > 2 && Math.abs(frontScale) < 0.95) {
+            ctx.save();
+            ctx.globalAlpha = Math.abs(backScale) * 0.5;
+            if (backScale < 0) {
+              ctx.translate(cx * 2, 0);
+              ctx.scale(-1, 1);
+              ctx.drawImage(avatar, cx * 2 - backX - backWidth, 0, backWidth, size);
+            } else {
+              ctx.drawImage(avatar, backX, 0, backWidth, size);
+            }
+            ctx.restore();
+          }
+
+        } else {
+          // === FRONT ONLY: only visible when facing camera ===
+          const facingCamera = Math.cos(angle) > 0;
+          
+          if (facingCamera) {
+            const scaleX = Math.cos(angle);
+            const avatarWidth = size * scaleX;
+            const avatarX = cx - avatarWidth / 2;
+            
+            ctx.drawImage(avatar, avatarX, 0, avatarWidth, size);
+          }
         }
 
-        ctx.beginPath(); ctx.arc(cx+4, cy+4, radius, 0, Math.PI*2);
-        ctx.fillStyle = "rgba(0,0,0,0.3)"; ctx.fill();
-        ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI*2);
-        ctx.fillStyle = "#1a3a5c"; ctx.fill();
+        ctx.restore();
 
-        for (let lon = 0; lon < 4; lon++) {
-          ctx.beginPath(); ctx.ellipse(cx, cy, radius, radius*0.3, (lon/4)*Math.PI*2+angle, 0, Math.PI*2);
-          ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.stroke();
-        }
-        for (let lat = 0; lat < 3; lat++) {
-          const lo = (lat/3-0.5)*radius*2;
-          const lr = Math.sqrt(radius*radius-lo*lo);
-          ctx.beginPath(); ctx.ellipse(cx, cy+lo, lr, 3, 0, 0, Math.PI*2);
-          ctx.strokeStyle = "rgba(255,255,255,0.08)"; ctx.lineWidth = 1; ctx.stroke();
-        }
+        // Subtle sphere outline
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius - 1, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
 
-        const facing = Math.cos(angle) > -0.2;
-        if (sides === "all" || (sides === "front" && facing)) {
-          ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI*2); ctx.clip();
-          const sx = Math.cos(angle), aw = radius*2*Math.abs(sx), ax = cx-aw/2;
-          if (aw > 5) { ctx.globalAlpha = sides==="all"?1:Math.max(0,sx); ctx.drawImage(avatar, ax, cy-radius, aw, radius*2); ctx.globalAlpha=1; }
-          ctx.restore();
-        }
-
-        ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI*2);
-        ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.lineWidth = 1.5; ctx.stroke();
-        ctx.beginPath(); ctx.arc(cx-radius*0.3, cy-radius*0.3, radius*0.2, 0, Math.PI*2);
-        ctx.fillStyle = "rgba(255,255,255,0.06)"; ctx.fill();
+        // Light reflection (specular highlight)
+        ctx.beginPath();
+        ctx.arc(cx - radius * 0.3, cy - radius * 0.3, radius * 0.2, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
+        ctx.fill();
 
         const { data, width, height } = ctx.getImageData(0, 0, size, size);
         const palette = quantize(data, 256);
