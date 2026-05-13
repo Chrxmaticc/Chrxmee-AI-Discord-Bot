@@ -21,11 +21,11 @@ module.exports = new ChrxCommandBuilder({
       const avatar = await loadImage(avatarURL);
       const w = 400, h = 240, frames = 16;
 
-      const encoder = new GIFEncoder(w, h, "neuquant", false);
-      encoder.start();
+      const encoder = new GIFEncoder(w, h, "octree", false);
+      encoder.setQuality(5);
       encoder.setRepeat(0);
       encoder.setDelay(80);
-      encoder.setQuality(10);
+      encoder.start();
 
       const canvas = createCanvas(w, h);
       const ctx = canvas.getContext("2d");
