@@ -1,7 +1,7 @@
 const { ChrxCommandBuilder } = require("chrxmaticc-framework");
 const { AttachmentBuilder } = require("discord.js");
 const { createCanvas, loadImage } = require("@napi-rs/canvas");
-const GIFEncoder = require("@zorner/gifencoder");
+const { GIFEncoder, quantize, applyPalette } = require("gifenc");
 
 module.exports = new ChrxCommandBuilder({
   name: "profile-melt",
@@ -17,70 +17,49 @@ module.exports = new ChrxCommandBuilder({
 
     try {
       const avatar = await loadImage(avatarURL);
-      const size = 300, frames = 25, delay = 60;
+      const size = 256, frames = 20;
 
-      const encoder = new GIFEncoder(size, size);
       const canvas = createCanvas(size, size);
       const ctx = canvas.getContext("2d");
-
-      const chunks = [];
-      encoder.createReadStream().on("data", chunk => chunks.push(chunk));
-      const gifPromise = new Promise(resolve => {
-        encoder.createReadStream().on("end", () => resolve(Buffer.concat(chunks)));
-      });
-
-      encoder.start(); encoder.setRepeat(0); encoder.setDelay(delay); encoder.setQuality(10);
+      const gif = GIFEncoder();
 
       for (let i = 0; i < frames; i++) {
         ctx.clearRect(0, 0, size, size);
         ctx.fillStyle = "#1a1a1a"; ctx.fillRect(0, 0, size, size);
 
-        const progress = i / frames;
-        const meltHeight = size * (1 - progress * 0.85);
-        const puddleSize = progress * 50;
+        const progress = i/frames;
+        const meltH = size*(1-progress*0.85);
+        const puddleS = progress*40;
 
-        // Original (top portion)
-        if (meltHeight > 10) {
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(25, 25, size-50, meltHeight);
-          ctx.clip();
-          ctx.drawImage(avatar, 25, 25, size-50, size-50);
-          ctx.restore();
+        if (meltH > 10) {
+          ctx.save(); ctx.beginPath(); ctx.rect(20, 20, size-40, meltH); ctx.clip();
+          ctx.drawImage(avatar, 20, 20, size-40, size-40); ctx.restore();
         }
 
-        // Melted drips
         ctx.fillStyle = "#333333";
-        for (let d = 0; d < 6; d++) {
-          const dx = 50 + d * 35 + Math.sin(d*1.3 + i*0.2)*10;
-          const dripLen = 20 + progress * 80 + Math.sin(d)*15;
-          ctx.beginPath();
-          ctx.moveTo(dx, 25 + meltHeight);
-          ctx.lineTo(dx + 8, 25 + meltHeight + dripLen);
-          ctx.lineTo(dx - 8, 25 + meltHeight + dripLen);
-          ctx.closePath();
-          ctx.fill();
+        for (let d = 0; d < 5; d++) {
+          const dx = 45+d*35+Math.sin(d*1.3+i*0.2)*8;
+          const dripLen = 15+progress*70+Math.sin(d)*12;
+          ctx.beginPath(); ctx.moveTo(dx, 20+meltH); ctx.lineTo(dx+6, 20+meltH+dripLen);
+          ctx.lineTo(dx-6, 20+meltH+dripLen); ctx.closePath(); ctx.fill();
         }
 
-        // Puddle at bottom
         if (progress > 0.2) {
           ctx.fillStyle = `rgba(60,60,60,${progress})`;
-          ctx.beginPath();
-          ctx.ellipse(size/2, size-30, 80 + puddleSize, 10 + puddleSize*0.3, 0, 0, Math.PI*2);
-          ctx.fill();
+          ctx.beginPath(); ctx.ellipse(size/2, size-25, 65+puddleS, 8+puddleS*0.3, 0, 0, Math.PI*2); ctx.fill();
         }
 
-        // Text
-        ctx.fillStyle = "#ffffff"; ctx.font = "bold 24px Impact, sans-serif"; ctx.textAlign = "center";
-        if (progress > 0.7) ctx.fillText("MELTED.", size/2, 35);
-        else ctx.fillText("MELTING...", size/2, 35);
+        ctx.fillStyle = "#ffffff"; ctx.font = "bold 20px Impact, sans-serif"; ctx.textAlign = "center";
+        if (progress > 0.7) ctx.fillText("MELTED.", size/2, 30);
+        else ctx.fillText("MELTING...", size/2, 30);
 
-        encoder.addFrame(ctx);
+        const { data, width, height } = ctx.getImageData(0, 0, size, size);
+        const palette = quantize(data, 256);
+        gif.writeFrame(applyPalette(data, palette), width, height, { palette, delay: 6 });
       }
 
-      encoder.finish();
-      const gifBuffer = await gifPromise;
-      const attachment = new AttachmentBuilder(gifBuffer, { name: `${target.username}-melt.gif` });
+      gif.finish();
+      const attachment = new AttachmentBuilder(Buffer.from(gif.bytes()), { name: `${target.username}-melt.gif` });
       await interaction.editReply({ content: `🫠 **${target.displayName}** melted into a puddle.`, files: [attachment] });
     } catch (err) {
       console.error("Melt error:", err);
