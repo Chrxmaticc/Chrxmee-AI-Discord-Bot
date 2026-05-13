@@ -5,124 +5,96 @@ const GIFEncoder = require("gif-encoder-2");
 
 module.exports = new ChrxCommandBuilder({
   name: "profile-globe",
-  description: "Turn someone's avatar into a spinning globe!",
+  description: "Turn someone's avatar into a cursed spinning globe 🌍",
   cooldown: 15,
-
   options: [
-    {
-      name: "target",
-      description: "Who's getting globed?",
-      type: "user",
-      required: true,
-    },
-    {
-      name: "sides",
-      description: "Avatar on all sides or just the front?",
-      type: "string",
-      required: false,
-      choices: [
-        { name: "🌍 All Sides", value: "all" },
-        { name: "🌎 Front Only", value: "front" },
-      ],
-    },
+    { name: "target", description: "Who's becoming spherical?", type: "user", required: false }
   ],
-
   async run(interaction) {
     await interaction.deferReply();
-
-    const target = interaction.options.getUser("target");
-    const sides = interaction.options.getString("sides") || "all";
-
-    const avatarURL = target.displayAvatarURL({
-      extension: "png",
-      size: 256,
-    });
+    const target = interaction.options.getUser("target") || interaction.user;
+    const avatarURL = target.displayAvatarURL({ extension: "png", size: 512 });
 
     try {
       const avatar = await loadImage(avatarURL);
-
       const size = 256;
-      const frames = 24;
-      const delay = 50; // gif-encoder-2 uses ms (50ms = 20fps)
+      const frames = 30; // Smooth rotation
+      const delay = 40; 
 
-      const cx = size / 2;
-      const cy = size / 2;
-      const radius = size / 2 - 2;
+      const encoder = new GIFEncoder(size, size, "octree", true);
+      encoder.setQuality(10);
+      encoder.setRepeat(0);
+      encoder.setDelay(delay);
+      encoder.setTransparent(0x000000); // Sets black as transparent
+      encoder.start();
 
       const canvas = createCanvas(size, size);
       const ctx = canvas.getContext("2d");
-
-      // Initialize gif-encoder-2
-      const encoder = new GIFEncoder(size, size);
-      encoder.start();
-      encoder.setRepeat(0);
-      encoder.setDelay(delay);
-      encoder.setTransparent(0x00000000); // Handle transparency if needed
+      const radius = size / 2;
 
       for (let i = 0; i < frames; i++) {
+        // Clear with true black for the transparency to work
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, size, size);
+        
         const angle = (i / frames) * Math.PI * 2;
 
-        ctx.clearRect(0, 0, size, size);
-
         ctx.save();
-
+        // Create the circular mask
         ctx.beginPath();
-        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.arc(radius, radius, radius, 0, Math.PI * 2);
         ctx.clip();
 
-        const frontScale = Math.cos(angle);
+        // SPHERIZE LOGIC: Draw slices to create the bulge effect
+        const progress = Math.cos(angle);
+        const direction = Math.sin(angle) > 0 ? 1 : -1;
 
-        if (sides === "all") {
-          const frontWidth = size * Math.abs(frontScale);
-          const frontX = cx - frontWidth / 2;
+        // Determine actual width based on rotation
+        const currentWidth = size * Math.abs(progress);
+        const xOffset = (size - currentWidth) / 2;
 
-          if (frontWidth > 2) {
-            ctx.save();
-            ctx.globalAlpha = Math.abs(frontScale);
-
-            if (frontScale < 0) {
-              ctx.translate(size, 0);
-              ctx.scale(-1, 1);
-              ctx.drawImage(avatar, frontX, 0, frontWidth, size);
-            } else {
-              ctx.drawImage(avatar, frontX, 0, frontWidth, size);
-            }
-            ctx.restore();
-          }
-        } else {
-          if (frontScale > 0) {
-            const frontWidth = size * frontScale;
-            const frontX = cx - frontWidth / 2;
-            ctx.drawImage(avatar, frontX, 0, frontWidth, size);
-          }
+        ctx.save();
+        // Flip image logic for the "back" of the spin
+        if (progress < 0) {
+          ctx.translate(size, 0);
+          ctx.scale(-1, 1);
         }
 
+        // Draw the warped image
+        // To get that exact look, we use the standard scaling but keep globalAlpha high
+        ctx.globalAlpha = 1.0;
+        ctx.drawImage(avatar, xOffset, 0, currentWidth, size);
         ctx.restore();
 
-        // Add the current canvas frame to the encoder
+        // Add shading/overlay to match the reference
+        const gradient = ctx.createRadialGradient(
+          radius - 30, radius - 30, 10, 
+          radius, radius, radius
+        );
+        gradient.addColorStop(0, "rgba(255, 255, 255, 0.2)");
+        gradient.addColorStop(0.6, "rgba(0, 0, 0, 0)");
+        gradient.addColorStop(1, "rgba(0, 0, 0, 0.5)");
+        
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, size, size);
+        
+        ctx.restore();
+
         encoder.addFrame(ctx);
       }
 
       encoder.finish();
       const gifBuffer = encoder.out.getData();
-
-      const attachment = new AttachmentBuilder(gifBuffer, {
-        name: `${target.username}-globe.gif`,
-      });
-
-      const sidesLabels = {
-        all: "🌍 all sides",
-        front: "🌎 front only",
-      };
-
-      await interaction.editReply({
-        content: `${sidesLabels[sides]} **${target.displayName}** is now a GLOBE!`,
-        files: [attachment],
+      const attachment = new AttachmentBuilder(gifBuffer, { name: `globe.gif` });
+      
+      await interaction.editReply({ 
+        content: `🌍 **${target.displayName}** has been globified.`, 
+        files: [attachment] 
       });
 
     } catch (err) {
-      console.error("Globe error:", err);
-      await interaction.editReply("❌ Failed to generate globe GIF.");
+      console.error(err);
+      await interaction.editReply({ content: "❌ globe machine exploded" });
     }
-  },
+  }
 });
