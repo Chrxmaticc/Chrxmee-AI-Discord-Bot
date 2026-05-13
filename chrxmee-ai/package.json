@@ -8,10 +8,10 @@
     },
     "dependencies": {
         "@napi-rs/canvas": "^0.1.65",
-        "@zorner/gifencoder": "^1.0.1",
         "chrxmaticc-framework": "^1.4.0",
         "discord.js": "^14.25.1",
         "dotenv": "^16.6.1",
+        "gifenc": "^1.0.3",
         "node-fetch": "^3.3.2",
         "pg": "^8.17.2"
     },
