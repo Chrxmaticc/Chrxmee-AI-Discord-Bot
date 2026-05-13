@@ -1,7 +1,7 @@
 const { ChrxCommandBuilder } = require("chrxmaticc-framework");
 const { AttachmentBuilder } = require("discord.js");
 const { createCanvas, loadImage } = require("@napi-rs/canvas");
-const { GIFEncoder, quantize, applyPalette } = require("gifenc");
+const GIFEncoder = require("gif-encoder-2");
 
 module.exports = new ChrxCommandBuilder({
   name: "profile-toast",
@@ -17,11 +17,17 @@ module.exports = new ChrxCommandBuilder({
 
     try {
       const avatar = await loadImage(avatarURL);
-      const size = 512, frames = 20;
+      const size = 256, frames = 20;
+
+      const encoder = new GIFEncoder(size, size, "neuquant", true);
+      encoder.start();
+      encoder.setRepeat(0);
+      encoder.setDelay(80);
+      encoder.setQuality(10);
+      encoder.setTransparent(0x00000000);
 
       const canvas = createCanvas(size, size);
       const ctx = canvas.getContext("2d");
-      const gif = GIFEncoder();
 
       for (let i = 0; i < frames; i++) {
         ctx.clearRect(0, 0, size, size);
@@ -43,21 +49,20 @@ module.exports = new ChrxCommandBuilder({
           ctx.fillRect(0, size - burnHeight, size, burnHeight);
 
           if (burnLevel > 0.5) {
-            for (let c = 0; c < 16; c++) {
+            for (let c = 0; c < 8; c++) {
               const crumbleX = Math.random() * size;
               const crumbleY = size - Math.random() * burnHeight;
-              ctx.clearRect(crumbleX, crumbleY, Math.random() * 20 + 5, Math.random() * 20 + 5);
+              ctx.clearRect(crumbleX, crumbleY, Math.random() * 10 + 3, Math.random() * 10 + 3);
             }
           }
         }
 
-        const { data, width, height } = ctx.getImageData(0, 0, size, size);
-        const palette = quantize(data, 256);
-        gif.writeFrame(applyPalette(data, palette), width, height, { palette, delay: 8 });
+        encoder.addFrame(ctx);
       }
 
-      gif.finish();
-      const attachment = new AttachmentBuilder(Buffer.from(gif.bytes()), { name: `${target.username}-toast.gif` });
+      encoder.finish();
+      const gifBuffer = encoder.out.getData();
+      const attachment = new AttachmentBuilder(gifBuffer, { name: `${target.username}-toast.gif` });
       await interaction.editReply({ content: `🍞 **${target.displayName}** got BURNT to a crisp!`, files: [attachment] });
     } catch (err) {
       console.error("Toast error:", err);
