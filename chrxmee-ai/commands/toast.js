@@ -1,31 +1,30 @@
 const { ChrxCommandBuilder } = require("chrxmaticc-framework");
 const { AttachmentBuilder } = require("discord.js");
 const { createCanvas, loadImage } = require("@napi-rs/canvas");
-const { encodeGif } = require("@napi-rs/canvas/gif");
+const { GIFEncoder, quantize, applyPalette } = require("gifenc");
 
 module.exports = new ChrxCommandBuilder({
   name: "profile-toast",
   description: "Slowly burn someone's avatar to a crisp",
   cooldown: 12,
   options: [
-    { name: "target", description: "Who's getting toasted?", type: "user", required: true }
+    { name: "target", description: "Who's getting toasted?", type: "user", required: false }
   ],
   async run(interaction) {
     await interaction.deferReply();
-    const target = interaction.options.getUser("target");
-    const avatarURL = target.displayAvatarURL({ extension: "png", size: 256 });
+    const target = interaction.options.getUser("target") || interaction.user;
+    const avatarURL = target.displayAvatarURL({ extension: "png", size: 512 });
 
     try {
       const avatar = await loadImage(avatarURL);
-      const size = 256, frames = 20;
+      const size = 512, frames = 20;
 
       const canvas = createCanvas(size, size);
       const ctx = canvas.getContext("2d");
-      const frameBuffers = [];
+      const gif = GIFEncoder();
 
       for (let i = 0; i < frames; i++) {
         ctx.clearRect(0, 0, size, size);
-
         const progress = i / frames;
         const burnLevel = i > frames * 0.3 ? (i - frames * 0.3) / (frames * 0.7) : 0;
 
@@ -44,19 +43,21 @@ module.exports = new ChrxCommandBuilder({
           ctx.fillRect(0, size - burnHeight, size, burnHeight);
 
           if (burnLevel > 0.5) {
-            for (let c = 0; c < 8; c++) {
+            for (let c = 0; c < 16; c++) {
               const crumbleX = Math.random() * size;
               const crumbleY = size - Math.random() * burnHeight;
-              ctx.clearRect(crumbleX, crumbleY, Math.random() * 10 + 3, Math.random() * 10 + 3);
+              ctx.clearRect(crumbleX, crumbleY, Math.random() * 20 + 5, Math.random() * 20 + 5);
             }
           }
         }
 
-        frameBuffers.push(canvas.toBuffer("image/png"));
+        const { data, width, height } = ctx.getImageData(0, 0, size, size);
+        const palette = quantize(data, 256);
+        gif.writeFrame(applyPalette(data, palette), width, height, { palette, delay: 8 });
       }
 
-      const gifBuffer = await encodeGif(frameBuffers, { delay: 8, repeat: 0 });
-      const attachment = new AttachmentBuilder(gifBuffer, { name: `${target.username}-toast.gif` });
+      gif.finish();
+      const attachment = new AttachmentBuilder(Buffer.from(gif.bytes()), { name: `${target.username}-toast.gif` });
       await interaction.editReply({ content: `🍞 **${target.displayName}** got BURNT to a crisp!`, files: [attachment] });
     } catch (err) {
       console.error("Toast error:", err);
