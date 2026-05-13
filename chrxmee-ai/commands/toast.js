@@ -1,7 +1,7 @@
 const { ChrxCommandBuilder } = require("chrxmaticc-framework");
 const { AttachmentBuilder } = require("discord.js");
 const { createCanvas, loadImage } = require("@napi-rs/canvas");
-const { GIFEncoder, quantize, applyPalette } = require("gifenc");
+const { encodeGif } = require("@napi-rs/canvas/gif");
 
 module.exports = new ChrxCommandBuilder({
   name: "profile-toast",
@@ -21,7 +21,7 @@ module.exports = new ChrxCommandBuilder({
 
       const canvas = createCanvas(size, size);
       const ctx = canvas.getContext("2d");
-      const gif = GIFEncoder();
+      const frameBuffers = [];
 
       for (let i = 0; i < frames; i++) {
         ctx.clearRect(0, 0, size, size);
@@ -29,16 +29,12 @@ module.exports = new ChrxCommandBuilder({
         const progress = i / frames;
         const burnLevel = i > frames * 0.3 ? (i - frames * 0.3) / (frames * 0.7) : 0;
 
-        // Draw avatar normally
         ctx.drawImage(avatar, 0, 0, size, size);
 
-        // Burn overlay (darkens and turns brown/black)
         if (burnLevel > 0) {
-          // Darkening overlay
           ctx.fillStyle = `rgba(0, 0, 0, ${burnLevel * 0.7})`;
           ctx.fillRect(0, 0, size, size);
 
-          // Brown burn edges from bottom
           const burnHeight = size * burnLevel;
           const gradient = ctx.createLinearGradient(0, size - burnHeight, 0, size);
           gradient.addColorStop(0, "rgba(139, 69, 19, 0)");
@@ -47,7 +43,6 @@ module.exports = new ChrxCommandBuilder({
           ctx.fillStyle = gradient;
           ctx.fillRect(0, size - burnHeight, size, burnHeight);
 
-          // Crumble effect at edges
           if (burnLevel > 0.5) {
             for (let c = 0; c < 8; c++) {
               const crumbleX = Math.random() * size;
@@ -57,13 +52,11 @@ module.exports = new ChrxCommandBuilder({
           }
         }
 
-        const { data, width, height } = ctx.getImageData(0, 0, size, size);
-        const palette = quantize(data, 256);
-        gif.writeFrame(applyPalette(data, palette), width, height, { palette, delay: 8 });
+        frameBuffers.push(canvas.toBuffer("image/png"));
       }
 
-      gif.finish();
-      const attachment = new AttachmentBuilder(Buffer.from(gif.bytes()), { name: `${target.username}-toast.gif` });
+      const gifBuffer = await encodeGif(frameBuffers, { delay: 8, repeat: 0 });
+      const attachment = new AttachmentBuilder(gifBuffer, { name: `${target.username}-toast.gif` });
       await interaction.editReply({ content: `🍞 **${target.displayName}** got BURNT to a crisp!`, files: [attachment] });
     } catch (err) {
       console.error("Toast error:", err);
