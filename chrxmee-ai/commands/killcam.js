@@ -1,7 +1,7 @@
 const { ChrxCommandBuilder } = require("chrxmaticc-framework");
 const { AttachmentBuilder } = require("discord.js");
 const { createCanvas, loadImage } = require("@napi-rs/canvas");
-const GIFEncoder = require("@zorner/gifencoder");
+const { GIFEncoder, quantize, applyPalette } = require("gifenc");
 
 module.exports = new ChrxCommandBuilder({
   name: "profile-killcam",
@@ -19,76 +19,56 @@ module.exports = new ChrxCommandBuilder({
 
     try {
       const avatar = await loadImage(avatarURL);
-      const width = 500, height = 300, frames = 20, delay = 80;
+      const w = 400, h = 240, frames = 16;
 
-      const encoder = new GIFEncoder(width, height);
-      const canvas = createCanvas(width, height);
+      const canvas = createCanvas(w, h);
       const ctx = canvas.getContext("2d");
-
-      const chunks = [];
-      encoder.createReadStream().on("data", chunk => chunks.push(chunk));
-      const gifPromise = new Promise(resolve => {
-        encoder.createReadStream().on("end", () => resolve(Buffer.concat(chunks)));
-      });
-
-      encoder.start(); encoder.setRepeat(0); encoder.setDelay(delay); encoder.setQuality(10);
+      const gif = GIFEncoder();
 
       for (let i = 0; i < frames; i++) {
-        ctx.clearRect(0, 0, width, height);
-        ctx.fillStyle = "#0a0a0a";
-        ctx.fillRect(0, 0, width, height);
+        ctx.clearRect(0, 0, w, h);
+        ctx.fillStyle = "#0a0a0a"; ctx.fillRect(0, 0, w, h);
 
-        for (let y = 0; y < height; y += 3) {
-          ctx.fillStyle = "rgba(255,255,255,0.02)";
-          ctx.fillRect(0, y, width, 1);
-        }
+        for (let y = 0; y < h; y += 4) { ctx.fillStyle = "rgba(255,255,255,0.02)"; ctx.fillRect(0, y, w, 1); }
 
-        const gradient = ctx.createRadialGradient(width/2, height/2, 100, width/2, height/2, 400);
-        gradient.addColorStop(0, "rgba(0,0,0,0)");
-        gradient.addColorStop(1, "rgba(0,0,0,0.6)");
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, width, height);
+        const grad = ctx.createRadialGradient(w/2, h/2, 80, w/2, h/2, 300);
+        grad.addColorStop(0, "rgba(0,0,0,0)"); grad.addColorStop(1, "rgba(0,0,0,0.5)");
+        ctx.fillStyle = grad; ctx.fillRect(0, 0, w, h);
 
-        if (Math.random() > 0.7) { ctx.fillStyle = "rgba(255,255,255,0.03)"; ctx.fillRect(0, 0, width, height); }
-        if (Math.random() > 0.8) { ctx.fillStyle = "rgba(0,255,0,0.15)"; ctx.fillRect(0, Math.random()*height, width, Math.random()*5+2); }
-
-        const zoom = 1 + (i/frames)*0.1;
-        const avatarSize = 180 * zoom;
-        const ax = width/2 - avatarSize/2, ay = height/2 - avatarSize/2;
-
-        ctx.drawImage(avatar, ax, ay, avatarSize, avatarSize);
-        ctx.fillStyle = "rgba(255,0,0,0.2)";
-        ctx.fillRect(ax, ay, avatarSize, avatarSize);
+        const zoom = 1 + (i/frames)*0.08, as = 150*zoom, ax = w/2-as/2, ay = h/2-as/2;
+        ctx.drawImage(avatar, ax, ay, as, as);
+        ctx.fillStyle = "rgba(255,0,0,0.2)"; ctx.fillRect(ax, ay, as, as);
 
         ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(width/2-30, height/2); ctx.lineTo(width/2-10, height/2);
-        ctx.moveTo(width/2+10, height/2); ctx.lineTo(width/2+30, height/2); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(width/2, height/2-30); ctx.lineTo(width/2, height/2-10);
-        ctx.moveTo(width/2, height/2+10); ctx.lineTo(width/2, height/2+30); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(w/2-25, h/2); ctx.lineTo(w/2-8, h/2);
+        ctx.moveTo(w/2+8, h/2); ctx.lineTo(w/2+25, h/2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(w/2, h/2-25); ctx.lineTo(w/2, h/2-8);
+        ctx.moveTo(w/2, h/2+8); ctx.lineTo(w/2, h/2+25); ctx.stroke();
 
-        ctx.fillStyle = "#ff1a1a"; ctx.font = "bold 40px Impact, sans-serif"; ctx.textAlign = "center";
-        ctx.fillText("ELIMINATED", width/2, 50);
-        ctx.fillStyle = "#ffffff"; ctx.font = "bold 25px sans-serif";
-        ctx.fillText(target.displayName, width/2, 85);
-        ctx.fillStyle = "#cccccc"; ctx.font = "18px monospace";
-        ctx.fillText(weapon, width/2, height-40);
+        ctx.fillStyle = "#ff1a1a"; ctx.font = "bold 32px Impact, sans-serif"; ctx.textAlign = "center";
+        ctx.fillText("ELIMINATED", w/2, 40);
+        ctx.fillStyle = "#ffffff"; ctx.font = "bold 20px sans-serif";
+        ctx.fillText(target.displayName, w/2, 66);
+        ctx.fillStyle = "#cccccc"; ctx.font = "14px monospace";
+        ctx.fillText(weapon, w/2, h-30);
 
-        ctx.fillStyle = "rgba(0,0,0,0.8)"; ctx.fillRect(0, height-25, width, 25);
-        ctx.fillStyle = "#ff4444"; ctx.font = "bold 14px monospace"; ctx.textAlign = "left";
-        ctx.fillText("KILLCAM", 15, height-7);
+        ctx.fillStyle = "rgba(0,0,0,0.8)"; ctx.fillRect(0, h-20, w, 20);
+        ctx.fillStyle = "#ff4444"; ctx.font = "bold 12px monospace"; ctx.textAlign = "left";
+        ctx.fillText("KILLCAM", 10, h-5);
 
-        const dotAlpha = Math.sin(i*0.8)*0.5+0.5;
-        ctx.fillStyle = `rgba(255,0,0,${dotAlpha})`;
-        ctx.beginPath(); ctx.arc(width-20, 15, 6, 0, Math.PI*2); ctx.fill();
-        ctx.fillStyle = "#ffffff"; ctx.font = "10px monospace"; ctx.textAlign = "right";
-        ctx.fillText("● REC", width-35, 19);
+        const dotA = Math.sin(i*0.8)*0.5+0.5;
+        ctx.fillStyle = `rgba(255,0,0,${dotA})`;
+        ctx.beginPath(); ctx.arc(w-15, 12, 5, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = "#ffffff"; ctx.font = "9px monospace"; ctx.textAlign = "right";
+        ctx.fillText("● REC", w-28, 16);
 
-        encoder.addFrame(ctx);
+        const { data, width, height } = ctx.getImageData(0, 0, w, h);
+        const palette = quantize(data, 256);
+        gif.writeFrame(applyPalette(data, palette), width, height, { palette, delay: 8 });
       }
 
-      encoder.finish();
-      const gifBuffer = await gifPromise;
-      const attachment = new AttachmentBuilder(gifBuffer, { name: `${target.username}-killcam.gif` });
+      gif.finish();
+      const attachment = new AttachmentBuilder(Buffer.from(gif.bytes()), { name: `${target.username}-killcam.gif` });
       await interaction.editReply({ content: `🎯 **${target.displayName}** got ELIMINATED!\n> ${weapon}`, files: [attachment] });
     } catch (err) {
       console.error("Killcam error:", err);
