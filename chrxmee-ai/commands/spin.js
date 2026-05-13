@@ -19,12 +19,12 @@ module.exports = new ChrxCommandBuilder({
       const avatar = await loadImage(avatarURL);
       const size = 256, frames = 24, delay = 40;
 
-      const encoder = new GIFEncoder(size, size, "neuquant", true);
-      encoder.start();
+      const encoder = new GIFEncoder(size, size, "octree", true);
+      encoder.setQuality(5);
       encoder.setRepeat(0);
       encoder.setDelay(delay);
-      encoder.setQuality(10);
-      encoder.setTransparent(0x00000000);
+      encoder.setTransparent(0x000000);
+      encoder.start();
 
       const canvas = createCanvas(size, size);
       const ctx = canvas.getContext("2d");
