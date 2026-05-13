@@ -26,11 +26,12 @@ module.exports = new ChrxCommandBuilder({
       for (let i = 0; i < frames; i++) {
         const angle = (i / frames) * Math.PI * 2;
         ctx.clearRect(0, 0, size, size);
-        ctx.fillStyle = "#1a1a1a"; ctx.fillRect(0, 0, size, size);
-        ctx.beginPath(); ctx.arc(size/2, size/2, 105, 0, Math.PI*2);
-        ctx.fillStyle = "#252525"; ctx.fill();
-        ctx.save(); ctx.translate(size/2, size/2); ctx.rotate(angle);
-        ctx.drawImage(avatar, -100, -100, 200, 200); ctx.restore();
+
+        ctx.save();
+        ctx.translate(size / 2, size / 2);
+        ctx.rotate(angle);
+        ctx.drawImage(avatar, -size / 2, -size / 2, size, size);
+        ctx.restore();
 
         const { data, width, height } = ctx.getImageData(0, 0, size, size);
         const palette = quantize(data, 256);
