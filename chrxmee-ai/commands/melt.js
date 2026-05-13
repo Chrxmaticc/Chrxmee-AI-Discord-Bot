@@ -1,7 +1,7 @@
 const { ChrxCommandBuilder } = require("chrxmaticc-framework");
 const { AttachmentBuilder } = require("discord.js");
 const { createCanvas, loadImage } = require("@napi-rs/canvas");
-const { GIFEncoder, quantize, applyPalette } = require("gifenc");
+const { encodeGif } = require("@napi-rs/canvas/gif");
 
 module.exports = new ChrxCommandBuilder({
   name: "profile-melt",
@@ -21,14 +21,12 @@ module.exports = new ChrxCommandBuilder({
 
       const canvas = createCanvas(size, size);
       const ctx = canvas.getContext("2d");
-      const gif = GIFEncoder();
+      const frameBuffers = [];
 
       for (let i = 0; i < frames; i++) {
         ctx.clearRect(0, 0, size, size);
 
         const progress = i / frames;
-
-        // Draw avatar stretched downward (melting)
         const meltStretch = 1 + progress * 0.5;
         const shrinkWidth = 1 - progress * 0.3;
         const dw = size * shrinkWidth;
@@ -45,10 +43,10 @@ module.exports = new ChrxCommandBuilder({
 
         // Drips at bottom
         if (progress > 0.3) {
-          ctx.fillStyle = "#333333";
           for (let d = 0; d < 4; d++) {
             const dripX = 60 + d * 40 + Math.sin(d * 2.1 + i * 0.3) * 10;
             const dripLen = progress * 50 + Math.sin(d) * 10;
+            ctx.fillStyle = "#333333";
             ctx.beginPath();
             ctx.moveTo(dripX, size - 10);
             ctx.lineTo(dripX + 5, size - 10 + dripLen);
@@ -58,13 +56,11 @@ module.exports = new ChrxCommandBuilder({
           }
         }
 
-        const { data, width, height } = ctx.getImageData(0, 0, size, size);
-        const palette = quantize(data, 256);
-        gif.writeFrame(applyPalette(data, palette), width, height, { palette, delay: 6 });
+        frameBuffers.push(canvas.toBuffer("image/png"));
       }
 
-      gif.finish();
-      const attachment = new AttachmentBuilder(Buffer.from(gif.bytes()), { name: `${target.username}-melt.gif` });
+      const gifBuffer = await encodeGif(frameBuffers, { delay: 6, repeat: 0 });
+      const attachment = new AttachmentBuilder(gifBuffer, { name: `${target.username}-melt.gif` });
       await interaction.editReply({ content: `🫠 **${target.displayName}** melted into a puddle.`, files: [attachment] });
     } catch (err) {
       console.error("Melt error:", err);
