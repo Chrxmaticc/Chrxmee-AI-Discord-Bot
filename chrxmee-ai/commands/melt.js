@@ -25,33 +25,38 @@ module.exports = new ChrxCommandBuilder({
 
       for (let i = 0; i < frames; i++) {
         ctx.clearRect(0, 0, size, size);
-        ctx.fillStyle = "#1a1a1a"; ctx.fillRect(0, 0, size, size);
 
-        const progress = i/frames;
-        const meltH = size*(1-progress*0.85);
-        const puddleS = progress*40;
+        const progress = i / frames;
 
-        if (meltH > 10) {
-          ctx.save(); ctx.beginPath(); ctx.rect(20, 20, size-40, meltH); ctx.clip();
-          ctx.drawImage(avatar, 20, 20, size-40, size-40); ctx.restore();
+        // Draw avatar stretched downward (melting)
+        const meltStretch = 1 + progress * 0.5;
+        const shrinkWidth = 1 - progress * 0.3;
+        const dw = size * shrinkWidth;
+        const dh = size * meltStretch;
+        const dx = (size - dw) / 2;
+        const dy = progress * 20;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, size, size);
+        ctx.clip();
+        ctx.drawImage(avatar, dx, dy, dw, dh);
+        ctx.restore();
+
+        // Drips at bottom
+        if (progress > 0.3) {
+          ctx.fillStyle = "#333333";
+          for (let d = 0; d < 4; d++) {
+            const dripX = 60 + d * 40 + Math.sin(d * 2.1 + i * 0.3) * 10;
+            const dripLen = progress * 50 + Math.sin(d) * 10;
+            ctx.beginPath();
+            ctx.moveTo(dripX, size - 10);
+            ctx.lineTo(dripX + 5, size - 10 + dripLen);
+            ctx.lineTo(dripX - 5, size - 10 + dripLen);
+            ctx.closePath();
+            ctx.fill();
+          }
         }
-
-        ctx.fillStyle = "#333333";
-        for (let d = 0; d < 5; d++) {
-          const dx = 45+d*35+Math.sin(d*1.3+i*0.2)*8;
-          const dripLen = 15+progress*70+Math.sin(d)*12;
-          ctx.beginPath(); ctx.moveTo(dx, 20+meltH); ctx.lineTo(dx+6, 20+meltH+dripLen);
-          ctx.lineTo(dx-6, 20+meltH+dripLen); ctx.closePath(); ctx.fill();
-        }
-
-        if (progress > 0.2) {
-          ctx.fillStyle = `rgba(60,60,60,${progress})`;
-          ctx.beginPath(); ctx.ellipse(size/2, size-25, 65+puddleS, 8+puddleS*0.3, 0, 0, Math.PI*2); ctx.fill();
-        }
-
-        ctx.fillStyle = "#ffffff"; ctx.font = "bold 20px Impact, sans-serif"; ctx.textAlign = "center";
-        if (progress > 0.7) ctx.fillText("MELTED.", size/2, 30);
-        else ctx.fillText("MELTING...", size/2, 30);
 
         const { data, width, height } = ctx.getImageData(0, 0, size, size);
         const palette = quantize(data, 256);
