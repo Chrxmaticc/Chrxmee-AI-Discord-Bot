@@ -4,11 +4,10 @@
 
 ### Report Bugs (or on commands)
 Open an issue on GitHub with:
-- What you were doing
-- What you expected to happen
-- What actually happened
-- Your Node.js version
-- Any error output
+- What you were doing on Discord
+- What you expected to happen when you pressed the command
+- What actually happened?
+- Any error output?
 
 ### Suggest Features
 Open an issue tagged `enhancement`. Describe what you want and why it's useful for us for Chrxmaticc AI.
