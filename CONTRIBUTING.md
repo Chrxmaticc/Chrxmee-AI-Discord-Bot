@@ -65,4 +65,4 @@ Pull requests are reviewed within a week. You might be asked to:
 
 ## Code of Conduct
 
-Don't be toxic. This is a bot framework, not a battleground.
+Don't be toxic. This is an average no life discord bot made by a goated vibe coder (me), not an really important one like greed. but i do it for funsies and my members
