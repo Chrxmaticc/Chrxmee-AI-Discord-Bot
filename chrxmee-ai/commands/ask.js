@@ -75,7 +75,7 @@ module.exports = {
         if (customRes.rows[0]) {
           customPrompt = customRes.rows[0].custom_prompt || "";
           userData.customPrompt = customPrompt;
-          if (customRes.rows[0].preferred_model && !userData.model) {
+          if (customRes.rows[0].preferred_model) {
             userData.model = customRes.rows[0].preferred_model;
           }
         }

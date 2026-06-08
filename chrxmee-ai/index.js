@@ -191,6 +191,27 @@ client.once("ready", async () => {
     await pgClient.query(`CREATE TABLE IF NOT EXISTS playlist_tracks (id SERIAL PRIMARY KEY, playlist_id INTEGER REFERENCES playlists(id) ON DELETE CASCADE, title TEXT NOT NULL, uri TEXT NOT NULL, author TEXT, duration BIGINT, added_at TIMESTAMP DEFAULT NOW())`);
     console.log("playlist_tracks table ready");
 
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS uwuify_active (guild_id TEXT, user_id TEXT, mode TEXT, channel_id TEXT, started_by TEXT, started_at TIMESTAMP DEFAULT NOW(), PRIMARY KEY (guild_id, user_id, channel_id))`);
+    console.log("uwuify_active table ready");
+
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS uwuify_protected (guild_id TEXT, user_id TEXT, protected_by TEXT, protected_at TIMESTAMP DEFAULT NOW(), PRIMARY KEY (guild_id, user_id))`);
+    console.log("uwuify_protected table ready");
+
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS duel_stats (user_id TEXT NOT NULL, guild_id TEXT NOT NULL, username TEXT, wins INT DEFAULT 0, losses INT DEFAULT 0, total_gold_won INT DEFAULT 0, total_gold_lost INT DEFAULT 0, debt INT DEFAULT 0, PRIMARY KEY (user_id, guild_id))`);
+    console.log("duel_stats table ready");
+
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS dungeon_stats (user_id TEXT NOT NULL, guild_id TEXT NOT NULL, username TEXT, farthest_room INT DEFAULT 0, total_gold_earned INT DEFAULT 0, PRIMARY KEY (user_id, guild_id))`);
+    console.log("dungeon_stats table ready");
+
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS dungeon_prestige (user_id TEXT NOT NULL, guild_id TEXT NOT NULL, username TEXT, prestige INT DEFAULT 0, PRIMARY KEY (user_id, guild_id))`);
+    console.log("dungeon_prestige table ready");
+
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS shadow_logs (id TEXT NOT NULL, guild_id TEXT NOT NULL, target_id TEXT NOT NULL, target_username TEXT, mod_id TEXT NOT NULL, mod_username TEXT, note TEXT NOT NULL, created_at TIMESTAMP DEFAULT NOW(), PRIMARY KEY (id, guild_id))`);
+    console.log("shadow_logs table ready");
+
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS mode_interactions (user_id TEXT PRIMARY KEY, preferred_mode TEXT DEFAULT 'unfiltered')`);
+    console.log("mode_interactions table ready");
+
     await pgClient.query(`ALTER TABLE user_interactions ADD COLUMN IF NOT EXISTS preferred_model TEXT DEFAULT 'genius'`);
 
     const res = await pgClient.query("SELECT 1");
