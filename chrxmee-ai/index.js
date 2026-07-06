@@ -15,25 +15,28 @@ function msToTime(ms) {
 }
 
 // ==================== PFP ROTATION ====================
-    // PFP ROTATION — set immediately on boot
-    await rotateAvatar(client);
-    let lastPfpSlot = null;
+const pfps = [
+  path.join(__dirname, "pfps", "pfp1.png"),
+  path.join(__dirname, "pfps", "pfp2.jpeg"),
+  path.join(__dirname, "pfps", "pfp3.jpeg"),
+];
 
-    // Check every 30 seconds, catches :00 and :30 within a 60-second window
-    setInterval(() => {
-      const now = new Date();
-      const m = now.getMinutes();
-      const s = now.getSeconds();
+async function rotateAvatar(client) {
+  const now = new Date();
+  const hour = now.getHours();
+  const minutes = now.getMinutes();
 
-      // Build a unique slot key: "9-0" for 9:00-9:29, "9-1" for 9:30-9:59
-      const slotKey = `${m}-${Math.floor(m / 30)}`;
+  const halfHourSlot = Math.floor(minutes / 30);
+  const index = (hour * 2 + halfHourSlot) % 3;
 
-      // Fire if we're at :00 or :30 (within first 60 seconds of the slot)
-      if ((m === 0 || m === 30) && s <= 59 && lastPfpSlot !== slotKey) {
-        lastPfpSlot = slotKey;
-        rotateAvatar(client);
-      }
-    }, 30_000);
+  try {
+    const avatarBuffer = fs.readFileSync(pfps[index]);
+    await client.user.setAvatar(avatarBuffer);
+    console.log(`Avatar set to pic ${index + 1} (${hour}:${String(minutes).padStart(2, "0")})`);
+  } catch (err) {
+    console.error("Failed to change avatar:", err.message);
+  }
+}
 
 // ==================== KEEP-ALIVE SERVER ====================
 const http = require("http");
