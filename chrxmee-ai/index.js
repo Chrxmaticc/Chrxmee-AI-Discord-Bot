@@ -42,25 +42,23 @@ async function rotateAvatar(client) {
 const http = require("http");
 console.log("Starting keep-alive server...");
 const server = http.createServer((req, res) => {
-  // CORS headers so your website can fetch from anywhere
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET");
 
   if (req.url === "/stats") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
-      servers: client.guilds.cache.size,
+      servers: client.guilds?.cache?.size || 0,
       uptime: process.uptime(),
-      users: client.users.cache.size,
-      commands: client.commands.size
+      commands: client.commands?.size || 0
     }));
   } else if (req.url === "/guilds") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    const guilds = client.guilds.cache.map(g => ({
+    const guilds = client.guilds?.cache?.map(g => ({
       id: g.id,
       name: g.name,
       icon: g.icon
-    }));
+    })) || [];
     res.end(JSON.stringify(guilds));
   } else {
     res.writeHead(200, { "Content-Type": "text/plain" });
