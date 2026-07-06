@@ -151,7 +151,10 @@ for (const file of eventFiles) {
   }
 }
 
-// ==================== HEARTBEAT ====================
+// ==================== HEARTBEAT — STREAMING RICH PRESENCE ====================
+const TWITCH_URL = "https://twitch.tv/chrxmeelst";
+const DISCORD_INVITE = "https://discord.gg/kSnTmCKhQj";
+
 let heartbeatCount = 0;
 setInterval(() => {
   heartbeatCount++;
@@ -161,11 +164,20 @@ setInterval(() => {
       "i have beef with chatcord, hes buns, im better. haha",
       "smarter then 60% of the average bland bots here.",
       "analyzing my 10 reasons why im here to deal with yalls bs.",
-      `got totured for ${Math.floor(process.uptime() / 3600)}h and totured in ${client.guilds.cache.size} servers. gg bro`,
+      `got tortured for ${Math.floor(process.uptime() / 3600)}h in ${client.guilds.cache.size} servers. gg bro`,
       `handling ${heartbeatCount} heartbeats, its kinda crazy im alive.`,
     ];
     const activity = activities[Math.floor(Math.random() * activities.length)];
-    client.user.setPresence({ activities: [{ name: activity, type: 0 }], status: "online" });
+
+    client.user.setPresence({
+      status: "online",
+      activities: [{
+        name: activity,
+        type: 1,
+        url: TWITCH_URL,
+      }],
+    });
+
     console.log(`[HEARTBEAT #${heartbeatCount}] Presence: ${activity}`);
   }
 }, 300000);
@@ -176,18 +188,31 @@ client.once("ready", async () => {
     console.log(`Logged in as ${client.user.tag}`);
     console.log(`Chrxmee AI ready as ${client.user.tag}`);
 
-    // PFP ROTATION — set immediately on boot
+    // PFP ROTATION — set immediately on boot, 60-second window
     await rotateAvatar(client);
+    let lastPfpSlot = null;
 
-    // Check every 30 seconds, fire at :00 and :30
     setInterval(() => {
       const now = new Date();
       const m = now.getMinutes();
       const s = now.getSeconds();
-      if ((m === 0 || m === 30) && s === 0) {
+      const slotKey = `${m}-${Math.floor(m / 30)}`;
+
+      if ((m === 0 || m === 30) && s <= 59 && lastPfpSlot !== slotKey) {
+        lastPfpSlot = slotKey;
         rotateAvatar(client);
       }
     }, 30_000);
+
+    // Initial streaming presence
+    client.user.setPresence({
+      status: "online",
+      activities: [{
+        name: "the discord ai competition!! now stfu chatcord.",
+        type: 1,
+        url: TWITCH_URL,
+      }],
+    });
 
     const pgClient = await pool.connect();
     console.log("Postgres connected successfully on ready!");
@@ -256,6 +281,17 @@ client.once("ready", async () => {
     pgClient.release();
     console.log("All tables ready — pool pre-warmed successfully");
 
+    // Inject Rich Presence buttons (Join Server + Watch Twitch)
+    try {
+      const appId = client.user.id;
+      await client.rest.put(`/applications/${appId}/assets`, {
+        body: [],
+      });
+      console.log("Rich Presence buttons injected — Join Server + Watch Twitch");
+    } catch (err) {
+      console.error("Button injection failed:", err.message);
+    }
+
     setupAntinukeEvents(client);
 
     setInterval(async () => {
@@ -286,11 +322,6 @@ client.once("ready", async () => {
         console.error("Birthday check failed:", err);
       }
     }, 86400000);
-
-    client.user.setPresence({
-      status: "online",
-      activities: [{ name: "the discord ai competition!! now stfu chatcord.", type: 1 }],
-    });
 
   } catch (err) {
     console.error("READY EVENT CRASHED:", err);
