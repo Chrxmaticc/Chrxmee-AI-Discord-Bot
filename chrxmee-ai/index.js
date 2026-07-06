@@ -17,8 +17,8 @@ function msToTime(ms) {
 // ==================== PFP ROTATION ====================
 const pfps = [
   path.join(__dirname, "pfps", "pic1.png"),
-  path.join(__dirname, "pfps", "pic2.png"),
-  path.join(__dirname, "pfps", "pic3.png"),
+  path.join(__dirname, "pfps", "pic2.jpeg"),
+  path.join(__dirname, "pfps", "pic3.jpeg"),
 ];
 
 async function rotateAvatar(client) {
