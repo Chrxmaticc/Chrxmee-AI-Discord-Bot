@@ -14,12 +14,36 @@ function msToTime(ms) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+// ==================== PFP ROTATION ====================
+const pfps = [
+  path.join(__dirname, "pfps", "pic1.png"),
+  path.join(__dirname, "pfps", "pic2.png"),
+  path.join(__dirname, "pfps", "pic3.png"),
+];
+
+async function rotateAvatar(client) {
+  const now = new Date();
+  const hour = now.getHours();
+  const minutes = now.getMinutes();
+
+  const halfHourSlot = Math.floor(minutes / 30);
+  const index = (hour * 2 + halfHourSlot) % 3;
+
+  try {
+    const avatarBuffer = fs.readFileSync(pfps[index]);
+    await client.user.setAvatar(avatarBuffer);
+    console.log(`Avatar set to pic ${index + 1} (${hour}:${String(minutes).padStart(2, "0")})`);
+  } catch (err) {
+    console.error("Failed to change avatar:", err.message);
+  }
+}
+
 // ==================== KEEP-ALIVE SERVER ====================
 const http = require("http");
 console.log("Starting keep-alive server...");
 const server = http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("Chrxmee AI is alive! 🚀");
+  res.end("Chrxmee AI is alive!");
 });
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, "0.0.0.0", () => {
@@ -133,12 +157,12 @@ setInterval(() => {
   heartbeatCount++;
   if (client.user) {
     const activities = [
-      "Discord World AI Competition",
-      "Winning against Chatcord",
-      "Smarter than your average bot.",
-      "Analyzing the void of existence.",
-      `Active for ${Math.floor(process.uptime() / 3600)}h | ${client.guilds.cache.size} Servers`,
-      `Handling ${heartbeatCount} heartbeats | High Traffic Mode 🚀`,
+      "competing in the discord ai competition. ggs chatcord.",
+      "i have beef with chatcord, hes buns, im better. haha",
+      "smarter then 60% of the average bland bots here.",
+      "analyzing my 10 reasons why im here to deal with yalls bs.",
+      `got totured in ${Math.floor(process.uptime() / 3600)}h | ${client.guilds.cache.size} servers. gg bro`,
+      `handling ${heartbeatCount} heartbeats, its kinda crazy im alive.`,
     ];
     const activity = activities[Math.floor(Math.random() * activities.length)];
     client.user.setPresence({ activities: [{ name: activity, type: 0 }], status: "online" });
@@ -151,6 +175,19 @@ client.once("ready", async () => {
   try {
     console.log(`Logged in as ${client.user.tag}`);
     console.log(`Chrxmee AI ready as ${client.user.tag}`);
+
+    // PFP ROTATION — set immediately on boot
+    await rotateAvatar(client);
+
+    // Check every 30 seconds, fire at :00 and :30
+    setInterval(() => {
+      const now = new Date();
+      const m = now.getMinutes();
+      const s = now.getSeconds();
+      if ((m === 0 || m === 30) && s === 0) {
+        rotateAvatar(client);
+      }
+    }, 30_000);
 
     const pgClient = await pool.connect();
     console.log("Postgres connected successfully on ready!");
@@ -252,7 +289,7 @@ client.once("ready", async () => {
 
     client.user.setPresence({
       status: "online",
-      activities: [{ name: "Discord World AI Competition", type: 0 }],
+      activities: [{ name: "the discord ai competition!! now stfu chatcord.", type: 1 }],
     });
 
   } catch (err) {
