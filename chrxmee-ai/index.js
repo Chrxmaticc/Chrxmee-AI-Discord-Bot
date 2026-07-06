@@ -161,7 +161,7 @@ setInterval(() => {
       "i have beef with chatcord, hes buns, im better. haha",
       "smarter then 60% of the average bland bots here.",
       "analyzing my 10 reasons why im here to deal with yalls bs.",
-      `got totured in ${Math.floor(process.uptime() / 3600)}h | ${client.guilds.cache.size} servers. gg bro`,
+      `got totured for ${Math.floor(process.uptime() / 3600)}h and totured in ${client.guilds.cache.size} servers. gg bro`,
       `handling ${heartbeatCount} heartbeats, its kinda crazy im alive.`,
     ];
     const activity = activities[Math.floor(Math.random() * activities.length)];
