@@ -41,7 +41,7 @@ async function rotateAvatar(client) {
 // ==================== KEEP-ALIVE SERVER ====================
 const http = require("http");
 console.log("Starting keep-alive server...");
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET");
 
