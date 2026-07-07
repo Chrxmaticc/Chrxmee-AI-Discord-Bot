@@ -73,7 +73,6 @@ server.on("error", (err) => {
   console.error("Keep-alive server error:", err.message);
   setTimeout(() => server.listen(PORT, "0.0.0.0"), 5000);
 });
-
 // ==================== CLIENT CREATION ====================
 const client = new Client({
   intents: [
