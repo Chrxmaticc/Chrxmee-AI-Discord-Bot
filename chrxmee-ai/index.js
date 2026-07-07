@@ -46,22 +46,30 @@ const server = http.createServer((req, res) => {
   res.setHeader("Access-Control-Allow-Methods", "GET");
 
   if (req.url === "/stats") {
-    res.writeHead(200, { "Content-Type": "application/json" });
+    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({
       servers: client.guilds?.cache?.size || 0,
       uptime: process.uptime(),
       commands: client.commands?.size || 0
     }));
   } else if (req.url === "/guilds") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    const guilds = client.guilds?.cache?.map(g => ({
-      id: g.id,
-      name: g.name,
-      icon: g.icon
-    })) || [];
+    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+    let guilds = [];
+    let attempts = 0;
+    while (attempts < 20) {
+      guilds = client.guilds?.cache?.map(g => ({
+        id: g.id,
+        name: g.name,
+        icon: g.icon,
+        memberCount: g.memberCount
+      })) || [];
+      if (guilds.length > 0) break;
+      attempts++;
+      if (attempts < 20) await new Promise(r => setTimeout(r, 1000));
+    }
     res.end(JSON.stringify(guilds));
   } else if (req.url === "/commands") {
-    res.writeHead(200, { "Content-Type": "application/json" });
+    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
     const commands = client.commands?.map(cmd => ({
       name: cmd.data.name,
       description: cmd.data.description,
@@ -69,7 +77,7 @@ const server = http.createServer((req, res) => {
     })) || [];
     res.end(JSON.stringify(commands));
   } else {
-    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("Chrxmee AI is alive!");
   }
 });
