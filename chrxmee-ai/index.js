@@ -60,6 +60,14 @@ const server = http.createServer((req, res) => {
       icon: g.icon
     })) || [];
     res.end(JSON.stringify(guilds));
+  } else if (req.url === "/commands") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    const commands = client.commands?.map(cmd => ({
+      name: cmd.data.name,
+      description: cmd.data.description,
+      options: cmd.data.options || []
+    })) || [];
+    res.end(JSON.stringify(commands));
   } else {
     res.writeHead(200, { "Content-Type": "text/plain" });
     res.end("Chrxmee AI is alive!");
@@ -73,6 +81,7 @@ server.on("error", (err) => {
   console.error("Keep-alive server error:", err.message);
   setTimeout(() => server.listen(PORT, "0.0.0.0"), 5000);
 });
+
 // ==================== CLIENT CREATION ====================
 const client = new Client({
   intents: [
