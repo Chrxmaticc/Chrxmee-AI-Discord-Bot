@@ -311,6 +311,17 @@ client.once("ready", async () => {
     console.log("mode_interactions table ready");
 
     await pgClient.query(`ALTER TABLE user_interactions ADD COLUMN IF NOT EXISTS preferred_model TEXT DEFAULT 'genius'`);
+        await pgClient.query(`CREATE TABLE IF NOT EXISTS j2c_config (guild_id BIGINT PRIMARY KEY, trigger_channel_id BIGINT NOT NULL, enabled BOOLEAN DEFAULT TRUE, default_name TEXT DEFAULT '{user}''s VC', default_limit INTEGER DEFAULT 0, category_id BIGINT, log_channel_id BIGINT)`);
+    console.log("j2c_config table ready");
+
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS j2c_channels (channel_id BIGINT PRIMARY KEY, guild_id BIGINT NOT NULL, owner_id BIGINT NOT NULL, created_at TIMESTAMP DEFAULT NOW())`);
+    console.log("j2c_channels table ready");
+
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS j2c_bans (guild_id BIGINT NOT NULL, channel_id BIGINT NOT NULL, user_id BIGINT NOT NULL, PRIMARY KEY (channel_id, user_id))`);
+    console.log("j2c_bans table ready");
+
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS j2c_trusted (guild_id BIGINT NOT NULL, role_id BIGINT NOT NULL, PRIMARY KEY (guild_id, role_id))`);
+    console.log("j2c_trusted table ready");
 
     const res = await pgClient.query("SELECT 1");
     console.log("Test query worked:", res.rows);
