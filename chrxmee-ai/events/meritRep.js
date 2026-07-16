@@ -8,6 +8,28 @@ module.exports = {
     const userId = message.author.id;
     const content = message.content.toLowerCase();
 
+    // Helper: log any merit gain
+    async function logMeritGain(userId, amount, source) {
+      const config = await pool.query(`SELECT log_channel_id FROM merit_config WHERE guild_id = $1`, [guildId]);
+      if (!config.rows[0]?.log_channel_id) return;
+      const logChannel = message.guild.channels.cache.get(config.rows[0].log_channel_id);
+      if (!logChannel) return;
+
+      const user = await client.users.fetch(userId).catch(() => null);
+      const { EmbedBuilder } = require("discord.js");
+      const embed = new EmbedBuilder()
+        .setTitle("🎖️ Merits Earned")
+        .setColor(0x00ff00)
+        .addFields(
+          { name: "User", value: user ? `${user.username} (${user.id})` : userId, inline: true },
+          { name: "Amount", value: `+${amount} merits`, inline: true },
+          { name: "Source", value: source, inline: true }
+        )
+        .setTimestamp();
+
+      await logChannel.send({ embeds: [embed] }).catch(() => {});
+    }
+
     // ============ INVITE IN CHAT ============
     const inviteTriggers = ["discord.gg/chrxmaticc", "discord.gg/Chrxmaticc", "/chrxmaticc", "chrxmaticc invite"];
     if (inviteTriggers.some(t => content.includes(t.toLowerCase()))) {
@@ -18,15 +40,15 @@ module.exports = {
 
       if (!lastDaily || (now - new Date(lastDaily)) >= cooldown) {
         await pool.query(`INSERT INTO user_merits (user_id, guild_id, merits, last_daily) VALUES ($1, $2, 100, NOW()) ON CONFLICT (user_id, guild_id) DO UPDATE SET merits = merits + 100, last_daily = NOW()`, [userId, guildId]);
+        await logMeritGain(userId, 100, "Shared invite in chat");
         message.reply("🎉 **+100 merits** for repping the invite! Share daily for more.").catch(() => {});
       }
     }
 
-    // ============ INVITE IN STATUS / BIO ============
+    // ============ INVITE IN STATUS ============
     const member = message.member;
     if (!member) return;
 
-    // Check custom status
     const activities = member.presence?.activities || [];
     const statusText = activities.map(a => a.state || "").join(" ").toLowerCase();
     const hasInviteInStatus = ["discord.gg/chrxmaticc", "/chrxmaticc"].some(t => statusText.includes(t));
@@ -39,6 +61,7 @@ module.exports = {
 
       if (!lastRep || (now - new Date(lastRep)) >= cooldown) {
         await pool.query(`INSERT INTO user_merits (user_id, guild_id, merits, last_status_rep) VALUES ($1, $2, 100, NOW()) ON CONFLICT (user_id, guild_id) DO UPDATE SET merits = merits + 100, last_status_rep = NOW()`, [userId, guildId]);
+        await logMeritGain(userId, 100, "Invite in status/bio");
         message.reply("🎉 **+100 merits** for repping Chrxmaticc in your status! Keep it there.").catch(() => {});
       }
     }
