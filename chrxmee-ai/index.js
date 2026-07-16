@@ -311,7 +311,9 @@ client.once("ready", async () => {
     console.log("mode_interactions table ready");
 
     await pgClient.query(`ALTER TABLE user_interactions ADD COLUMN IF NOT EXISTS preferred_model TEXT DEFAULT 'genius'`);
-        await pgClient.query(`CREATE TABLE IF NOT EXISTS j2c_config (guild_id BIGINT PRIMARY KEY, trigger_channel_id BIGINT NOT NULL, enabled BOOLEAN DEFAULT TRUE, default_name TEXT DEFAULT '{user}''s VC', default_limit INTEGER DEFAULT 0, category_id BIGINT, log_channel_id BIGINT)`);
+
+    // ==================== J2C TABLES ====================
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS j2c_config (guild_id BIGINT PRIMARY KEY, trigger_channel_id BIGINT NOT NULL, enabled BOOLEAN DEFAULT TRUE, default_name TEXT DEFAULT '{user}''s VC', default_limit INTEGER DEFAULT 0, category_id BIGINT, log_channel_id BIGINT)`);
     console.log("j2c_config table ready");
 
     await pgClient.query(`CREATE TABLE IF NOT EXISTS j2c_channels (channel_id BIGINT PRIMARY KEY, guild_id BIGINT NOT NULL, owner_id BIGINT NOT NULL, created_at TIMESTAMP DEFAULT NOW())`);
@@ -322,6 +324,16 @@ client.once("ready", async () => {
 
     await pgClient.query(`CREATE TABLE IF NOT EXISTS j2c_trusted (guild_id BIGINT NOT NULL, role_id BIGINT NOT NULL, PRIMARY KEY (guild_id, role_id))`);
     console.log("j2c_trusted table ready");
+
+    // ==================== MERIT TABLES ====================
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS user_merits (user_id BIGINT NOT NULL, guild_id BIGINT NOT NULL, merits INTEGER DEFAULT 0, last_daily TIMESTAMP, last_status_rep TIMESTAMP, PRIMARY KEY (user_id, guild_id))`);
+    console.log("user_merits table ready");
+
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS merit_config (guild_id BIGINT PRIMARY KEY, log_channel_id BIGINT)`);
+    console.log("merit_config table ready");
+
+    await pgClient.query(`ALTER TABLE user_merits ADD COLUMN IF NOT EXISTS last_status_rep TIMESTAMP`);
+    console.log("user_merits last_status_rep column ready");
 
     const res = await pgClient.query("SELECT 1");
     console.log("Test query worked:", res.rows);
