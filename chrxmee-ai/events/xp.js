@@ -92,28 +92,48 @@ module.exports = {
           console.error("Level role assignment failed:", err.message);
         }
 
-        // ==================== MERIT REWARD ====================
+        // ==================== MERIT REWARD + LOG ====================
+        let meritEarned = 0;
         if (newLevel % 5 === 0 || newLevel % 10 === 0) {
-          const meritAmount = newLevel;
+          meritEarned = newLevel;
           try {
             await pool.query(
               `INSERT INTO user_merits (user_id, guild_id, merits) VALUES ($1, $2, $3) ON CONFLICT (user_id, guild_id) DO UPDATE SET merits = merits + $3`,
-              [userId, guildId, meritAmount]
+              [userId, guildId, meritEarned]
             );
+
+            // Log to merit channel
+            const meritConfig = await pool.query(
+              `SELECT log_channel_id FROM merit_config WHERE guild_id = $1`,
+              [guildId]
+            );
+            if (meritConfig.rows[0]?.log_channel_id) {
+              const logChannel = message.guild.channels.cache.get(meritConfig.rows[0].log_channel_id);
+              if (logChannel) {
+                await logChannel.send({
+                  embeds: [new EmbedBuilder()
+                    .setTitle("🎖️ Merits Earned")
+                    .setColor(0x00ff00)
+                    .addFields(
+                      { name: "User", value: `${message.author.username} (${userId})`, inline: true },
+                      { name: "Amount", value: `+${meritEarned} merits`, inline: true },
+                      { name: "Source", value: `Reached level ${newLevel}`, inline: true }
+                    )
+                    .setTimestamp()
+                  ]
+                }).catch(() => {});
+              }
+            }
           } catch (err) {
             console.error("Merit reward failed:", err.message);
           }
         }
-        // =====================================================
+        // ============================================================
 
         const prestigeInfo = prestige > 0 ? getPrestigeInfo(prestige) : null;
         const embedColor = prestigeInfo ? prestigeInfo.color : "#5865F2";
         const prestigeText = prestigeInfo ? `\n${prestigeInfo.label} Prestige` : "";
-
-        // Add merit info if they earned them
-        const meritText = (newLevel % 5 === 0 || newLevel % 10 === 0)
-          ? `\n🎖️ Earned **${newLevel} merits**!`
-          : "";
+        const meritText = meritEarned > 0 ? `\n🎖️ Earned **${meritEarned} merits**!` : "";
 
         const embed = new EmbedBuilder()
           .setColor(embedColor)
