@@ -92,14 +92,33 @@ module.exports = {
           console.error("Level role assignment failed:", err.message);
         }
 
+        // ==================== MERIT REWARD ====================
+        if (newLevel % 5 === 0 || newLevel % 10 === 0) {
+          const meritAmount = newLevel;
+          try {
+            await pool.query(
+              `INSERT INTO user_merits (user_id, guild_id, merits) VALUES ($1, $2, $3) ON CONFLICT (user_id, guild_id) DO UPDATE SET merits = merits + $3`,
+              [userId, guildId, meritAmount]
+            );
+          } catch (err) {
+            console.error("Merit reward failed:", err.message);
+          }
+        }
+        // =====================================================
+
         const prestigeInfo = prestige > 0 ? getPrestigeInfo(prestige) : null;
         const embedColor = prestigeInfo ? prestigeInfo.color : "#5865F2";
         const prestigeText = prestigeInfo ? `\n${prestigeInfo.label} Prestige` : "";
 
+        // Add merit info if they earned them
+        const meritText = (newLevel % 5 === 0 || newLevel % 10 === 0)
+          ? `\n🎖️ Earned **${newLevel} merits**!`
+          : "";
+
         const embed = new EmbedBuilder()
           .setColor(embedColor)
           .setTitle("Guild Level Up!")
-          .setDescription(`Nice work, ${message.author}! You've reached **Level ${newLevel}**!${prestigeText}`)
+          .setDescription(`Nice work, ${message.author}! You've reached **Level ${newLevel}**!${prestigeText}${meritText}`)
           .addFields(
             { name: "Guild Total XP", value: `${xp.toLocaleString()} XP`, inline: true },
             { name: "Guild Next Level", value: `${xpForLevel(newLevel + 1).toLocaleString()} XP`, inline: true }
