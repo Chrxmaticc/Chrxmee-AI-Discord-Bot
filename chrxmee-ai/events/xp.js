@@ -97,10 +97,8 @@ module.exports = {
         if (newLevel % 5 === 0 || newLevel % 10 === 0) {
           meritEarned = newLevel;
           try {
-            await pool.query(
-              `INSERT INTO user_merits (user_id, guild_id, merits) VALUES ($1, $2, $3) ON CONFLICT (user_id, guild_id) DO UPDATE SET merits = user_merits.merits + $3
-              [userId, guildId, meritEarned]
-            );
+            const meritQuery = `INSERT INTO user_merits (user_id, guild_id, merits) VALUES ($1, $2, $3) ON CONFLICT (user_id, guild_id) DO UPDATE SET merits = user_merits.merits + $3`;
+            await pool.query(meritQuery, [userId, guildId, meritEarned]);
 
             // Log to merit channel
             const meritConfig = await pool.query(
