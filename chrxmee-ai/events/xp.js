@@ -98,7 +98,7 @@ module.exports = {
           meritEarned = newLevel;
           try {
             await pool.query(
-              `INSERT INTO user_merits (user_id, guild_id, merits) VALUES ($1, $2, $3) ON CONFLICT (user_id, guild_id) DO UPDATE SET merits = merits + $3`,
+              `INSERT INTO user_merits (user_id, guild_id, merits) VALUES ($1, $2, $3) ON CONFLICT (user_id, guild_id) DO UPDATE SET merits = user_merits.merits + $3
               [userId, guildId, meritEarned]
             );
 
