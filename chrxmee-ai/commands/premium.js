@@ -65,11 +65,10 @@ module.exports = {
             name: `${E.success} Perks`,
             value: [
               `• **Premium Badge** – a special role & spot on your profile card`,
-              `• **Exclusive Fonts** – access to the full font style collection`,
-              `• **Priority AI** – your messages get processed first`,
+              `• **Bigger Brain Size** – From 20 message context to 50 messages for context.`,
+              `• **Temperature Control** – Control the AI Temperature (WIP)`,
               `• **Early Access** – test new features before anyone else`,
               `• **Premium Lounge** – hidden channel for premium members`,
-              `• **Custom Embed Colour** – use any colour in your custom commands`,
             ].join("\n"),
             inline: false
           }
