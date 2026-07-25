@@ -422,7 +422,7 @@ module.exports = {
               });
 
               const data = await response.json();
-              const answer = data.choices?.[0]?.message?.content || "I'm a bit lost in thought...";
+              const answer = data.choices?.[0]?.message?.content || "im kinda slow today.. what the hell? join the [support server](https://discord.gg/chrxmaticc) to find out why my twin. <:agreed:1525639597135237131>.";
 
               // Apply font style
               const styledAnswer = await getStyledAnswer(answer);
@@ -432,7 +432,7 @@ module.exports = {
               return message.reply(styledAnswer);
             } catch (err) {
               console.error("Ping Response Error:", err);
-              return message.reply("Sorry, I hit a snag! Try again in a moment.");
+              return message.reply("MY SERVERS ARE FUCKING CRASHING! sorry, but yeah. ion know why im slow today. might be the bummy servers of mine. join the [support server](https://discord.gg/chrxmaticc) to find out.");
             }
           }
         }
