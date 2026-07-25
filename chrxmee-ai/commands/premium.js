@@ -13,10 +13,14 @@ const PRICES = {
   forever: 3000,
 };
 
+// ONLY WORKS IN MY SERVER – change this to your guild ID
+const YOUR_GUILD_ID = '1463346110566502443';
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("premium")
     .setDescription("Chrxmaticc AI Premium — earn it with merits")
+    .addSubcommand(sub => sub.setName("info").setDescription("See what premium gets you"))
     .addSubcommand(sub => sub.setName("buy").setDescription("Buy premium with your merits")
       .addStringOption(opt => opt.setName("type").setDescription("Month or Forever").setRequired(true)
         .addChoices({ name: "1 Month (1,000 merits)", value: "month" }, { name: "Forever (3,000 merits)", value: "forever" })))
@@ -27,26 +31,68 @@ module.exports = {
         .addChoices({ name: "1 Month", value: "month" }, { name: "Forever", value: "forever" }))),
 
   async execute(interaction, client) {
+    // Block usage outside MY server
+    if (interaction.guildId !== YOUR_GUILD_ID) {
+      return interaction.reply({
+        content: `${E.error} this command can only be used in the **official** /chrxmaticc server**.\n ${E.ai} [join the server](https://discord.gg/chrxmaticc)`,
+        ephemeral: true
+      });
+    }
+
     const sub = interaction.options.getSubcommand();
     const pool = client.pool;
     const userId = interaction.user.id;
 
-    // ─── BUY ───────────────────────────────
+    // ─── INFO ────────────────────────────────
+    if (sub === "info") {
+      const embed = new EmbedBuilder()
+        .setColor(0x7c7ce0)          // periwinkle
+        .setTitle(`${E.crown} Chrxmaticc AI Premium`)
+        .setDescription(`unlock exclusive perks by saving up your hard‑earned merits!\nuse **/premium buy** when you're ready.`)
+        .setThumbnail(client.user.displayAvatarURL())
+        .addFields(
+          {
+            name: `${E.agree} 1 Month Premium`,
+            value: `**1,000 merits**\nAll perks for 30 days.`,
+            inline: true
+          },
+          {
+            name: `${E.crown} Forever Premium`,
+            value: `**3,000 merits**\nAll perks permanently. Never expires.`,
+            inline: true
+          },
+          {
+            name: `${E.success} Perks`,
+            value: [
+              `• **Premium Badge** – a special role & spot on your profile card`,
+              `• **Exclusive Fonts** – access to the full font style collection`,
+              `• **Priority AI** – your messages get processed first`,
+              `• **Early Access** – test new features before anyone else`,
+              `• **Premium Lounge** – hidden channel for premium members`,
+              `• **Custom Embed Colour** – use any colour in your custom commands`,
+            ].join("\n"),
+            inline: false
+          }
+        )
+        .setFooter({ text: "Chrxmaticc AI · 炫克人工智能" })
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [embed], ephemeral: true });
+    }
+
+    // ─── BUY ──────────────────────────────────
     if (sub === "buy") {
       const type = interaction.options.getString("type");
       const price = PRICES[type];
 
-      // Check current merits
       const meritRes = await pool.query(`SELECT merits FROM user_merits WHERE user_id = $1 AND guild_id = $2`, [userId, interaction.guildId]);
       const merits = meritRes.rows[0]?.merits || 0;
       if (merits < price) {
         return interaction.reply({ content: `${E.error} You need **${price}** merits. You have **${merits}**.`, ephemeral: true });
       }
 
-      // Deduct merits (global deduction across all servers? We'll deduct from the current guild for simplicity)
       await pool.query(`UPDATE user_merits SET merits = merits - $1 WHERE user_id = $2 AND guild_id = $3`, [price, userId, interaction.guildId]);
 
-      // Set premium
       const expiresAt = type === "month" ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : null;
       await pool.query(`INSERT INTO user_premium (user_id, premium_type, expires_at)
         VALUES ($1, $2, $3)
@@ -76,7 +122,6 @@ module.exports = {
       const isExpired = !isForever && expires_at && new Date(expires_at) < new Date();
 
       if (isExpired) {
-        // Clean up expired
         await pool.query(`DELETE FROM user_premium WHERE user_id = $1`, [userId]);
         return interaction.reply({ content: `${E.error} Your premium has expired.`, ephemeral: true });
       }
@@ -91,7 +136,7 @@ module.exports = {
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
-    // ─── GRANT (Admin only) ──────────────────
+    // ─── GRANT (Owner only) ──────────────────
     if (sub === "grant") {
       if (interaction.user.id !== process.env.OWNER_ID) {
         return interaction.reply({ content: `${E.error} Owner only.`, ephemeral: true });
