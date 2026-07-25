@@ -47,6 +47,9 @@ const NEKOS_ACTIONS = [
 
 const ALL_ACTIONS = [...new Set([...WAIFU_ACTIONS, ...NEKOS_ACTIONS])].sort();
 
+// Ultimate fallback GIF – replace with your own if you want
+const FALLBACK_GIF = "https://media.tenor.com/eZH6Q7_lEzQAAAAC/hug-anime.gif";
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("rp")
@@ -55,18 +58,17 @@ module.exports = {
       opt.setName("action")
         .setDescription("what to do (start typing to see suggestions)")
         .setRequired(true)
-        .setAutocomplete(true))  // autocomplete instead of choices
+        .setAutocomplete(true))
     .addUserOption(opt =>
       opt.setName("user")
         .setDescription("who to do it to")
         .setRequired(false)),
 
-  // ─── AUTOCOMPLETE HANDLER ──────────────────────
   async autocomplete(interaction) {
-    const focusedValue = interaction.options.getFocused().toLowerCase();
-    const filtered = ALL_ACTIONS.filter(action => action.startsWith(focusedValue));
+    const focused = interaction.options.getFocused().toLowerCase();
+    const filtered = ALL_ACTIONS.filter(a => a.startsWith(focused));
     await interaction.respond(
-      filtered.map(action => ({ name: action, value: action }))
+      filtered.map(a => ({ name: a, value: a }))
     );
   },
 
@@ -75,7 +77,6 @@ module.exports = {
     const target = interaction.options.getUser("user");
     const self = interaction.user;
 
-    // Validate action exists in our list
     if (!ALL_ACTIONS.includes(action)) {
       return interaction.reply({ content: `${E.error} unknown action. try one from the suggestions.`, ephemeral: true });
     }
@@ -84,6 +85,7 @@ module.exports = {
 
     let gifUrl = null;
 
+    // 1) Waifu.pics
     if (WAIFU_ACTIONS.includes(action)) {
       try {
         const res = await fetch(`https://api.waifu.pics/sfw/${action}`);
@@ -92,6 +94,7 @@ module.exports = {
       } catch {}
     }
 
+    // 2) Nekos.best
     if (!gifUrl && NEKOS_ACTIONS.includes(action)) {
       try {
         const res = await fetch(`https://nekos.best/api/v2/${action}`);
@@ -100,6 +103,7 @@ module.exports = {
       } catch {}
     }
 
+    // 3) Hug fallback from Nekos.best
     if (!gifUrl) {
       try {
         const res = await fetch(`https://nekos.best/api/v2/hug`);
@@ -108,9 +112,8 @@ module.exports = {
       } catch {}
     }
 
-    if (!gifUrl) {
-      return interaction.editReply({ content: `${E.error} couldn't fetch a gif. try again.` });
-    }
+    // 4) Hardcoded fallback (guaranteed)
+    if (!gifUrl) gifUrl = FALLBACK_GIF;
 
     const emoji = RP_EMOJIS[action] || E.agree;
 
