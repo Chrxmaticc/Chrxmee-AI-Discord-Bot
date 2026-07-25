@@ -309,9 +309,13 @@ client.once("ready", async () => {
 
     await pgClient.query(`CREATE TABLE IF NOT EXISTS mode_interactions (user_id TEXT PRIMARY KEY, preferred_mode TEXT DEFAULT 'unfiltered')`);
     console.log("mode_interactions table ready");
+    
+        await pgClient.query(`CREATE TABLE IF NOT EXISTS user_fonts (user_id BIGINT PRIMARY KEY, style TEXT DEFAULT 'normal')`);
+console.log("user_fonts table ready");
+
 
     await pgClient.query(`ALTER TABLE user_interactions ADD COLUMN IF NOT EXISTS preferred_model TEXT DEFAULT 'genius'`);
-
+    
     // ==================== J2C TABLES ====================
     await pgClient.query(`CREATE TABLE IF NOT EXISTS j2c_config (guild_id BIGINT PRIMARY KEY, trigger_channel_id BIGINT NOT NULL, enabled BOOLEAN DEFAULT TRUE, default_name TEXT DEFAULT '{user}''s VC', default_limit INTEGER DEFAULT 0, category_id BIGINT, log_channel_id BIGINT)`);
     console.log("j2c_config table ready");
