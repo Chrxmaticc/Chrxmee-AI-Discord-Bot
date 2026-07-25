@@ -1,6 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
 
-// ─── CUSTOM EMOJIS ──────────────────────────────
 const E = {
   success: "<:Verified_Icon:1527194184841167010>",
   error: "<:no:1530373946795364362>",
@@ -16,7 +15,6 @@ const E = {
   compass: "<:Compass_Discover_Icon:1526542192494248067>",
 };
 
-// ─── ACTION‑EMOJI MAP ──────────────────────────
 const RP_EMOJIS = {
   hug: "🤗", kiss: "💋", slap: E.kick, pat: "🤚", poke: "👉", cuddle: "🤗",
   highfive: E.agree, wave: E.agree, wink: E.show, dance: "💃",
@@ -34,7 +32,6 @@ const RP_EMOJIS = {
   wave2: E.agree, melt: E.show,
 };
 
-// ─── GIF SOURCES ────────────────────────────────
 const WAIFU_ACTIONS = [
   "hug", "kiss", "slap", "pat", "poke", "cuddle", "highfive", "wave", "wink",
   "dance", "smile", "cry", "laugh", "blush", "bored", "happy", "sad", "angry",
@@ -48,7 +45,6 @@ const NEKOS_ACTIONS = [
   "sit", "flex", "pout", "yawn", "stretch", "wave", "facepalm", "melt", "think"
 ];
 
-// All unique actions for slash command choices
 const ALL_ACTIONS = [...new Set([...WAIFU_ACTIONS, ...NEKOS_ACTIONS])].sort();
 
 module.exports = {
@@ -57,24 +53,37 @@ module.exports = {
     .setDescription("roleplay actions with gifs")
     .addStringOption(opt =>
       opt.setName("action")
-        .setDescription("what to do")
+        .setDescription("what to do (start typing to see suggestions)")
         .setRequired(true)
-        .addChoices(...ALL_ACTIONS.map(a => ({ name: a, value: a }))))
+        .setAutocomplete(true))  // autocomplete instead of choices
     .addUserOption(opt =>
       opt.setName("user")
         .setDescription("who to do it to")
         .setRequired(false)),
+
+  // ─── AUTOCOMPLETE HANDLER ──────────────────────
+  async autocomplete(interaction) {
+    const focusedValue = interaction.options.getFocused().toLowerCase();
+    const filtered = ALL_ACTIONS.filter(action => action.startsWith(focusedValue));
+    await interaction.respond(
+      filtered.map(action => ({ name: action, value: action }))
+    );
+  },
 
   async execute(interaction) {
     const action = interaction.options.getString("action");
     const target = interaction.options.getUser("user");
     const self = interaction.user;
 
+    // Validate action exists in our list
+    if (!ALL_ACTIONS.includes(action)) {
+      return interaction.reply({ content: `${E.error} unknown action. try one from the suggestions.`, ephemeral: true });
+    }
+
     await interaction.deferReply();
 
     let gifUrl = null;
 
-    // Try Waifu.pics first
     if (WAIFU_ACTIONS.includes(action)) {
       try {
         const res = await fetch(`https://api.waifu.pics/sfw/${action}`);
@@ -83,7 +92,6 @@ module.exports = {
       } catch {}
     }
 
-    // Fallback to Nekos.best
     if (!gifUrl && NEKOS_ACTIONS.includes(action)) {
       try {
         const res = await fetch(`https://nekos.best/api/v2/${action}`);
@@ -92,7 +100,6 @@ module.exports = {
       } catch {}
     }
 
-    // Ultimate fallback to a hug gif
     if (!gifUrl) {
       try {
         const res = await fetch(`https://nekos.best/api/v2/hug`);
@@ -108,7 +115,7 @@ module.exports = {
     const emoji = RP_EMOJIS[action] || E.agree;
 
     const embed = new EmbedBuilder()
-      .setColor(0x7c7ce0) // Periwinkle
+      .setColor(0x7c7ce0)
       .setImage(gifUrl)
       .setFooter({ text: "Chrxmaticc AI · 炫克人工智能" })
       .setTimestamp();
