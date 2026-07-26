@@ -312,7 +312,25 @@ client.once("ready", async () => {
     
         await pgClient.query(`CREATE TABLE IF NOT EXISTS user_fonts (user_id BIGINT PRIMARY KEY, style TEXT DEFAULT 'normal')`);
 console.log("user_fonts table ready");
+    
+    // ─── Premium System ─────────────────────────
+await pgClient.query(`CREATE TABLE IF NOT EXISTS user_premium (
+  user_id BIGINT PRIMARY KEY,
+  premium_type TEXT NOT NULL,
+  expires_at TIMESTAMP,
+  temperature REAL DEFAULT 0.75,
+  embed_mode BOOLEAN DEFAULT FALSE,
+  embed_color TEXT DEFAULT '7c7ce0'
+)`);
+console.log("user_premium table ready");
 
+// ─── Global Swear Block ─────────────────────
+await pgClient.query(`CREATE TABLE IF NOT EXISTS swear_block (
+  guild_id TEXT PRIMARY KEY,
+  enabled BOOLEAN DEFAULT FALSE,
+  words TEXT[] DEFAULT '{}'
+)`);
+console.log("swear_block table ready");
 
     await pgClient.query(`ALTER TABLE user_interactions ADD COLUMN IF NOT EXISTS preferred_model TEXT DEFAULT 'genius'`);
     
