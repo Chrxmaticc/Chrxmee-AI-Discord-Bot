@@ -411,19 +411,29 @@ async function handleCustomCommand(message, client) {
 }
 
 // ─── PREMIUM HELPERS ─────────────────────────────────────────────
-async function getPremiumSettings(pool, userId) {
-  const res = await pool.query(
-    `SELECT premium_type, expires_at, temperature, embed_mode, embed_color FROM user_premium WHERE user_id = $1`,
+async function getPremiumSettings(pool, userId, guildId) {
+  // First, check personal premium
+  let res = await pool.query(
+    `SELECT temperature, embed_mode, embed_color FROM user_premium
+     WHERE user_id = $1 AND server_id IS NULL
+     AND (premium_type = 'forever' OR (expires_at > NOW()))`,
     [userId]
   );
-  if (!res.rows[0]) return null;
-  const { premium_type, expires_at, temperature, embed_mode, embed_color } = res.rows[0];
-  const isForever = premium_type === "forever";
-  const isExpired = !isForever && expires_at && new Date(expires_at) < new Date();
-  if (isExpired) {
-    await pool.query(`DELETE FROM user_premium WHERE user_id = $1`, [userId]);
-    return null;
+
+  // If no personal premium, check server premium for this guild
+  if (!res.rows[0] && guildId) {
+    res = await pool.query(
+      `SELECT temperature, embed_mode, embed_color FROM user_premium
+       WHERE server_id = $1
+       AND (premium_type = 'forever' OR (expires_at > NOW()))
+       LIMIT 1`,
+      [guildId]
+    );
   }
+
+  if (!res.rows[0]) return null;
+
+  const { temperature, embed_mode, embed_color } = res.rows[0];
   return {
     temperature: temperature || 0.75,
     embedMode: embed_mode || false,
@@ -434,7 +444,7 @@ async function getPremiumSettings(pool, userId) {
 
 async function sendAiReply(message, text, userId, client) {
   const pool = client.pool;
-  const premium = await getPremiumSettings(pool, userId);
+  const premium = await getPremiumSettings(pool, userId, message.guildId);
 
   // Apply font style
   const styledText = await (async () => {
