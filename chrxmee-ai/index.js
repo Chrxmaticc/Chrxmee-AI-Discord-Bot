@@ -337,6 +337,12 @@ await pgClient.query(`CREATE TABLE IF NOT EXISTS user_premium (
 )`);
 console.log("user_premium table ready");
 
+// Add premium feature columns (safe to run every time)
+await pgClient.query(`ALTER TABLE user_premium ADD COLUMN IF NOT EXISTS temperature REAL DEFAULT 0.75`);
+await pgClient.query(`ALTER TABLE user_premium ADD COLUMN IF NOT EXISTS embed_mode BOOLEAN DEFAULT FALSE`);
+await pgClient.query(`ALTER TABLE user_premium ADD COLUMN IF NOT EXISTS embed_color TEXT DEFAULT '7c7ce0'`);
+console.log("user_premium columns verified");
+
 // ─── Global Swear Block ─────────────────────
 await pgClient.query(`CREATE TABLE IF NOT EXISTS swear_block (
   guild_id TEXT PRIMARY KEY,
