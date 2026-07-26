@@ -412,10 +412,10 @@ async function handleCustomCommand(message, client) {
 
 // ─── PREMIUM HELPERS ─────────────────────────────────────────────
 async function getPremiumSettings(pool, userId, guildId) {
-  // First, check personal premium
+  // First, check personal premium (server_id = 0)
   let res = await pool.query(
     `SELECT temperature, embed_mode, embed_color FROM user_premium
-     WHERE user_id = $1 AND server_id IS NULL
+     WHERE user_id = $1 AND server_id = 0
      AND (premium_type = 'forever' OR (expires_at > NOW()))`,
     [userId]
   );
