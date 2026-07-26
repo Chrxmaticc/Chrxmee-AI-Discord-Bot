@@ -321,6 +321,19 @@ console.log("user_fonts table ready");
 )`);
 console.log("premium_tokens table ready");
     
+    // ─── Fix user_premium primary key ──────────
+await pgClient.query(`ALTER TABLE user_premium ADD COLUMN IF NOT EXISTS server_id BIGINT`);
+console.log("server_id column ready");
+
+// Set NULL server_ids to 0 (so primary key works)
+await pgClient.query(`UPDATE user_premium SET server_id = 0 WHERE server_id IS NULL`);
+console.log("Existing rows updated with server_id = 0");
+
+// Drop old constraint and add composite key
+await pgClient.query(`ALTER TABLE user_premium DROP CONSTRAINT IF EXISTS user_premium_pkey`);
+await pgClient.query(`ALTER TABLE user_premium ADD PRIMARY KEY (user_id, server_id)`);
+console.log("user_premium primary key set to (user_id, server_id)");
+    
     // ─── Custom Commands ────────────────────────
 await pgClient.query(`CREATE TABLE IF NOT EXISTS custom_commands (
   id SERIAL PRIMARY KEY,
