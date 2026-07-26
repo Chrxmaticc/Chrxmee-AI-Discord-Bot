@@ -313,6 +313,19 @@ client.once("ready", async () => {
         await pgClient.query(`CREATE TABLE IF NOT EXISTS user_fonts (user_id BIGINT PRIMARY KEY, style TEXT DEFAULT 'normal')`);
 console.log("user_fonts table ready");
     
+    // ─── Custom Commands ────────────────────────
+await pgClient.query(`CREATE TABLE IF NOT EXISTS custom_commands (
+  id SERIAL PRIMARY KEY,
+  guild_id BIGINT NOT NULL,
+  name TEXT NOT NULL,
+  response TEXT NOT NULL,
+  type TEXT DEFAULT 'text',
+  created_by BIGINT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE (guild_id, name)
+)`);
+console.log("custom_commands table ready");
+ 
     // ─── Premium System ─────────────────────────
 await pgClient.query(`CREATE TABLE IF NOT EXISTS user_premium (
   user_id BIGINT PRIMARY KEY,
