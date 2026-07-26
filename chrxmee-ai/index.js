@@ -341,6 +341,7 @@ console.log("user_premium table ready");
 await pgClient.query(`ALTER TABLE user_premium ADD COLUMN IF NOT EXISTS temperature REAL DEFAULT 0.75`);
 await pgClient.query(`ALTER TABLE user_premium ADD COLUMN IF NOT EXISTS embed_mode BOOLEAN DEFAULT FALSE`);
 await pgClient.query(`ALTER TABLE user_premium ADD COLUMN IF NOT EXISTS embed_color TEXT DEFAULT '7c7ce0'`);
+await pgClient.query(`ALTER TABLE user_premium ADD COLUMN IF NOT EXISTS server_id BIGINT`);
 console.log("user_premium columns verified");
 
 // ─── Global Swear Block ─────────────────────
