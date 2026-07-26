@@ -225,17 +225,19 @@ module.exports = {
       await pool.query(`DELETE FROM premium_tokens WHERE id = $1`, [token.rows[0].id]);
 
       const expiresAt = token.rows[0].type === "month" ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : null;
+
+      // ✅ FIX: Delete any existing server premium for this guild first, then insert fresh
+      await pool.query(`DELETE FROM user_premium WHERE server_id = $1`, [guildId]);
+
       await pool.query(
         `INSERT INTO user_premium (user_id, server_id, premium_type, expires_at, temperature, embed_mode, embed_color)
-         VALUES ($1, $2, $3, $4, 0.75, FALSE, '7c7ce0')
-         ON CONFLICT (server_id) WHERE server_id IS NOT NULL
-         DO UPDATE SET premium_type = $3, expires_at = $4`,
+         VALUES ($1, $2, $3, $4, 0.75, FALSE, '7c7ce0')`,
         [userId, guildId, token.rows[0].type, expiresAt]
       );
 
       const embed = new EmbedBuilder()
         .setColor(0x7c7ce0)
-        .setTitle(`${E.crown} Server Boosted!`)
+        .setTitle(`${E.crown} Server Boosted! (with chrxmaticc ai premium)`)
         .setDescription(`**${guild.name}** now has **${token.rows[0].type}** premium!`)
         .setThumbnail(guild.iconURL() || client.user.displayAvatarURL());
       if (token.rows[0].type === "month") embed.addFields({ name: "Expires", value: `<t:${Math.floor(expiresAt.getTime() / 1000)}:R>`, inline: true });
