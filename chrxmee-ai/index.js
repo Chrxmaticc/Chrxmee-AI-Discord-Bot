@@ -313,6 +313,9 @@ client.once("ready", async () => {
         await pgClient.query(`CREATE TABLE IF NOT EXISTS user_fonts (user_id BIGINT PRIMARY KEY, style TEXT DEFAULT 'normal')`);
 console.log("user_fonts table ready");
 
+    await pgClient.query(`ALTER TABLE guild_settings ADD COLUMN IF NOT EXISTS show_support_link BOOLEAN DEFAULT TRUE`);
+console.log("guild_settings.show_support_link column ready");
+
     await pgClient.query(`CREATE TABLE IF NOT EXISTS premium_tokens (
   id SERIAL PRIMARY KEY,
   owner_id BIGINT NOT NULL,
