@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args)); // ensure fetch available
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
 const E = {
   success: "<:Verified_Icon:1527194184841167010>",
@@ -14,7 +14,6 @@ function generateBackupId() {
   return id;
 }
 
-// Helper to fetch image and convert to base64
 async function imageToBase64(url) {
   try {
     const res = await fetch(url);
@@ -57,7 +56,7 @@ module.exports = {
     if (sub === "create") {
       await interaction.deferReply({ ephemeral: true });
 
-      // ── Roles (same as before) ─────────────────
+      // ── Roles ─────────────────────────────────
       const roles = guild.roles.cache
         .filter(r => r.id !== guild.id && !r.managed)
         .sort((a, b) => b.position - a.position)
@@ -70,7 +69,7 @@ module.exports = {
           position: r.position
         }));
 
-      // ── Channels (same as before) ──────────────
+      // ── Channels ──────────────────────────────
       const channels = guild.channels.cache
         .sort((a, b) => a.position - b.position)
         .map(c => ({
@@ -91,30 +90,34 @@ module.exports = {
           }))
         }));
 
-      // ── Emojis (download & store as base64) ────
+      // ── Emojis (skip if cache unavailable) ────
       const emojis = [];
-      for (const [, emoji] of guild.emojis.cache) {
-        const base64 = await imageToBase64(emoji.url);
-        if (base64) {
-          emojis.push({
-            name: emoji.name,
-            base64,
-            roles: emoji.roles.cache.map(r => r.id)
-          });
+      if (guild.emojis?.cache) {
+        for (const [, emoji] of guild.emojis.cache) {
+          const base64 = await imageToBase64(emoji.url);
+          if (base64) {
+            emojis.push({
+              name: emoji.name,
+              base64,
+              roles: emoji.roles.cache.map(r => r.id)
+            });
+          }
         }
       }
 
-      // ── Stickers (download & store as base64) ──
+      // ── Stickers (skip if cache unavailable) ──
       const stickers = [];
-      for (const [, sticker] of guild.stickers.cache) {
-        const base64 = await imageToBase64(sticker.url);
-        if (base64) {
-          stickers.push({
-            name: sticker.name,
-            tags: sticker.tags,
-            description: sticker.description,
-            base64
-          });
+      if (guild.stickers?.cache) {
+        for (const [, sticker] of guild.stickers.cache) {
+          const base64 = await imageToBase64(sticker.url);
+          if (base64) {
+            stickers.push({
+              name: sticker.name,
+              tags: sticker.tags,
+              description: sticker.description,
+              base64
+            });
+          }
         }
       }
 
@@ -214,18 +217,22 @@ module.exports = {
           await btn.deferUpdate();
 
           const backupData = rows[0].data;
-          const { roles, channels, emojis, stickers, serverSettings } = backupData;
+          const { roles, channels, emojis = [], stickers = [], serverSettings } = backupData;
 
           try {
-            // 1. Delete all existing emojis and stickers first
-            for (const [, emoji] of guild.emojis.cache) { await emoji.delete().catch(() => {}); }
-            for (const [, sticker] of guild.stickers.cache) { await sticker.delete().catch(() => {}); }
+            // 1. Delete existing emojis / stickers if possible
+            if (guild.emojis?.cache) {
+              for (const [, emoji] of guild.emojis.cache) { await emoji.delete().catch(() => {}); }
+            }
+            if (guild.stickers?.cache) {
+              for (const [, sticker] of guild.stickers.cache) { await sticker.delete().catch(() => {}); }
+            }
 
-            // 2. Delete channels (except the one we're in? we'll delete all)
+            // 2. Delete channels
             const existingChannels = guild.channels.cache.filter(c => c.deletable);
             for (const [, channel] of existingChannels) { await channel.delete().catch(() => {}); }
 
-            // 3. Delete roles (except @everyone and managed)
+            // 3. Delete roles
             const existingRoles = guild.roles.cache.filter(r => r.id !== guild.id && !r.managed && r.editable);
             for (const [, role] of existingRoles) { await role.delete().catch(() => {}); }
 
@@ -243,31 +250,8 @@ module.exports = {
               if (created) roleMap.set(r.name, created);
             }
 
-            // 5. Recreate channels (including categories)
-            // Need to handle categories first because they are parents.
-            // We'll recreate in order of type: categories first (type 4), then others.
-            const categoryChannels = channels.filter(c => c.type === 4);
-            const otherChannels = channels.filter(c => c.type !== 4);
-
-            const createdChannelMap = new Map(); // oldId -> new channel
-            for (const c of categoryChannels) {
-              const newCat = await guild.channels.create({
-                name: c.name,
-                type: c.type,
-                position: c.position,
-                permissionOverwrites: c.permissionOverwrites.map(o => ({
-                  id: o.id,
-                  type: o.type,
-                  allow: BigInt(o.allow),
-                  deny: BigInt(o.deny)
-                }))
-              }).catch(() => null);
-              if (newCat) createdChannelMap.set(c.name, newCat); // store by name? Not perfect but original parentId will be resolved later via name mapping? We'll rebuild parentId mapping after all channels created.
-            }
-
-            // Recreate other channels, set parent later
-            const newOtherChannels = [];
-            for (const c of otherChannels) {
+            // 5. Recreate channels (simple order, no parent mapping for now)
+            for (const c of channels) {
               const options = {
                 name: c.name,
                 type: c.type,
@@ -284,32 +268,23 @@ module.exports = {
                   deny: BigInt(o.deny)
                 }))
               };
-              const newChannel = await guild.channels.create(options).catch(() => null);
-              if (newChannel) {
-                newOtherChannels.push({ channel: newChannel, oldParentId: c.parentId });
-                createdChannelMap.set(c.name, newChannel);
+              await guild.channels.create(options).catch(() => {});
+            }
+
+            // 6. Restore emojis (if any in backup)
+            if (emojis.length > 0) {
+              for (const e of emojis) {
+                const buffer = Buffer.from(e.base64.split(',')[1], 'base64');
+                await guild.emojis.create({ attachment: buffer, name: e.name, roles: e.roles }).catch(() => {});
               }
             }
 
-            // Set parent for other channels using name mapping (since old parent name might match new category name)
-            for (const { channel, oldParentId } of newOtherChannels) {
-              if (oldParentId) {
-                // Find old category name from channels list
-                const oldCategory = channels.find(c => c.type === 4 && c.name === channels.find(ch => ch.name === oldParentId)?.name); // This is fragile. Instead, we'll just store parent name in backup data. Let's modify backup data to include parentName for channels instead of parentId. Then during restore, find new parent by name.
-                // Actually, we can simply use createdChannelMap with old name as key? In backup data, we could store parentName. I'll update backup data to include parentName along with parentId. But the existing backup data doesn't have it. For now, I'll skip parent reconnection to keep the code stable. The user can manually set parents.
+            // 7. Restore stickers (if any in backup)
+            if (stickers.length > 0) {
+              for (const s of stickers) {
+                const buffer = Buffer.from(s.base64.split(',')[1], 'base64');
+                await guild.stickers.create({ file: buffer, name: s.name, tags: s.tags, description: s.description }).catch(() => {});
               }
-            }
-
-            // 6. Upload emojis
-            for (const e of emojis) {
-              const buffer = Buffer.from(e.base64.split(',')[1], 'base64');
-              await guild.emojis.create({ attachment: buffer, name: e.name, roles: e.roles }).catch(() => {});
-            }
-
-            // 7. Upload stickers
-            for (const s of stickers) {
-              const buffer = Buffer.from(s.base64.split(',')[1], 'base64');
-              await guild.stickers.create({ file: buffer, name: s.name, tags: s.tags, description: s.description }).catch(() => {});
             }
 
             // 8. Apply server settings
@@ -327,7 +302,6 @@ module.exports = {
               if (serverSettings.preferredLocale) settingsUpdate.preferredLocale = serverSettings.preferredLocale;
               await guild.edit(settingsUpdate).catch(() => {});
 
-              // Icon and banner separately because they need files
               if (serverSettings.iconBase64) {
                 const buffer = Buffer.from(serverSettings.iconBase64.split(',')[1], 'base64');
                 await guild.setIcon(buffer).catch(() => {});
