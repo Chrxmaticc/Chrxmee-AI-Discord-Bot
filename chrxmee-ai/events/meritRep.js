@@ -39,7 +39,13 @@ module.exports = {
       const cooldown = 24 * 60 * 60 * 1000;
 
       if (!lastDaily || (now - new Date(lastDaily)) >= cooldown) {
-        await pool.query(`INSERT INTO user_merits (user_id, guild_id, merits, last_daily) VALUES ($1, $2, 100, NOW()) ON CONFLICT (user_id, guild_id) DO UPDATE SET merits = merits + 100, last_daily = NOW()`, [userId, guildId]);
+        await pool.query(
+          `INSERT INTO user_merits (user_id, guild_id, merits, last_daily)
+           VALUES ($1, $2, 100, NOW())
+           ON CONFLICT (user_id, guild_id) DO UPDATE
+           SET merits = user_merits.merits + 100, last_daily = NOW()`,
+          [userId, guildId]
+        );
         await logMeritGain(userId, 100, "Shared invite in chat");
         message.reply("🎉 **+100 merits** for repping the invite! Share daily for more.").catch(() => {});
       }
@@ -60,7 +66,13 @@ module.exports = {
       const cooldown = 24 * 60 * 60 * 1000;
 
       if (!lastRep || (now - new Date(lastRep)) >= cooldown) {
-        await pool.query(`INSERT INTO user_merits (user_id, guild_id, merits, last_status_rep) VALUES ($1, $2, 100, NOW()) ON CONFLICT (user_id, guild_id) DO UPDATE SET merits = merits + 100, last_status_rep = NOW()`, [userId, guildId]);
+        await pool.query(
+          `INSERT INTO user_merits (user_id, guild_id, merits, last_status_rep)
+           VALUES ($1, $2, 100, NOW())
+           ON CONFLICT (user_id, guild_id) DO UPDATE
+           SET merits = user_merits.merits + 100, last_status_rep = NOW()`,
+          [userId, guildId]
+        );
         await logMeritGain(userId, 100, "Invite in status/bio");
         message.reply("🎉 **+100 merits** for repping Chrxmaticc in your status! Keep it there.").catch(() => {});
       }
