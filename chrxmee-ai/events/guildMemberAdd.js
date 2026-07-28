@@ -5,7 +5,11 @@ module.exports = {
     const guildId = member.guild.id;
 
     // Give new member 5 merits for joining
-    await pool.query(`INSERT INTO user_merits (user_id, guild_id, merits) VALUES ($1, $2, 5) ON CONFLICT (user_id, guild_id) DO UPDATE SET merits = merits + 5`, [member.id, guildId]);
+    await pool.query(
+      `INSERT INTO user_merits (user_id, guild_id, merits) VALUES ($1, $2, 5)
+       ON CONFLICT (user_id, guild_id) DO UPDATE SET merits = user_merits.merits + 5`,
+      [member.id, guildId]
+    );
 
     // Log it
     const config = await pool.query(`SELECT log_channel_id FROM merit_config WHERE guild_id = $1`, [guildId]);
