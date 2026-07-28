@@ -17,7 +17,8 @@ function generateBackupId() {
 async function imageToBase64(url) {
   try {
     const res = await fetch(url);
-    const buffer = await res.buffer();
+    const arrayBuffer = await res.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
     return `data:${res.headers.get('content-type')};base64,${buffer.toString('base64')}`;
   } catch { return null; }
 }
@@ -91,11 +92,13 @@ module.exports = {
             }))
           }));
 
-        // ── Emojis ────────────────────────────────
+        // ── Emojis (fixed) ────────────────────────
         const emojis = [];
         if (guild.emojis?.cache) {
           for (const [, emoji] of guild.emojis.cache) {
-            const base64 = await imageToBase64(emoji.url);
+            const imageUrl = emoji.imageURL({ extension: 'png', size: 128 });
+            if (!imageUrl) continue;
+            const base64 = await imageToBase64(imageUrl);
             if (base64) {
               emojis.push({
                 name: emoji.name,
