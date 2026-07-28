@@ -8,7 +8,11 @@ module.exports = {
     const isBoosting = newMember.premiumSince;
 
     if (!wasBoosting && isBoosting) {
-      await pool.query(`INSERT INTO user_merits (user_id, guild_id, merits) VALUES ($1, $2, 50) ON CONFLICT (user_id, guild_id) DO UPDATE SET merits = merits + 50`, [newMember.id, guildId]);
+      await pool.query(
+        `INSERT INTO user_merits (user_id, guild_id, merits) VALUES ($1, $2, 50)
+         ON CONFLICT (user_id, guild_id) DO UPDATE SET merits = user_merits.merits + 50`,
+        [newMember.id, guildId]
+      );
 
       // Announce
       const channel = newMember.guild.systemChannel || newMember.guild.channels.cache.find(c => c.isTextBased());
