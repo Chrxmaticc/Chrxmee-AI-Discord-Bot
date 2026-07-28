@@ -90,9 +90,9 @@ module.exports = {
           }))
         }));
 
-      // ── Emojis (skip if cache unavailable) ────
+      // ── Emojis (absolutely safe) ──────────────
       const emojis = [];
-      if (guild.emojis?.cache) {
+      if (guild.emojis && guild.emojis.cache) {
         for (const [, emoji] of guild.emojis.cache) {
           const base64 = await imageToBase64(emoji.url);
           if (base64) {
@@ -105,9 +105,9 @@ module.exports = {
         }
       }
 
-      // ── Stickers (skip if cache unavailable) ──
+      // ── Stickers (absolutely safe) ────────────
       const stickers = [];
-      if (guild.stickers?.cache) {
+      if (guild.stickers && guild.stickers.cache) {
         for (const [, sticker] of guild.stickers.cache) {
           const base64 = await imageToBase64(sticker.url);
           if (base64) {
@@ -220,23 +220,23 @@ module.exports = {
           const { roles, channels, emojis = [], stickers = [], serverSettings } = backupData;
 
           try {
-            // 1. Delete existing emojis / stickers if possible
-            if (guild.emojis?.cache) {
+            // Delete existing emojis & stickers if possible
+            if (guild.emojis && guild.emojis.cache) {
               for (const [, emoji] of guild.emojis.cache) { await emoji.delete().catch(() => {}); }
             }
-            if (guild.stickers?.cache) {
+            if (guild.stickers && guild.stickers.cache) {
               for (const [, sticker] of guild.stickers.cache) { await sticker.delete().catch(() => {}); }
             }
 
-            // 2. Delete channels
+            // Delete channels
             const existingChannels = guild.channels.cache.filter(c => c.deletable);
             for (const [, channel] of existingChannels) { await channel.delete().catch(() => {}); }
 
-            // 3. Delete roles
+            // Delete roles
             const existingRoles = guild.roles.cache.filter(r => r.id !== guild.id && !r.managed && r.editable);
             for (const [, role] of existingRoles) { await role.delete().catch(() => {}); }
 
-            // 4. Recreate roles
+            // Recreate roles
             const roleMap = new Map();
             for (const r of roles) {
               const created = await guild.roles.create({
@@ -250,7 +250,7 @@ module.exports = {
               if (created) roleMap.set(r.name, created);
             }
 
-            // 5. Recreate channels (simple order, no parent mapping for now)
+            // Recreate channels
             for (const c of channels) {
               const options = {
                 name: c.name,
@@ -271,7 +271,7 @@ module.exports = {
               await guild.channels.create(options).catch(() => {});
             }
 
-            // 6. Restore emojis (if any in backup)
+            // Restore emojis
             if (emojis.length > 0) {
               for (const e of emojis) {
                 const buffer = Buffer.from(e.base64.split(',')[1], 'base64');
@@ -279,7 +279,7 @@ module.exports = {
               }
             }
 
-            // 7. Restore stickers (if any in backup)
+            // Restore stickers
             if (stickers.length > 0) {
               for (const s of stickers) {
                 const buffer = Buffer.from(s.base64.split(',')[1], 'base64');
@@ -287,7 +287,7 @@ module.exports = {
               }
             }
 
-            // 8. Apply server settings
+            // Apply server settings
             if (serverSettings) {
               const settingsUpdate = {};
               if (serverSettings.name) settingsUpdate.name = serverSettings.name;
