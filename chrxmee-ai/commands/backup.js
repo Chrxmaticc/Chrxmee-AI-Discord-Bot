@@ -56,116 +56,121 @@ module.exports = {
     if (sub === "create") {
       await interaction.deferReply({ ephemeral: true });
 
-      // ── Roles ─────────────────────────────────
-      const roles = guild.roles.cache
-        .filter(r => r.id !== guild.id && !r.managed)
-        .sort((a, b) => b.position - a.position)
-        .map(r => ({
-          name: r.name,
-          color: r.hexColor,
-          hoist: r.hoist,
-          mentionable: r.mentionable,
-          permissions: r.permissions.bitfield.toString(),
-          position: r.position
-        }));
+      try {
+        // ── Roles ─────────────────────────────────
+        const roles = (guild.roles?.cache ?? [])
+          .filter(r => r.id !== guild.id && !r.managed)
+          .sort((a, b) => b.position - a.position)
+          .map(r => ({
+            name: r.name,
+            color: r.hexColor,
+            hoist: r.hoist,
+            mentionable: r.mentionable,
+            permissions: r.permissions.bitfield.toString(),
+            position: r.position
+          }));
 
-      // ── Channels ──────────────────────────────
-      const channels = guild.channels.cache
-        .sort((a, b) => a.position - b.position)
-        .map(c => ({
-          name: c.name,
-          type: c.type,
-          position: c.position,
-          parentId: c.parentId,
-          topic: c.topic || null,
-          nsfw: c.nsfw,
-          bitrate: c.bitrate || null,
-          userLimit: c.userLimit || null,
-          rateLimitPerUser: c.rateLimitPerUser || null,
-          permissionOverwrites: c.permissionOverwrites.cache.map(o => ({
-            id: o.id,
-            type: o.type,
-            allow: o.allow.bitfield.toString(),
-            deny: o.deny.bitfield.toString()
-          }))
-        }));
+        // ── Channels ──────────────────────────────
+        const channels = (guild.channels?.cache ?? [])
+          .sort((a, b) => a.position - b.position)
+          .map(c => ({
+            name: c.name,
+            type: c.type,
+            position: c.position,
+            parentId: c.parentId,
+            topic: c.topic || null,
+            nsfw: c.nsfw,
+            bitrate: c.bitrate || null,
+            userLimit: c.userLimit || null,
+            rateLimitPerUser: c.rateLimitPerUser || null,
+            permissionOverwrites: (c.permissionOverwrites?.cache ?? []).map(o => ({
+              id: o.id,
+              type: o.type,
+              allow: o.allow.bitfield.toString(),
+              deny: o.deny.bitfield.toString()
+            }))
+          }));
 
-      // ── Emojis (absolutely safe) ──────────────
-      const emojis = [];
-      if (guild.emojis && guild.emojis.cache) {
-        for (const [, emoji] of guild.emojis.cache) {
-          const base64 = await imageToBase64(emoji.url);
-          if (base64) {
-            emojis.push({
-              name: emoji.name,
-              base64,
-              roles: emoji.roles.cache.map(r => r.id)
-            });
+        // ── Emojis ────────────────────────────────
+        const emojis = [];
+        if (guild.emojis?.cache) {
+          for (const [, emoji] of guild.emojis.cache) {
+            const base64 = await imageToBase64(emoji.url);
+            if (base64) {
+              emojis.push({
+                name: emoji.name,
+                base64,
+                roles: emoji.roles?.cache?.map(r => r.id) ?? []
+              });
+            }
           }
         }
-      }
 
-      // ── Stickers (absolutely safe) ────────────
-      const stickers = [];
-      if (guild.stickers && guild.stickers.cache) {
-        for (const [, sticker] of guild.stickers.cache) {
-          const base64 = await imageToBase64(sticker.url);
-          if (base64) {
-            stickers.push({
-              name: sticker.name,
-              tags: sticker.tags,
-              description: sticker.description,
-              base64
-            });
+        // ── Stickers ──────────────────────────────
+        const stickers = [];
+        if (guild.stickers?.cache) {
+          for (const [, sticker] of guild.stickers.cache) {
+            const base64 = await imageToBase64(sticker.url);
+            if (base64) {
+              stickers.push({
+                name: sticker.name,
+                tags: sticker.tags,
+                description: sticker.description,
+                base64
+              });
+            }
           }
         }
+
+        // ── Server Settings ────────────────────────
+        const iconBase64 = guild.iconURL({ size: 4096, format: 'png' }) 
+          ? await imageToBase64(guild.iconURL({ size: 4096, format: 'png' })) 
+          : null;
+        const bannerBase64 = guild.bannerURL({ size: 4096, format: 'png' }) 
+          ? await imageToBase64(guild.bannerURL({ size: 4096, format: 'png' })) 
+          : null;
+
+        const serverSettings = {
+          name: guild.name,
+          iconBase64,
+          bannerBase64,
+          verificationLevel: guild.verificationLevel,
+          explicitContentFilter: guild.explicitContentFilter,
+          defaultMessageNotifications: guild.defaultMessageNotifications,
+          afkChannelId: guild.afkChannelId,
+          afkTimeout: guild.afkTimeout,
+          systemChannelId: guild.systemChannelId,
+          rulesChannelId: guild.rulesChannelId,
+          publicUpdatesChannelId: guild.publicUpdatesChannelId,
+          preferredLocale: guild.preferredLocale
+        };
+
+        const backupData = { roles, channels, emojis, stickers, serverSettings };
+        const backupId = generateBackupId();
+
+        await pool.query(
+          `INSERT INTO server_backups (guild_id, backup_id, data) VALUES ($1, $2, $3)`,
+          [guildId, backupId, JSON.stringify(backupData)]
+        );
+
+        const embed = new EmbedBuilder()
+          .setColor(0x7c7ce0)
+          .setTitle(`${E.success} Full Backup Created`)
+          .setDescription(`Server snapshot saved!`)
+          .addFields(
+            { name: "Backup ID", value: `\`${backupId}\`` },
+            { name: "Roles", value: `${roles.length}`, inline: true },
+            { name: "Channels", value: `${channels.length}`, inline: true },
+            { name: "Emojis", value: `${emojis.length}`, inline: true },
+            { name: "Stickers", value: `${stickers.length}`, inline: true }
+          )
+          .setFooter({ text: "Chrxmaticc AI · 炫克人工智能" });
+
+        return interaction.editReply({ embeds: [embed] });
+      } catch (err) {
+        console.error("Backup creation error:", err);
+        return interaction.editReply({ content: `${E.error} Backup failed: ${err.message}`, ephemeral: true });
       }
-
-      // ── Server Settings ────────────────────────
-      const iconBase64 = guild.iconURL({ size: 4096, format: 'png' }) 
-        ? await imageToBase64(guild.iconURL({ size: 4096, format: 'png' })) 
-        : null;
-      const bannerBase64 = guild.bannerURL({ size: 4096, format: 'png' }) 
-        ? await imageToBase64(guild.bannerURL({ size: 4096, format: 'png' })) 
-        : null;
-
-      const serverSettings = {
-        name: guild.name,
-        iconBase64,
-        bannerBase64,
-        verificationLevel: guild.verificationLevel,
-        explicitContentFilter: guild.explicitContentFilter,
-        defaultMessageNotifications: guild.defaultMessageNotifications,
-        afkChannelId: guild.afkChannelId,
-        afkTimeout: guild.afkTimeout,
-        systemChannelId: guild.systemChannelId,
-        rulesChannelId: guild.rulesChannelId,
-        publicUpdatesChannelId: guild.publicUpdatesChannelId,
-        preferredLocale: guild.preferredLocale
-      };
-
-      const backupData = { roles, channels, emojis, stickers, serverSettings };
-      const backupId = generateBackupId();
-
-      await pool.query(
-        `INSERT INTO server_backups (guild_id, backup_id, data) VALUES ($1, $2, $3)`,
-        [guildId, backupId, JSON.stringify(backupData)]
-      );
-
-      const embed = new EmbedBuilder()
-        .setColor(0x7c7ce0)
-        .setTitle(`${E.success} Full Backup Created`)
-        .setDescription(`Server snapshot saved!`)
-        .addFields(
-          { name: "Backup ID", value: `\`${backupId}\`` },
-          { name: "Roles", value: `${roles.length}`, inline: true },
-          { name: "Channels", value: `${channels.length}`, inline: true },
-          { name: "Emojis", value: `${emojis.length}`, inline: true },
-          { name: "Stickers", value: `${stickers.length}`, inline: true }
-        )
-        .setFooter({ text: "Chrxmaticc AI · 炫克人工智能" });
-
-      return interaction.editReply({ embeds: [embed] });
     }
 
     // ─── LIST BACKUPS ───────────────────────────
@@ -220,39 +225,37 @@ module.exports = {
           const { roles, channels, emojis = [], stickers = [], serverSettings } = backupData;
 
           try {
-            // Delete existing emojis & stickers if possible
-            if (guild.emojis && guild.emojis.cache) {
+            // Delete existing emojis / stickers
+            if (guild.emojis?.cache) {
               for (const [, emoji] of guild.emojis.cache) { await emoji.delete().catch(() => {}); }
             }
-            if (guild.stickers && guild.stickers.cache) {
+            if (guild.stickers?.cache) {
               for (const [, sticker] of guild.stickers.cache) { await sticker.delete().catch(() => {}); }
             }
 
             // Delete channels
-            const existingChannels = guild.channels.cache.filter(c => c.deletable);
+            const existingChannels = guild.channels?.cache?.filter(c => c.deletable) ?? [];
             for (const [, channel] of existingChannels) { await channel.delete().catch(() => {}); }
 
             // Delete roles
-            const existingRoles = guild.roles.cache.filter(r => r.id !== guild.id && !r.managed && r.editable);
+            const existingRoles = guild.roles?.cache?.filter(r => r.id !== guild.id && !r.managed && r.editable) ?? [];
             for (const [, role] of existingRoles) { await role.delete().catch(() => {}); }
 
             // Recreate roles
-            const roleMap = new Map();
             for (const r of roles) {
-              const created = await guild.roles.create({
+              await guild.roles.create({
                 name: r.name,
                 color: r.color,
                 hoist: r.hoist,
                 mentionable: r.mentionable,
                 permissions: BigInt(r.permissions),
                 position: r.position
-              }).catch(() => null);
-              if (created) roleMap.set(r.name, created);
+              }).catch(() => {});
             }
 
             // Recreate channels
             for (const c of channels) {
-              const options = {
+              await guild.channels.create({
                 name: c.name,
                 type: c.type,
                 position: c.position,
@@ -261,14 +264,13 @@ module.exports = {
                 bitrate: c.bitrate || undefined,
                 userLimit: c.userLimit || undefined,
                 rateLimitPerUser: c.rateLimitPerUser || undefined,
-                permissionOverwrites: c.permissionOverwrites.map(o => ({
+                permissionOverwrites: (c.permissionOverwrites || []).map(o => ({
                   id: o.id,
                   type: o.type,
                   allow: BigInt(o.allow),
                   deny: BigInt(o.deny)
                 }))
-              };
-              await guild.channels.create(options).catch(() => {});
+              }).catch(() => {});
             }
 
             // Restore emojis
@@ -315,7 +317,7 @@ module.exports = {
             await btn.followUp({ content: `${E.success} Server fully restored from backup \`${backupId}\`.`, ephemeral: true });
           } catch (err) {
             console.error("Restore failed:", err);
-            await btn.followUp({ content: `${E.error} Restore failed. Check console.`, ephemeral: true });
+            await btn.followUp({ content: `${E.error} Restore failed: ${err.message}`, ephemeral: true });
           }
         }
       });
