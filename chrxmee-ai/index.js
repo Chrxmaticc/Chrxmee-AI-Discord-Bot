@@ -313,6 +313,17 @@ client.once("ready", async () => {
         await pgClient.query(`CREATE TABLE IF NOT EXISTS user_fonts (user_id BIGINT PRIMARY KEY, style TEXT DEFAULT 'normal')`);
 console.log("user_fonts table ready");
 
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS vanity_config (
+  guild_id BIGINT PRIMARY KEY,
+  invite_url TEXT NOT NULL DEFAULT 'discord.gg/chrxmaticc',
+  trigger_type TEXT NOT NULL DEFAULT 'both',
+  reward_amount INTEGER NOT NULL DEFAULT 100,
+  cooldown_hours INTEGER NOT NULL DEFAULT 24,
+  announce_channel BIGINT,
+  announce_message TEXT DEFAULT '🎉 **+{amount} merits** for repping the invite! Share daily for more.'
+)`);
+console.log("vanity_config table ready");
+
     await pgClient.query(`CREATE TABLE IF NOT EXISTS server_backups (
   id SERIAL PRIMARY KEY,
   guild_id BIGINT NOT NULL,
