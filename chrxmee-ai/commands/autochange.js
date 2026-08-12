@@ -15,16 +15,12 @@ module.exports = {
     .setDescription("Automatically rotate this server's identity (icon, name, banner, etc.)")
     .addSubcommand(sub => sub.setName("setup")
       .setDescription("Set the rotation interval and mode")
-      .addStringOption(opt => opt.setName("interval").setDescription("How often to rotate").setRequired(true)
+      .addIntegerOption(opt => opt.setName("amount").setDescription("Interval amount (e.g. 15)").setRequired(true).setMinValue(1).setMaxValue(8760))
+      .addStringOption(opt => opt.setName("unit").setDescription("Minutes or hours").setRequired(true)
         .addChoices(
-          { name: "1 hour", value: "1" },
-          { name: "3 hours", value: "3" },
-          { name: "6 hours", value: "6" },
-          { name: "12 hours", value: "12" },
-          { name: "24 hours", value: "24" },
-          { name: "Custom", value: "custom" }
+          { name: "minutes", value: "minutes" },
+          { name: "hours", value: "hours" }
         ))
-      .addIntegerOption(opt => opt.setName("custom_hours").setDescription("Custom hours (if interval = custom)").setRequired(false).setMinValue(1).setMaxValue(8760))
       .addStringOption(opt => opt.setName("mode").setDescription("Rotation mode").setRequired(false)
         .addChoices(
           { name: "Random", value: "random" },
@@ -34,7 +30,7 @@ module.exports = {
       .setDescription("Enable or disable auto rotation")
       .addStringOption(opt => opt.setName("state").setDescription("On or Off").setRequired(true)
         .addChoices({ name: "On", value: "on" }, { name: "Off", value: "off" })))
-    // Asset subcommands (same as before)
+    // Asset subcommands
     .addSubcommand(sub => sub.setName("name")
       .setDescription("Manage rotating server names")
       .addStringOption(opt => opt.setName("action").setDescription("Add, list, or remove").setRequired(true)
@@ -63,6 +59,8 @@ module.exports = {
       .addStringOption(opt => opt.setName("action").setDescription("Add, list, or remove").setRequired(true)
         .addChoices({ name: "Add", value: "add" }, { name: "List", value: "list" }, { name: "Remove", value: "remove" }))
       .addStringOption(opt => opt.setName("text").setDescription("Channel name (only for add/remove)").setRequired(false)))
+    .addSubcommand(sub => sub.setName("force")
+      .setDescription("Force an immediate rotation right now"))
     .addSubcommand(sub => sub.setName("status")
       .setDescription("View current autochange configuration")),
 
@@ -87,21 +85,22 @@ module.exports = {
 
     // ─── SETUP ──────────────────────────────────
     if (sub === "setup") {
-      const interval = interaction.options.getString("interval");
-      const customHours = interaction.options.getInteger("custom_hours");
-      const hours = interval === "custom" ? (customHours || 24) : parseInt(interval);
+      const amount = interaction.options.getInteger("amount");
+      const unit = interaction.options.getString("unit");
       const mode = interaction.options.getString("mode") || "random";
 
+      const intervalMinutes = unit === "minutes" ? amount : amount * 60;
+
       await pool.query(
-        `INSERT INTO server_autochange (guild_id, interval_hours, rotation_mode) VALUES ($1, $2, $3)
-         ON CONFLICT (guild_id) DO UPDATE SET interval_hours = $2, rotation_mode = $3`,
-        [guildId, hours, mode]
+        `INSERT INTO server_autochange (guild_id, interval_minutes, rotation_mode) VALUES ($1, $2, $3)
+         ON CONFLICT (guild_id) DO UPDATE SET interval_minutes = $2, rotation_mode = $3`,
+        [guildId, intervalMinutes, mode]
       );
 
       const embed = new EmbedBuilder()
         .setColor(0x7c7ce0)
         .setTitle(`${E.settings} Server Autochange Configured`)
-        .setDescription(`Rotations will occur every **${hours} hour${hours > 1 ? "s" : ""}** in **${mode}** mode.`)
+        .setDescription(`Rotations will occur every **${intervalMinutes} minute${intervalMinutes !== 1 ? "s" : ""}** in **${mode}** mode.`)
         .setFooter({ text: "Chrxmaticc AI · 炫克人工智能" });
 
       return interaction.reply({ embeds: [embed], ephemeral: true });
@@ -220,15 +219,111 @@ module.exports = {
       }
     }
 
+    // ─── FORCE ROTATION ──────────────────────
+    if (sub === "force") {
+      await interaction.deferReply({ ephemeral: true });
+
+      const config = await getConfig();
+      const rotationMode = config.rotation_mode || "random";
+      const sequenceState = config.sequence_state || {};
+
+      function pickNext(items, category) {
+        if (!items.length) return null;
+        if (rotationMode === "sequential") {
+          const lastIndex = sequenceState[category] ?? -1;
+          const nextIndex = (lastIndex + 1) % items.length;
+          sequenceState[category] = nextIndex;
+          return items[nextIndex];
+        } else {
+          return items[Math.floor(Math.random() * items.length)];
+        }
+      }
+
+      const names = config.names || [];
+      const icons = config.icons || [];
+      const banners = config.banners || [];
+      const descriptions = config.descriptions || [];
+      const channelRenames = config.channel_renames || {};
+
+      const applied = [];
+
+      if (names.length) {
+        const chosen = pickNext(names, "names");
+        if (chosen) {
+          try { await guild.setName(chosen); applied.push(`Name → ${chosen}`); } catch {}
+        }
+      }
+
+      if (icons.length) {
+        const chosen = pickNext(icons, "icons");
+        if (chosen) {
+          try {
+            const res = await fetch(chosen);
+            const buffer = Buffer.from(await res.arrayBuffer());
+            const base64 = `data:${res.headers.get('content-type')};base64,${buffer.toString('base64')}`;
+            await guild.setIcon(buffer);
+            applied.push("Icon rotated");
+          } catch {}
+        }
+      }
+
+      if (banners.length) {
+        const chosen = pickNext(banners, "banners");
+        if (chosen) {
+          try {
+            const res = await fetch(chosen);
+            const buffer = Buffer.from(await res.arrayBuffer());
+            const base64 = `data:${res.headers.get('content-type')};base64,${buffer.toString('base64')}`;
+            await guild.setBanner(buffer);
+            applied.push("Banner rotated");
+          } catch {}
+        }
+      }
+
+      if (descriptions.length && guild.features.includes('COMMUNITY')) {
+        const chosen = pickNext(descriptions, "descriptions");
+        if (chosen) {
+          try { await guild.setDescription(chosen); applied.push(`Description → ${chosen}`); } catch {}
+        }
+      }
+
+      for (const [channelId, nameList] of Object.entries(channelRenames)) {
+        if (nameList.length === 0) continue;
+        const channel = guild.channels.cache.get(channelId);
+        if (!channel) continue;
+        const chosen = pickNext(nameList, `channel_${channelId}`);
+        if (chosen) {
+          try { await channel.setName(chosen); applied.push(`Channel ${channel.name} → ${chosen}`); } catch {}
+        }
+      }
+
+      // Update state & last_change so scheduler doesn't immediately rotate again
+      await pool.query(
+        `UPDATE server_autochange SET sequence_state = $1, last_change = NOW() WHERE guild_id = $2`,
+        [JSON.stringify(sequenceState), guild.id]
+      );
+
+      const embed = new EmbedBuilder()
+        .setColor(0x7c7ce0)
+        .setTitle(`${E.crown} Forced Rotation Complete`)
+        .setDescription(applied.length ? applied.map(x => `• ${x}`).join("\n") : "No assets configured to rotate.")
+        .setFooter({ text: "Chrxmaticc AI · 炫克人工智能" });
+
+      return interaction.editReply({ embeds: [embed] });
+    }
+
     // ─── STATUS ────────────────────────────────
     if (sub === "status") {
       const config = await getConfig();
+      const intervalMinutes = config.interval_minutes || 1440;
+      const intervalDisplay = intervalMinutes < 60 ? `${intervalMinutes} min` : `${intervalMinutes / 60} hr`;
+
       const embed = new EmbedBuilder()
         .setColor(0x7c7ce0)
         .setTitle(`${E.link} Server Autochange Status`)
         .addFields(
           { name: "Enabled", value: config.enabled ? "Yes" : "No", inline: true },
-          { name: "Interval", value: `${config.interval_hours}h`, inline: true },
+          { name: "Interval", value: intervalDisplay, inline: true },
           { name: "Mode", value: config.rotation_mode || "random", inline: true },
           { name: "Names", value: `${(config.names || []).length}`, inline: true },
           { name: "Icons", value: `${(config.icons || []).length}`, inline: true },
