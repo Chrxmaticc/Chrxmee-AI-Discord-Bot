@@ -314,7 +314,7 @@ client.once("ready", async () => {
 console.log("user_fonts table ready");
 
 
-    await pgClient.query(`CREATE TABLE IF NOT EXISTS server_autochange (
+await pgClient.query(`CREATE TABLE IF NOT EXISTS server_autochange (
   guild_id BIGINT PRIMARY KEY,
   enabled BOOLEAN DEFAULT FALSE,
   interval_hours INTEGER NOT NULL DEFAULT 24,
@@ -328,6 +328,11 @@ console.log("user_fonts table ready");
   sequence_state JSONB DEFAULT '{}'
 )`);
 console.log("server_autochange table ready");
+
+// alter shiii
+await pgClient.query(`ALTER TABLE server_autochange ADD COLUMN IF NOT EXISTS rotation_mode TEXT DEFAULT 'random'`);
+await pgClient.query(`ALTER TABLE server_autochange ADD COLUMN IF NOT EXISTS sequence_state JSONB DEFAULT '{}'`);
+console.log("server_autochange columns ensured");
 
 
     await pgClient.query(`CREATE TABLE IF NOT EXISTS vanity_config (
