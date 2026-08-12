@@ -313,7 +313,8 @@ client.once("ready", async () => {
         await pgClient.query(`CREATE TABLE IF NOT EXISTS user_fonts (user_id BIGINT PRIMARY KEY, style TEXT DEFAULT 'normal')`);
 console.log("user_fonts table ready");
 
-  await pgClient.query(`CREATE TABLE IF NOT EXISTS server_autochange (
+
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS server_autochange (
   guild_id BIGINT PRIMARY KEY,
   enabled BOOLEAN DEFAULT FALSE,
   interval_hours INTEGER NOT NULL DEFAULT 24,
@@ -322,7 +323,9 @@ console.log("user_fonts table ready");
   icons JSONB DEFAULT '[]',
   banners JSONB DEFAULT '[]',
   descriptions JSONB DEFAULT '[]',
-  channel_renames JSONB DEFAULT '{}'
+  channel_renames JSONB DEFAULT '{}',
+  rotation_mode TEXT DEFAULT 'random',
+  sequence_state JSONB DEFAULT '{}'
 )`);
 console.log("server_autochange table ready");
 
