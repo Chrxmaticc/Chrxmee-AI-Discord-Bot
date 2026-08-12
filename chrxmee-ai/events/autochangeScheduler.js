@@ -14,13 +14,13 @@ module.exports = {
         if (!guild) continue;
 
         const lastChange = config.last_change ? new Date(config.last_change) : null;
-        const nextDue = lastChange ? new Date(lastChange.getTime() + config.interval_hours * 3600 * 1000) : now;
+        const intervalMinutes = config.interval_minutes || 1440;
+        const nextDue = lastChange ? new Date(lastChange.getTime() + intervalMinutes * 60 * 1000) : now;
 
         if (now >= nextDue) {
           const rotationMode = config.rotation_mode || "random";
           const sequenceState = config.sequence_state || {};
 
-          // Helper to pick next item
           function pickNext(items, category) {
             if (!items.length) return null;
             if (rotationMode === "sequential") {
@@ -29,7 +29,6 @@ module.exports = {
               sequenceState[category] = nextIndex;
               return items[nextIndex];
             } else {
-              // random
               return items[Math.floor(Math.random() * items.length)];
             }
           }
@@ -40,7 +39,6 @@ module.exports = {
           const descriptions = config.descriptions || [];
           const channelRenames = config.channel_renames || {};
 
-          // Apply changes
           if (names.length) {
             const chosen = pickNext(names, "names");
             if (chosen) try { await guild.setName(chosen); } catch (err) { console.error(`Autochange name failed for ${guild.id}:`, err.message); }
@@ -83,7 +81,6 @@ module.exports = {
             if (chosen) try { await channel.setName(chosen); } catch (err) { console.error(`Autochange channel rename failed for ${channelId}:`, err.message); }
           }
 
-          // Save sequence state and last change
           await pool.query(`UPDATE server_autochange SET sequence_state = $1, last_change = NOW() WHERE guild_id = $2`, [JSON.stringify(sequenceState), guild.id]);
           console.log(`Server autochange rotated for ${guild.name} (${rotationMode})`);
         }
