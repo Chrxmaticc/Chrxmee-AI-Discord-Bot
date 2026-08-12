@@ -329,6 +329,7 @@ console.log("user_fonts table ready");
 )`);
 console.log("server_autochange table ready");
 
+
     await pgClient.query(`CREATE TABLE IF NOT EXISTS vanity_config (
   guild_id BIGINT PRIMARY KEY,
   invite_url TEXT NOT NULL DEFAULT 'discord.gg/chrxmaticc',
