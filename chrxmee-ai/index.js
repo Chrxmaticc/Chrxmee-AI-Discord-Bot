@@ -314,10 +314,12 @@ client.once("ready", async () => {
 console.log("user_fonts table ready");
 
 
+
+    // ─── SERVER AUTOCHANGE TABLE ─────────────────
 await pgClient.query(`CREATE TABLE IF NOT EXISTS server_autochange (
   guild_id BIGINT PRIMARY KEY,
   enabled BOOLEAN DEFAULT FALSE,
-  interval_hours INTEGER NOT NULL DEFAULT 24,
+  interval_minutes INTEGER NOT NULL DEFAULT 1440,
   last_change TIMESTAMP,
   names JSONB DEFAULT '[]',
   icons JSONB DEFAULT '[]',
@@ -329,11 +331,25 @@ await pgClient.query(`CREATE TABLE IF NOT EXISTS server_autochange (
 )`);
 console.log("server_autochange table ready");
 
-// alter shiii
+// Ensure columns exist on existing tables
+await pgClient.query(`ALTER TABLE server_autochange ADD COLUMN IF NOT EXISTS enabled BOOLEAN DEFAULT FALSE`);
+await pgClient.query(`ALTER TABLE server_autochange ADD COLUMN IF NOT EXISTS interval_minutes INTEGER`);
+await pgClient.query(`ALTER TABLE server_autochange ADD COLUMN IF NOT EXISTS last_change TIMESTAMP`);
+await pgClient.query(`ALTER TABLE server_autochange ADD COLUMN IF NOT EXISTS names JSONB DEFAULT '[]'`);
+await pgClient.query(`ALTER TABLE server_autochange ADD COLUMN IF NOT EXISTS icons JSONB DEFAULT '[]'`);
+await pgClient.query(`ALTER TABLE server_autochange ADD COLUMN IF NOT EXISTS banners JSONB DEFAULT '[]'`);
+await pgClient.query(`ALTER TABLE server_autochange ADD COLUMN IF NOT EXISTS descriptions JSONB DEFAULT '[]'`);
+await pgClient.query(`ALTER TABLE server_autochange ADD COLUMN IF NOT EXISTS channel_renames JSONB DEFAULT '{}'`);
 await pgClient.query(`ALTER TABLE server_autochange ADD COLUMN IF NOT EXISTS rotation_mode TEXT DEFAULT 'random'`);
 await pgClient.query(`ALTER TABLE server_autochange ADD COLUMN IF NOT EXISTS sequence_state JSONB DEFAULT '{}'`);
-console.log("server_autochange columns ensured");
 
+// Convert old hour intervals to minutes (only for rows that existed before)
+await pgClient.query(`UPDATE server_autochange SET interval_minutes = interval_hours * 60 WHERE interval_minutes IS NULL AND interval_hours IS NOT NULL`);
+await pgClient.query(`UPDATE server_autochange SET interval_minutes = 1440 WHERE interval_minutes IS NULL`);
+
+await pgClient.query(`ALTER TABLE server_autochange ALTER COLUMN interval_minutes SET DEFAULT 1440`);
+console.log("server_autochange columns ensured with interval_minutes");
+    
 
     await pgClient.query(`CREATE TABLE IF NOT EXISTS vanity_config (
   guild_id BIGINT PRIMARY KEY,
