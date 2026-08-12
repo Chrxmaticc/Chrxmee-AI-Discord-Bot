@@ -313,17 +313,18 @@ client.once("ready", async () => {
         await pgClient.query(`CREATE TABLE IF NOT EXISTS user_fonts (user_id BIGINT PRIMARY KEY, style TEXT DEFAULT 'normal')`);
 console.log("user_fonts table ready");
 
-    await pgClient.query(`CREATE TABLE IF NOT EXISTS autochange_config (
+  await pgClient.query(`CREATE TABLE IF NOT EXISTS server_autochange (
   guild_id BIGINT PRIMARY KEY,
   enabled BOOLEAN DEFAULT FALSE,
   interval_hours INTEGER NOT NULL DEFAULT 24,
   last_change TIMESTAMP,
-  avatars JSONB DEFAULT '[]',
+  names JSONB DEFAULT '[]',
+  icons JSONB DEFAULT '[]',
   banners JSONB DEFAULT '[]',
-  nicknames JSONB DEFAULT '[]',
-  bios JSONB DEFAULT '[]'
+  descriptions JSONB DEFAULT '[]',
+  channel_renames JSONB DEFAULT '{}'
 )`);
-console.log("autochange_config table ready");
+console.log("server_autochange table ready");
 
     await pgClient.query(`CREATE TABLE IF NOT EXISTS vanity_config (
   guild_id BIGINT PRIMARY KEY,
