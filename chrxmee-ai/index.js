@@ -253,6 +253,288 @@ client.once("ready", async () => {
     const pgClient = await pool.connect();
     console.log("Postgres connected successfully on ready!");
 
+    // ─── ULTIMATE MEGA MIGRATION ─────────────────────────────
+await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS guild_settings (
+    guild_id BIGINT PRIMARY KEY,
+    wake_up_mode TEXT DEFAULT 'default',
+    auto_respond BOOLEAN DEFAULT FALSE,
+    show_support_link BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW()
+  );
+  ALTER TABLE guild_settings ADD COLUMN IF NOT EXISTS show_support_link BOOLEAN DEFAULT TRUE;
+  
+  CREATE TABLE IF NOT EXISTS user_premium (
+    user_id BIGINT,
+    server_id BIGINT DEFAULT 0,
+    premium_type TEXT NOT NULL,
+    expires_at TIMESTAMP,
+    temperature REAL DEFAULT 0.75,
+    embed_mode BOOLEAN DEFAULT FALSE,
+    embed_color TEXT DEFAULT '7c7ce0',
+    PRIMARY KEY (user_id, server_id)
+  );
+  ALTER TABLE user_premium ADD COLUMN IF NOT EXISTS temperature REAL DEFAULT 0.75;
+  ALTER TABLE user_premium ADD COLUMN IF NOT EXISTS embed_mode BOOLEAN DEFAULT FALSE;
+  ALTER TABLE user_premium ADD COLUMN IF NOT EXISTS embed_color TEXT DEFAULT '7c7ce0';
+
+  CREATE TABLE IF NOT EXISTS premium_tokens (
+    id SERIAL PRIMARY KEY,
+    owner_id BIGINT NOT NULL,
+    type TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS user_fonts (
+    user_id BIGINT PRIMARY KEY,
+    style TEXT DEFAULT 'normal'
+  );
+
+  CREATE TABLE IF NOT EXISTS swear_block (
+    guild_id TEXT PRIMARY KEY,
+    enabled BOOLEAN DEFAULT FALSE,
+    words TEXT[] DEFAULT '{}'
+  );
+
+  CREATE TABLE IF NOT EXISTS custom_commands (
+    id SERIAL PRIMARY KEY,
+    guild_id BIGINT NOT NULL,
+    name TEXT NOT NULL,
+    response TEXT NOT NULL,
+    type TEXT DEFAULT 'text',
+    created_by BIGINT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE (guild_id, name)
+  );
+
+  CREATE TABLE IF NOT EXISTS mode_interactions (
+    user_id TEXT PRIMARY KEY,
+    preferred_mode TEXT DEFAULT 'unfiltered'
+  );
+
+  CREATE TABLE IF NOT EXISTS user_interactions (
+    user_id BIGINT PRIMARY KEY,
+    custom_prompt TEXT DEFAULT '',
+    preferred_model TEXT DEFAULT 'genius',
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  );
+  ALTER TABLE user_interactions ADD COLUMN IF NOT EXISTS preferred_model TEXT DEFAULT 'genius';
+
+  CREATE TABLE IF NOT EXISTS user_personal_info (
+    user_id BIGINT PRIMARY KEY,
+    personal_info TEXT DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS processed_messages (
+    message_id BIGINT PRIMARY KEY,
+    processed_at TIMESTAMP DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS keyword_responder (
+    id SERIAL PRIMARY KEY,
+    guild_id BIGINT NOT NULL,
+    keyword TEXT NOT NULL,
+    response TEXT NOT NULL,
+    match_type TEXT DEFAULT 'contains',
+    created_by BIGINT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE (guild_id, keyword)
+  );
+
+  CREATE TABLE IF NOT EXISTS user_xp (
+    user_id BIGINT NOT NULL,
+    guild_id BIGINT NOT NULL,
+    xp INTEGER DEFAULT 0,
+    level INTEGER DEFAULT 0,
+    prestige INTEGER DEFAULT 0,
+    PRIMARY KEY (user_id, guild_id)
+  );
+  ALTER TABLE user_xp ALTER COLUMN xp TYPE BIGINT;
+
+  CREATE TABLE IF NOT EXISTS xp_blacklisted_channels (
+    guild_id BIGINT NOT NULL,
+    channel_id BIGINT NOT NULL,
+    PRIMARY KEY (guild_id, channel_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS xp_multipliers (
+    guild_id BIGINT NOT NULL,
+    role_id BIGINT NOT NULL,
+    multiplier NUMERIC DEFAULT 1,
+    PRIMARY KEY (guild_id, role_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS xp_level_roles (
+    guild_id BIGINT NOT NULL,
+    level INTEGER NOT NULL,
+    role_id BIGINT NOT NULL,
+    PRIMARY KEY (guild_id, level)
+  );
+
+  CREATE TABLE IF NOT EXISTS playlists (
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    name TEXT NOT NULL,
+    is_public BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE (user_id, name)
+  );
+
+  CREATE TABLE IF NOT EXISTS playlist_tracks (
+    id SERIAL PRIMARY KEY,
+    playlist_id INTEGER REFERENCES playlists(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    uri TEXT NOT NULL,
+    author TEXT,
+    duration BIGINT,
+    added_at TIMESTAMP DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS uwuify_active (
+    guild_id TEXT,
+    user_id TEXT,
+    mode TEXT,
+    channel_id TEXT,
+    started_by TEXT,
+    started_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (guild_id, user_id, channel_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS uwuify_protected (
+    guild_id TEXT,
+    user_id TEXT,
+    protected_by TEXT,
+    protected_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (guild_id, user_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS duel_stats (
+    user_id TEXT NOT NULL,
+    guild_id TEXT NOT NULL,
+    username TEXT,
+    wins INT DEFAULT 0,
+    losses INT DEFAULT 0,
+    total_gold_won INT DEFAULT 0,
+    total_gold_lost INT DEFAULT 0,
+    debt INT DEFAULT 0,
+    PRIMARY KEY (user_id, guild_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS dungeon_stats (
+    user_id TEXT NOT NULL,
+    guild_id TEXT NOT NULL,
+    username TEXT,
+    farthest_room INT DEFAULT 0,
+    total_gold_earned INT DEFAULT 0,
+    PRIMARY KEY (user_id, guild_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS dungeon_prestige (
+    user_id TEXT NOT NULL,
+    guild_id TEXT NOT NULL,
+    username TEXT,
+    prestige INT DEFAULT 0,
+    PRIMARY KEY (user_id, guild_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS shadow_logs (
+    id TEXT NOT NULL,
+    guild_id TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    target_username TEXT,
+    mod_id TEXT NOT NULL,
+    mod_username TEXT,
+    note TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (id, guild_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS merit_config (
+    guild_id BIGINT PRIMARY KEY,
+    log_channel_id BIGINT
+  );
+
+  CREATE TABLE IF NOT EXISTS user_merits (
+    user_id BIGINT NOT NULL,
+    guild_id BIGINT NOT NULL,
+    merits INTEGER DEFAULT 0,
+    last_daily TIMESTAMP,
+    last_status_rep TIMESTAMP,
+    PRIMARY KEY (user_id, guild_id)
+  );
+  ALTER TABLE user_merits ADD COLUMN IF NOT EXISTS last_status_rep TIMESTAMP;
+
+  CREATE TABLE IF NOT EXISTS j2c_config (
+    guild_id BIGINT PRIMARY KEY,
+    trigger_channel_id BIGINT NOT NULL,
+    enabled BOOLEAN DEFAULT TRUE,
+    default_name TEXT DEFAULT '{user}''s VC',
+    default_limit INTEGER DEFAULT 0,
+    category_id BIGINT,
+    log_channel_id BIGINT
+  );
+
+  CREATE TABLE IF NOT EXISTS j2c_channels (
+    channel_id BIGINT PRIMARY KEY,
+    guild_id BIGINT NOT NULL,
+    owner_id BIGINT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS j2c_bans (
+    guild_id BIGINT NOT NULL,
+    channel_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    PRIMARY KEY (channel_id, user_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS j2c_trusted (
+    guild_id BIGINT NOT NULL,
+    role_id BIGINT NOT NULL,
+    PRIMARY KEY (guild_id, role_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS server_autochange (
+    guild_id BIGINT PRIMARY KEY,
+    enabled BOOLEAN DEFAULT FALSE,
+    interval_hours INTEGER NOT NULL DEFAULT 24,
+    last_change TIMESTAMP,
+    names JSONB DEFAULT '[]',
+    icons JSONB DEFAULT '[]',
+    banners JSONB DEFAULT '[]',
+    descriptions JSONB DEFAULT '[]',
+    channel_renames JSONB DEFAULT '{}',
+    rotation_mode TEXT DEFAULT 'random',
+    sequence_state JSONB DEFAULT '{}'
+  );
+  ALTER TABLE server_autochange ADD COLUMN IF NOT EXISTS rotation_mode TEXT DEFAULT 'random';
+  ALTER TABLE server_autochange ADD COLUMN IF NOT EXISTS sequence_state JSONB DEFAULT '{}';
+  ALTER TABLE server_autochange ADD COLUMN IF NOT EXISTS interval_minutes INTEGER;
+  UPDATE server_autochange SET interval_minutes = interval_hours * 60 WHERE interval_minutes IS NULL;
+
+  CREATE TABLE IF NOT EXISTS server_backups (
+    id SERIAL PRIMARY KEY,
+    guild_id BIGINT NOT NULL,
+    backup_id TEXT NOT NULL UNIQUE,
+    data JSONB NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS vanity_config (
+    guild_id BIGINT PRIMARY KEY,
+    invite_url TEXT NOT NULL DEFAULT 'discord.gg/chrxmaticc',
+    trigger_type TEXT NOT NULL DEFAULT 'both',
+    reward_amount INTEGER NOT NULL DEFAULT 100,
+    cooldown_hours INTEGER NOT NULL DEFAULT 24,
+    announce_channel BIGINT,
+    announce_message TEXT DEFAULT '🎉 **+{amount} merits** for repping the invite! Share daily for more.'
+  );
+`);
+console.log("MEGA MIGRATION COMPLETE – all tables and columns exist.");
+
     await pgClient.query(`CREATE TABLE IF NOT EXISTS guild_settings (guild_id BIGINT PRIMARY KEY, wake_up_mode TEXT DEFAULT 'default', auto_respond BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT NOW())`);
     console.log("guild_settings table ready");
 
