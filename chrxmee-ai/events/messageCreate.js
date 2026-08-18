@@ -443,17 +443,6 @@ async function getPremiumSettings(pool, userId, guildId) {
   };
 }
 
-// ─── ERROR TOGGLE HELPER (per server) ────────────────────────────
-async function shouldShowSupportLink(pool, guildId) {
-  if (!guildId) return true; // DMs – show link
-  const res = await pool.query(
-    `SELECT show_support_link FROM guild_settings WHERE guild_id = $1`,
-    [guildId]
-  );
-  // Default to true if row doesn't exist
-  return res.rows[0]?.show_support_link ?? true;
-}
-
 // ─── SEND AI REPLY (font, swear filter, premium embed) ───────────
 async function sendAiReply(message, text, userId, client) {
   const pool = client.pool;
@@ -619,11 +608,8 @@ module.exports = {
             const data = await response.json();
             const answer = data.choices?.[0]?.message?.content || null;
 
-            // Fallback error message with error-toggle
-            const showLink = await shouldShowSupportLink(pool, guildId);
-            const fallbackMsg = showLink
-              ? "im kinda slow today.. what the hell? join the [support server](https://discord.gg/rTrJyPyayg) to find out why my twin. <:agreed:1525639597135237131>."
-              : "im kinda slow today.. what the hell? <:agreed:1525639597135237131>";
+            // Error fallback (support link always included)
+            const fallbackMsg = "im kinda slow today.. what the hell? join the [support server](https://discord.gg/rTrJyPyayg) to find out why my twin. <:agreed:1525639597135237131>.";
 
             const replyText = answer || fallbackMsg;
             userData.history.push({ role: "assistant", content: replyText });
@@ -632,10 +618,7 @@ module.exports = {
             return sendAiReply(message, replyText, userId, client);
           } catch (err) {
             console.error("Ping Response Error:", err);
-            const showLink = await shouldShowSupportLink(pool, guildId);
-            const crashMsg = showLink
-              ? "MY SERVERS ARE FUCKING CRASHING! sorry, but yeah. ion know why im slow today. might be the bummy servers of mine. join the [support server](https://discord.gg/rTrJyPyayg) to find out."
-              : "MY SERVERS ARE FUCKING CRASHING! sorry, but yeah. ion know why im slow today. might be the bummy servers of mine.";
+            const crashMsg = "MY SERVERS ARE FUCKING CRASHING! sorry, but yeah. ion know why im slow today. might be the bummy servers of mine. join the [support server](https://discord.gg/rTrJyPyayg) to find out.";
             return message.reply(crashMsg).catch(() => {});
           }
         }
@@ -751,10 +734,7 @@ module.exports = {
     } catch (err) {
       console.error("AI execution error:", err);
       if (!err.message.includes("Unknown interaction")) {
-        const showLink = await shouldShowSupportLink(client.pool, guildId);
-        const crashMsg = showLink
-          ? "MY SERVERS ARE FUCKING CRASHING! sorry, but yeah. ion know why im slow today. might be the bummy servers of mine. join the [support server](https://discord.gg/rTrJyPyayg) to find out."
-          : "MY SERVERS ARE FUCKING CRASHING! sorry, but yeah. ion know why im slow today. might be the bummy servers of mine.";
+        const crashMsg = "MY SERVERS ARE FUCKING CRASHING! sorry, but yeah. ion know why im slow today. might be the bummy servers of mine. join the [support server](https://discord.gg/rTrJyPyayg) to find out.";
         message.reply(crashMsg).catch(() => {});
       }
     }
