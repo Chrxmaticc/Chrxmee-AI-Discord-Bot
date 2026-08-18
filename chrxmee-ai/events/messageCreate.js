@@ -276,7 +276,6 @@ TONE: Aggressive interrogation energy. Lots of caps. "I KNEW IT." "Security!!" Y
 const DEFAULT_MODEL = "genius";
 const DEFAULT_MODE = "unfiltered";
 
-// ─── SYSTEM PROMPT BUILDER (with emoji instruction) ─────────────
 function buildSystemPrompt(modelPreference, modePreference, customPrompt, personalInfo, isGroup) {
   const modelInfo = MODELS[modelPreference] || MODELS[DEFAULT_MODEL];
   const modeInfo = MODES[modePreference] || MODES[DEFAULT_MODE];
@@ -311,169 +310,176 @@ ${personalInfo ? `\nWhat you know about this user: ${personalInfo}. Reference th
 ${customPrompt ? `\nCustom personality the user set: ${customPrompt}` : ""}`;
 }
 
-// ─── SWEAR BLOCK (Global, owner‑only) ────────────────────────────
+// ─── SAFE DB LOOKUPS (every call wrapped) ──────────────────────
 async function globalSwearFilter(pool, text) {
-  const res = await pool.query(
-    `SELECT words FROM swear_block WHERE guild_id = '0' AND enabled = TRUE`
-  );
-  const words = res.rows[0]?.words || [];
-  if (words.length === 0) return { ok: true, text };
-
-  for (const word of words) {
-    const regex = new RegExp(`\\b${escapeRegex(word)}\\b`, 'gi');
-    if (regex.test(text)) {
-      return { ok: false, text: text.replace(regex, '***') };
+  try {
+    const res = await pool.query(
+      `SELECT words FROM swear_block WHERE guild_id = '0' AND enabled = TRUE`
+    );
+    const words = res.rows[0]?.words || [];
+    if (words.length === 0) return { ok: true, text };
+    for (const word of words) {
+      const regex = new RegExp(`\\b${escapeRegex(word)}\\b`, 'gi');
+      if (regex.test(text)) {
+        return { ok: false, text: text.replace(regex, '***') };
+      }
     }
+    return { ok: true, text };
+  } catch {
+    return { ok: true, text };
   }
-  return { ok: true, text };
 }
 
 function escapeRegex(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// ─── CUSTOM COMMAND TRIGGER ──────────────────────────────────────
 async function handleCustomCommand(message, client) {
   if (!message.guild) return false;
   const pool = client.pool;
   const content = message.content.toLowerCase().trim();
-  const cmd = await pool.query(
-    `SELECT response, type FROM custom_commands WHERE guild_id = $1 AND name = $2`,
-    [message.guildId, content]
-  );
-  if (!cmd.rows[0]) return false;
+  try {
+    const cmd = await pool.query(
+      `SELECT response, type FROM custom_commands WHERE guild_id = $1 AND name = $2`,
+      [message.guildId, content]
+    );
+    if (!cmd.rows[0]) return false;
 
-  const { response, type } = cmd.rows[0];
+    const { response, type } = cmd.rows[0];
 
-  const replaceVars = (str) => {
-    return str
-      .replace(/{user}/g, `<@${message.author.id}>`)
-      .replace(/{user\.id}/g, message.author.id)
-      .replace(/{user\.tag}/g, message.author.tag)
-      .replace(/{user\.name}/g, message.author.username)
-      .replace(/{user\.avatar}/g, message.author.displayAvatarURL({ dynamic: true }))
-      .replace(/{server}/g, message.guild.name)
-      .replace(/{server\.id}/g, message.guild.id)
-      .replace(/{server\.membercount}/g, message.guild.memberCount)
-      .replace(/{channel}/g, `<#${message.channel.id}>`)
-      .replace(/{newline}/g, '\n')
-      .replace(/{random:([^}]+)}/g, (_, opts) => {
-        const choices = opts.split('|');
-        return choices[Math.floor(Math.random() * choices.length)];
-      });
-  };
+    const replaceVars = (str) => {
+      return str
+        .replace(/{user}/g, `<@${message.author.id}>`)
+        .replace(/{user\.id}/g, message.author.id)
+        .replace(/{user\.tag}/g, message.author.tag)
+        .replace(/{user\.name}/g, message.author.username)
+        .replace(/{user\.avatar}/g, message.author.displayAvatarURL({ dynamic: true }))
+        .replace(/{server}/g, message.guild.name)
+        .replace(/{server\.id}/g, message.guild.id)
+        .replace(/{server\.membercount}/g, message.guild.memberCount)
+        .replace(/{channel}/g, `<#${message.channel.id}>`)
+        .replace(/{newline}/g, '\n')
+        .replace(/{random:([^}]+)}/g, (_, opts) => {
+          const choices = opts.split('|');
+          return choices[Math.floor(Math.random() * choices.length)];
+        });
+    };
 
-  if (type === 'text') {
-    const finalText = replaceVars(response);
-    await message.reply(finalText).catch(() => {});
-    return true;
-  }
-
-  if (type === 'rich') {
-    let code = response;
-
-    const colorMatch = code.match(/{color=([#0-9a-fA-F]+)}/);
-    const embedColor = colorMatch ? parseInt(colorMatch[1].replace('#', ''), 16) : 0x7c7ce0;
-    code = code.replace(/{color=[^}]+}/g, '');
-
-    const buttonRegex = /{button}\[(.+?)\]\((.+?)\)/g;
-    const buttons = [];
-    let match;
-    while ((match = buttonRegex.exec(code)) !== null) {
-      buttons.push({ label: match[1], url: match[2] });
-    }
-    code = code.replace(/{button}\[.+?\]\(.+?\)/g, '');
-
-    const description = replaceVars(code).trim();
-
-    const embed = new EmbedBuilder()
-      .setColor(embedColor)
-      .setDescription(description || null)
-      .setFooter({ text: "Chromed AI · 炫克人工智能" });
-
-    const components = [];
-    if (buttons.length > 0) {
-      const row = new ActionRowBuilder();
-      buttons.forEach(b => {
-        row.addComponents(
-          new ButtonBuilder()
-            .setLabel(b.label)
-            .setStyle(ButtonStyle.Link)
-            .setURL(b.url)
-        );
-      });
-      components.push(row);
+    if (type === 'text') {
+      const finalText = replaceVars(response);
+      await message.reply(finalText).catch(() => {});
+      return true;
     }
 
-    await message.reply({ embeds: [embed], components }).catch(() => {});
-    return true;
+    if (type === 'rich') {
+      let code = response;
+
+      const colorMatch = code.match(/{color=([#0-9a-fA-F]+)}/);
+      const embedColor = colorMatch ? parseInt(colorMatch[1].replace('#', ''), 16) : 0x7c7ce0;
+      code = code.replace(/{color=[^}]+}/g, '');
+
+      const buttonRegex = /{button}\[(.+?)\]\((.+?)\)/g;
+      const buttons = [];
+      let match;
+      while ((match = buttonRegex.exec(code)) !== null) {
+        buttons.push({ label: match[1], url: match[2] });
+      }
+      code = code.replace(/{button}\[.+?\]\(.+?\)/g, '');
+
+      const description = replaceVars(code).trim();
+
+      const embed = new EmbedBuilder()
+        .setColor(embedColor)
+        .setDescription(description || null)
+        .setFooter({ text: "Chromed AI · 炫克人工智能" });
+
+      const components = [];
+      if (buttons.length > 0) {
+        const row = new ActionRowBuilder();
+        buttons.forEach(b => {
+          row.addComponents(
+            new ButtonBuilder()
+              .setLabel(b.label)
+              .setStyle(ButtonStyle.Link)
+              .setURL(b.url)
+          );
+        });
+        components.push(row);
+      }
+
+      await message.reply({ embeds: [embed], components }).catch(() => {});
+      return true;
+    }
+  } catch {
+    return false;
   }
   return false;
 }
 
-// ─── PREMIUM HELPERS ─────────────────────────────────────────────
 async function getPremiumSettings(pool, userId, guildId) {
-  // First, check personal premium (server_id = 0)
-  let res = await pool.query(
-    `SELECT temperature, embed_mode, embed_color FROM user_premium
-     WHERE user_id = $1 AND server_id = 0
-     AND (premium_type = 'forever' OR (expires_at > NOW()))`,
-    [userId]
-  );
-
-  // If no personal premium, check server premium for this guild
-  if (!res.rows[0] && guildId) {
-    res = await pool.query(
+  try {
+    let res = await pool.query(
       `SELECT temperature, embed_mode, embed_color FROM user_premium
-       WHERE server_id = $1
-       AND (premium_type = 'forever' OR (expires_at > NOW()))
-       LIMIT 1`,
-      [guildId]
+       WHERE user_id = $1 AND server_id = 0
+       AND (premium_type = 'forever' OR (expires_at > NOW()))`,
+      [userId]
     );
+
+    if (!res.rows[0] && guildId) {
+      res = await pool.query(
+        `SELECT temperature, embed_mode, embed_color FROM user_premium
+         WHERE server_id = $1
+         AND (premium_type = 'forever' OR (expires_at > NOW()))
+         LIMIT 1`,
+        [guildId]
+      );
+    }
+
+    if (!res.rows[0]) return null;
+    const { temperature, embed_mode, embed_color } = res.rows[0];
+    return {
+      temperature: temperature || 0.75,
+      embedMode: embed_mode || false,
+      embedColor: embed_color || '7c7ce0',
+      isPremium: true,
+    };
+  } catch {
+    return null;
   }
-
-  if (!res.rows[0]) return null;
-
-  const { temperature, embed_mode, embed_color } = res.rows[0];
-  return {
-    temperature: temperature || 0.75,
-    embedMode: embed_mode || false,
-    embedColor: embed_color || '7c7ce0',
-    isPremium: true,
-  };
 }
 
-// ─── SEND AI REPLY (font, swear filter, premium embed) ───────────
 async function sendAiReply(message, text, userId, client) {
   const pool = client.pool;
+  let finalText = text;
+
+  // Premium settings (safe)
   const premium = await getPremiumSettings(pool, userId, message.guildId);
 
-  // Apply font style
-  const styledText = await (async () => {
-    try {
-      const res = await pool.query(`SELECT style FROM user_fonts WHERE user_id = $1`, [userId]);
-      const style = res.rows[0]?.style || 'normal';
-      return applyFontStyle(text, style);
-    } catch { return text; }
-  })();
+  // Font style (safe)
+  try {
+    const res = await pool.query(`SELECT style FROM user_fonts WHERE user_id = $1`, [userId]);
+    const style = res.rows[0]?.style || 'normal';
+    finalText = applyFontStyle(text, style);
+  } catch {}
 
-  // Swear filter on the final text
-  const filterResult = await globalSwearFilter(pool, styledText);
-  const finalText = filterResult.ok ? styledText : filterResult.text;
+  // Swear filter (safe)
+  const filterResult = await globalSwearFilter(pool, finalText);
+  finalText = filterResult.ok ? finalText : filterResult.text;
 
   if (premium?.embedMode) {
-    const embed = new EmbedBuilder()
-      .setColor(parseInt(premium.embedColor, 16))
-      .setAuthor({ name: message.author.username, iconURL: message.author.displayAvatarURL() })
-      .setDescription(finalText)
-      .setFooter({ text: "Chromed AI · 炫克人工智能" });
-    return message.reply({ embeds: [embed] }).catch(() => {});
+    try {
+      const embed = new EmbedBuilder()
+        .setColor(parseInt(premium.embedColor, 16))
+        .setAuthor({ name: message.author.username, iconURL: message.author.displayAvatarURL() })
+        .setDescription(finalText)
+        .setFooter({ text: "Chromed AI · 炫克人工智能" });
+      return message.reply({ embeds: [embed] }).catch(() => {});
+    } catch {}
   }
 
   return message.reply(finalText).catch(() => {});
 }
 
-// ─── GET STYLED ANSWER (font only) ───────────────────────────────
 async function getStyledAnswer(pool, rawAnswer, userId) {
   try {
     const res = await pool.query(`SELECT style FROM user_fonts WHERE user_id = $1`, [userId]);
@@ -484,7 +490,6 @@ async function getStyledAnswer(pool, rawAnswer, userId) {
   }
 }
 
-// ─── MAIN EXPORT ─────────────────────────────────────────────────
 module.exports = {
   name: "messageCreate",
   async execute(message) {
@@ -496,21 +501,21 @@ module.exports = {
     const channelId = message.channelId;
     const guildId = message.guildId;
 
-    // 1. Global swear block on user message
+    // 1. Swear block (never crashes)
     const userSwear = await globalSwearFilter(pool, message.content);
     if (!userSwear.ok) {
       return message.reply(`${E.error} Your message contains a blocked word and won't be processed.`).catch(() => {});
     }
 
-    // 2. Custom command check (before other processing)
+    // 2. Custom command (never crashes)
     const wasCustom = await handleCustomCommand(message, client);
     if (wasCustom) return;
 
-    // 3. UwUify & keyword responder
-    await handleUwuify(message);
-    await handleKeywords(message, client);
+    // 3. UwUify & keyword responder (safe, already have own catches)
+    try { await handleUwuify(message); } catch {}
+    try { await handleKeywords(message, client); } catch {}
 
-    // 4. Deduplication
+    // 4. Deduplication (safe)
     try {
       const result = await pool.query(
         "INSERT INTO processed_messages (message_id) VALUES ($1) ON CONFLICT (message_id) DO NOTHING RETURNING message_id",
@@ -556,24 +561,25 @@ module.exports = {
             let customPrompt = userData.customPrompt || "";
             let personalInfo = "";
 
-            if (!userData.customPrompt && !userData.personal) {
-              try {
-                const [customRes, personalRes, modeRes] = await Promise.all([
-                  db.query("SELECT custom_prompt, preferred_model FROM user_interactions WHERE user_id = $1", [userId]),
-                  db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId]),
-                  db.query("SELECT preferred_mode FROM mode_interactions WHERE user_id = $1", [userId])
-                ]);
-                if (customRes.rows[0]) {
-                  customPrompt = customRes.rows[0].custom_prompt || "";
-                  userData.customPrompt = customPrompt;
-                  if (customRes.rows[0].preferred_model) userData.model = customRes.rows[0].preferred_model;
-                }
-                if (personalRes.rows[0]?.personal_info) {
-                  try { userData.personal = JSON.parse(personalRes.rows[0].personal_info); }
-                  catch { userData.personal = { info: personalRes.rows[0].personal_info }; }
-                }
-                if (modeRes.rows[0]?.preferred_mode) userData.mode = modeRes.rows[0].preferred_mode;
-              } catch (err) { console.error("Ping DB Error:", err); }
+            // DB fetch (safe)
+            try {
+              const [customRes, personalRes, modeRes] = await Promise.all([
+                db.query("SELECT custom_prompt, preferred_model FROM user_interactions WHERE user_id = $1", [userId]),
+                db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId]),
+                db.query("SELECT preferred_mode FROM mode_interactions WHERE user_id = $1", [userId])
+              ]);
+              if (customRes.rows[0]) {
+                customPrompt = customRes.rows[0].custom_prompt || "";
+                userData.customPrompt = customPrompt;
+                if (customRes.rows[0].preferred_model) userData.model = customRes.rows[0].preferred_model;
+              }
+              if (personalRes.rows[0]?.personal_info) {
+                try { userData.personal = JSON.parse(personalRes.rows[0].personal_info); }
+                catch { userData.personal = { info: personalRes.rows[0].personal_info }; }
+              }
+              if (modeRes.rows[0]?.preferred_mode) userData.mode = modeRes.rows[0].preferred_mode;
+            } catch (err) {
+              console.error("Ping DB fetch error:", err.message);
             }
 
             if (userData.personal) {
@@ -588,7 +594,6 @@ module.exports = {
             userData.history.push({ role: "user", content: cleanContent });
             if (userData.history.length > 20) userData.history = userData.history.slice(-20);
 
-            // Premium: custom temperature & longer history
             const premium = await getPremiumSettings(pool, userId);
             const temperature = premium?.temperature ?? 0.75;
             const maxHistory = premium ? 40 : 20;
@@ -608,10 +613,9 @@ module.exports = {
             const data = await response.json();
             const answer = data.choices?.[0]?.message?.content || null;
 
-            // Fallback error message
             const fallbackMsg = "im kinda slow today.. what the hell? join the [support server](https://discord.gg/rTrJyPyayg) to find out why my twin. <:agreed:1525639597135237131>.";
-
             const replyText = answer || fallbackMsg;
+
             userData.history.push({ role: "assistant", content: replyText });
             client.memory.set(userId, userData);
 
@@ -627,7 +631,7 @@ module.exports = {
       }
     }
 
-    // 6. Session handling
+    // 6. Session handling (similar safe DB calls)
     let activeSessionUser = null;
     let userData = null;
 
@@ -667,24 +671,24 @@ module.exports = {
 
     try { if (message.guild) message.channel.sendTyping(); } catch {}
 
-    if (!userData.customPrompt && !userData.personal) {
-      try {
-        const [customRes, personalRes, modeRes] = await Promise.all([
-          db.query("SELECT custom_prompt, preferred_model FROM user_interactions WHERE user_id = $1", [userId]),
-          db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId]),
-          db.query("SELECT preferred_mode FROM mode_interactions WHERE user_id = $1", [userId])
-        ]);
-        if (customRes.rows[0]) {
-          userData.customPrompt = customRes.rows[0].custom_prompt || "";
-          if (customRes.rows[0].preferred_model) userData.model = customRes.rows[0].preferred_model;
-        }
-        if (personalRes.rows[0]?.personal_info) {
-          try { userData.personal = JSON.parse(personalRes.rows[0].personal_info); }
-          catch { userData.personal = { info: personalRes.rows[0].personal_info }; }
-        }
-        if (modeRes.rows[0]?.preferred_mode) userData.mode = modeRes.rows[0].preferred_mode;
-        client.memory.set(userId, userData);
-      } catch (err) { console.error("Session DB fetch error:", err); }
+    try {
+      const [customRes, personalRes, modeRes] = await Promise.all([
+        db.query("SELECT custom_prompt, preferred_model FROM user_interactions WHERE user_id = $1", [userId]),
+        db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId]),
+        db.query("SELECT preferred_mode FROM mode_interactions WHERE user_id = $1", [userId])
+      ]);
+      if (customRes.rows[0]) {
+        userData.customPrompt = customRes.rows[0].custom_prompt || "";
+        if (customRes.rows[0].preferred_model) userData.model = customRes.rows[0].preferred_model;
+      }
+      if (personalRes.rows[0]?.personal_info) {
+        try { userData.personal = JSON.parse(personalRes.rows[0].personal_info); }
+        catch { userData.personal = { info: personalRes.rows[0].personal_info }; }
+      }
+      if (modeRes.rows[0]?.preferred_mode) userData.mode = modeRes.rows[0].preferred_mode;
+      client.memory.set(userId, userData);
+    } catch (err) {
+      console.error("Session DB fetch error:", err.message);
     }
 
     let personalInfo = "";
@@ -702,7 +706,6 @@ module.exports = {
     userData.history.push({ role: "user", content: msgContent });
     if (userData.history.length > 30) userData.history = userData.history.slice(-30);
 
-    // Premium: custom temperature & longer history
     const premium = await getPremiumSettings(pool, userId, guildId);
     const temperature = premium?.temperature ?? 0.75;
     const maxHistory = premium ? 40 : 30;
@@ -741,7 +744,7 @@ module.exports = {
   },
 };
 
-// Export shared helpers for other commands
+// Export shared helpers
 module.exports.buildSystemPrompt = buildSystemPrompt;
 module.exports.MODELS = MODELS;
 module.exports.MODES = MODES;
