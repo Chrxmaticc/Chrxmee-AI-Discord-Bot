@@ -100,13 +100,13 @@ function applyFontStyle(text, style) {
 
 // ─── MODELS & MODES ─────────────────────────────────────────────
 const MODELS = {
-  genius:    { id: "llama-3.3-70b-versatile",         label: "Genius" },
-  speedster: { id: "llama-3.1-8b-instant",            label: "Speedster" },
-  thinker:   { id: "openai/gpt-oss-120b",             label: "Thinker" },
-  creative:  { id: "qwen/qwen3-32b",                  label: "Creative" },
-  efficient: { id: "qwen-qwq-32b",                    label: "Efficient" },
-  vision:    { id: "llama-3.2-11b-vision-preview",    label: "Vision" },
-  agent:     { id: "compound-beta",                   label: "Agent" },
+  genius:    { id: "gpt-4.1",         label: "Genius" },
+  speedster: { id: "gpt-4.1-mini",    label: "Speedster" },
+  thinker:   { id: "gpt-4.1",         label: "Thinker" },
+  creative:  { id: "gpt-4.1",         label: "Creative" },
+  efficient: { id: "gpt-4.1-mini",    label: "Efficient" },
+  vision:    { id: "gpt-4.1",         label: "Vision" },
+  agent:     { id: "gpt-4.1",         label: "Agent" },
 };
 
 const MODES = {
@@ -605,9 +605,9 @@ module.exports = {
             const maxHistory = premium ? 40 : 20;
             if (userData.history.length > maxHistory) userData.history = userData.history.slice(-maxHistory);
 
-            const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            const response = await fetch("https://api.navy/v1/chat/completions", {
               method: "POST",
-              headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.NAVY_API_KEY}` },
               body: JSON.stringify({
                 model: modelEntry.id,
                 messages: [{ role: "system", content: systemPrompt }, ...userData.history],
@@ -726,9 +726,9 @@ module.exports = {
     if (userData.history.length > maxHistory) userData.history = userData.history.slice(-maxHistory);
 
     try {
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      const response = await fetch("https://api.navy/v1/chat/completions", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.NAVY_API_KEY}` },
         body: JSON.stringify({
           model: modelEntry.id,
           messages: [{ role: "system", content: systemPrompt }, ...userData.history],
@@ -740,7 +740,7 @@ module.exports = {
       const data = await response.json();
       if (!data.choices?.[0]) {
         console.error("API Error Response:", JSON.stringify(data));
-        throw new Error("Invalid API response from Groq");
+        throw new Error("Invalid API response from Navy");
       }
 
       const answer = data.choices[0].message.content;
