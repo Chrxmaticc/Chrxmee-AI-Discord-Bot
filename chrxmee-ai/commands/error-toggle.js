@@ -1,69 +1,20 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require("discord.js");
 
-const E = {
-  success: "<:Verified_Icon:1527194184841167010>",
-  error: "<:no:1530373946795364362>",
-  settings: "<:Settings:1525601248278216725>",
-};
-
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("error-toggle")
-    .setDescription("Toggle whether error messages show the support server link")
+    .setDescription("Toggle error messages support link")
     .addStringOption(opt =>
       opt.setName("mode")
-        .setDescription("on = show link, off = hide it")
+        .setDescription("on or off")
         .setRequired(true)
         .addChoices(
-          { name: "On (show link)", value: "on" },
-          { name: "Off (hide link)", value: "off" }
+          { name: "On", value: "on" },
+          { name: "Off", value: "off" }
         )
     ),
-
   async execute(interaction) {
-    try {
-      // Permission check
-      if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.reply({
-          content: `${E.error} You need Administrator permissions.`,
-          ephemeral: true,
-        });
-      }
-
-      const mode = interaction.options.getString("mode") === "on";
-      const pool = interaction.client.pool;
-      const guildId = interaction.guildId;
-
-      // Self-heal: ensure column exists before using it
-      await pool.query(`
-        ALTER TABLE guild_settings 
-        ADD COLUMN IF NOT EXISTS show_support_link BOOLEAN DEFAULT TRUE
-      `);
-
-      // Upsert the setting
-      await pool.query(
-        `INSERT INTO guild_settings (guild_id, show_support_link)
-         VALUES ($1, $2)
-         ON CONFLICT (guild_id)
-         DO UPDATE SET show_support_link = $2`,
-        [guildId, mode]
-      );
-
-      const embed = new EmbedBuilder()
-        .setColor(0x7c7ce0)
-        .setTitle(`${E.settings} Error Message Setting`)
-        .setDescription(
-          `Support link will **${mode ? "be shown" : "not be shown"}** in error messages.`
-        )
-        .setFooter({ text: "Chromed AI · 炫克人工智能" });
-
-      return interaction.reply({ embeds: [embed], ephemeral: true });
-    } catch (err) {
-      console.error("Error toggle command failed:", err);
-      return interaction.reply({
-        content: `${E.error} Something went wrong: ${err.message.substring(0, 100)}`,
-        ephemeral: true,
-      });
-    }
+    const mode = interaction.options.getString("mode");
+    return interaction.reply(`✅ Command works! Mode: ${mode}`);
   },
 };
