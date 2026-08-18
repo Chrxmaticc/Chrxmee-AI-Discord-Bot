@@ -1,5 +1,17 @@
 const { SlashCommandBuilder } = require("discord.js");
 
+// ─── CUSTOM EMOJIS ──────────────────────────────
+const E = {
+  success: "<:Verified_Icon:1527194184841167010>",
+  error: "<:no:1530373946795364362>",
+  ai: "<:Chrxmaticc_AI:1480094799292928132>",
+  settings: "<:Settings:1525601248278216725>",
+  agree: "<:agreed:1525639597135237131>",
+  angry: "<:angry_cry:1526029511882440744>",
+  crown: "<:Holographic_owner_crown:1527401510487461969>",
+  link: "<:Link:1525603398341103806>",
+};
+
 const MODES = {
   unfiltered:   { label: "🛡️ Unfiltered",     desc: "Calm academic. 10% filter. Discusses anything. No swearing." },
   insane:       { label: "🤪 Insane",          desc: "Chaotic caps, emoji overload, unhinged energy. Heavy swearing." },
@@ -16,7 +28,7 @@ const MODES = {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("mode")
-    .setDescription("Switch Chrxmee AI's personality mode.")
+    .setDescription("Switch Chromed AI's personality mode.")
     .setContexts([0, 1, 2])
     .setIntegrationTypes([0, 1])
 
@@ -60,7 +72,7 @@ module.exports = {
     if (sub === "switch") {
       const type = interaction.options.getString("type");
       const mode = MODES[type];
-      if (!mode) return interaction.reply({ content: "Unknown mode.", ephemeral: true });
+      if (!mode) return interaction.reply({ content: `${E.error} Unknown mode.`, ephemeral: true });
 
       userData.mode = type;
       interaction.client.memory.set(userId, userData);
@@ -87,7 +99,7 @@ module.exports = {
         await db.end();
       }
 
-      return interaction.reply(`✅ Switched to **${mode.label}**\n> ${mode.desc}`);
+      return interaction.reply(`${E.success} Switched to **${mode.label}**\n> ${mode.desc}`);
     }
 
     if (sub === "reset") {
@@ -110,14 +122,14 @@ module.exports = {
         await db.end();
       }
 
-      return interaction.reply(`✅ Reset to **🛡️ Unfiltered** mode.`);
+      return interaction.reply(`${E.success} Reset to **🛡️ Unfiltered** mode.`);
     }
 
     if (sub === "info") {
       const currentMode = MODES[userData.mode] || MODES["unfiltered"];
 
       return interaction.reply({
-        content: `**Your Chrxmee AI Mode:**\n🎭 **Mode:** ${currentMode.label}\n> ${currentMode.desc}\n\nUse \`/mode switch\` to change it. Works alongside your \`/model\` choice!`,
+        content: `${E.ai} **Your Chromed AI Mode:**\n🎭 **Mode:** ${currentMode.label}\n> ${currentMode.desc}\n\nUse \`/mode switch\` to change it. Works alongside your \`/model\` choice!`,
         ephemeral: true
       });
     }
