@@ -61,6 +61,17 @@ module.exports = {
       .addStringOption(opt => opt.setName("text").setDescription("Channel name (only for add/remove)").setRequired(false)))
     .addSubcommand(sub => sub.setName("force")
       .setDescription("Force an immediate rotation right now"))
+    .addSubcommand(sub => sub.setName("reset")
+      .setDescription("Clear autochange data for specific sections or everything")
+      .addStringOption(opt => opt.setName("section").setDescription("What to reset").setRequired(true)
+        .addChoices(
+          { name: "All", value: "all" },
+          { name: "Names", value: "names" },
+          { name: "Icons", value: "icons" },
+          { name: "Banners", value: "banners" },
+          { name: "Descriptions", value: "descriptions" },
+          { name: "Channel Renames", value: "channel_renames" }
+        )))
     .addSubcommand(sub => sub.setName("status")
       .setDescription("View current autochange configuration")),
 
@@ -297,7 +308,6 @@ module.exports = {
         }
       }
 
-      // Update state & last_change so scheduler doesn't immediately rotate again
       await pool.query(
         `UPDATE server_autochange SET sequence_state = $1, last_change = NOW() WHERE guild_id = $2`,
         [JSON.stringify(sequenceState), guild.id]
@@ -312,6 +322,63 @@ module.exports = {
       return interaction.editReply({ embeds: [embed] });
     }
 
+    // ─── RESET SECTIONS ───────────────────────
+    if (sub === "reset") {
+      const section = interaction.options.getString("section");
+      const config = await getConfig();
+      const updates = {};
+
+      if (section === "all") {
+        updates.names = [];
+        updates.icons = [];
+        updates.banners = [];
+        updates.descriptions = [];
+        updates.channel_renames = {};
+        updates.sequence_state = {};
+      } else {
+        if (section === "names") updates.names = [];
+        if (section === "icons") updates.icons = [];
+        if (section === "banners") updates.banners = [];
+        if (section === "descriptions") updates.descriptions = [];
+        if (section === "channel_renames") updates.channel_renames = {};
+      }
+
+      // Remove sequence state keys for reset sections (unless all)
+      if (section !== "all") {
+        let sequence = config.sequence_state || {};
+        if (sequence[section] !== undefined) delete sequence[section];
+        updates.sequence_state = sequence;
+      }
+
+      await pool.query(
+        `UPDATE server_autochange SET
+          names = COALESCE($2, names),
+          icons = COALESCE($3, icons),
+          banners = COALESCE($4, banners),
+          descriptions = COALESCE($5, descriptions),
+          channel_renames = COALESCE($6, channel_renames),
+          sequence_state = COALESCE($7, sequence_state)
+        WHERE guild_id = $1`,
+        [
+          guildId,
+          updates.names ? JSON.stringify(updates.names) : null,
+          updates.icons ? JSON.stringify(updates.icons) : null,
+          updates.banners ? JSON.stringify(updates.banners) : null,
+          updates.descriptions ? JSON.stringify(updates.descriptions) : null,
+          updates.channel_renames ? JSON.stringify(updates.channel_renames) : null,
+          updates.sequence_state ? JSON.stringify(updates.sequence_state) : null
+        ]
+      );
+
+      const embed = new EmbedBuilder()
+        .setColor(0x7c7ce0)
+        .setTitle(`${E.success} Autochange Reset Complete`)
+        .setDescription(section === "all" ? "All autochange sections have been cleared." : `The **${section}** section has been cleared.`)
+        .setFooter({ text: "Chrxmaticc AI · 炫克人工智能" });
+
+      return interaction.reply({ embeds: [embed], ephemeral: true });
+    }
+
     // ─── STATUS ────────────────────────────────
     if (sub === "status") {
       const config = await getConfig();
@@ -322,7 +389,7 @@ module.exports = {
         .setColor(0x7c7ce0)
         .setTitle(`${E.link} Server Autochange Status`)
         .addFields(
-          { name: "Enabled", value: config.enabled ? "Yes" : "No", inline: true },
+          { name: "Enabled", value: config.enabled ? "✅ Yes" : "❌ No", inline: true },
           { name: "Interval", value: intervalDisplay, inline: true },
           { name: "Mode", value: config.rotation_mode || "random", inline: true },
           { name: "Names", value: `${(config.names || []).length}`, inline: true },
