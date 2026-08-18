@@ -1,19 +1,32 @@
 const { SlashCommandBuilder } = require("discord.js");
 
+// ─── CUSTOM EMOJIS ──────────────────────────────
+const E = {
+  success: "<:Verified_Icon:1527194184841167010>",
+  error: "<:no:1530373946795364362>",
+  ai: "<:Chrxmaticc_AI:1480094799292928132>",
+  settings: "<:Settings:1525601248278216725>",
+  agree: "<:agreed:1525639597135237131>",
+  angry: "<:angry_cry:1526029511882440744>",
+  crown: "<:Holographic_owner_crown:1527401510487461969>",
+  link: "<:Link:1525603398341103806>",
+};
+
+// ─── MODELS (Navy API) ─────────────────────────
 const MODELS = {
-  genius:    { id: "llama-3.3-70b-versatile",          label: "Genius",       desc: "Smart, thorough, and detailed answers." },
-  speedster: { id: "llama-3.1-8b-instant",             label: "Speedster",    desc: "Fast and snappy. No fluff." },
-  thinker:   { id: "gpt-oss-120b",                     label: "Thinker",      desc: "Deep reasoning and analysis." },
-  creative:  { id: "qwen3-32b",                        label: "Creative",     desc: "Imaginative and expressive writing." },
-  efficient: { id: "qwq-32b",                          label: "Efficient",    desc: "Lightweight and concise responses." },
-  vision:    { id: "llama-3.2-11b-vision",             label: "Vision",       desc: "Vision-enabled analysis." },
-  agent:     { id: "compound-beta",                    label: "Agent",        desc: "Research agent with web tools." },
+  genius:    { id: "gpt-4.1",      label: "Genius",      desc: "Smart, thorough, and detailed answers." },
+  speedster: { id: "gpt-4.1-mini", label: "Speedster",   desc: "Fast and snappy. No fluff." },
+  thinker:   { id: "gpt-4.1",      label: "Thinker",     desc: "Deep reasoning and analysis." },
+  creative:  { id: "gpt-4.1",      label: "Creative",    desc: "Imaginative and expressive writing." },
+  efficient: { id: "gpt-4.1-mini", label: "Efficient",   desc: "Lightweight and concise responses." },
+  vision:    { id: "gpt-4.1",      label: "Vision",      desc: "Vision-enabled analysis." },
+  agent:     { id: "gpt-4.1",      label: "Agent",       desc: "Research agent with web tools." },
 };
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("model")
-    .setDescription("Switch Chrxmee AI's model or set a custom personality.")
+    .setDescription("Switch Chromed AI's model or set a custom personality.")
     .setContexts([0, 1, 2])
     .setIntegrationTypes([0, 1])
 
@@ -25,20 +38,20 @@ module.exports = {
             .setDescription("Choose a model")
             .setRequired(true)
             .addChoices(
-              { name: " Genius — llama 3.3 70B",      value: "genius" },
-              { name: " Speedster — llama 3.1 8B",     value: "speedster" },
-              { name: "Thinker — GPT-OSS 120B",       value: "thinker" },
-              { name: " Creative — Qwen3 32B",         value: "creative" },
-              { name: "Efficient — QwQ 32B",          value: "efficient" },
-              { name: "Vision — llama 3.2 11B",       value: "vision" },
-              { name: " Agent — Compound Beta",        value: "agent" }
+              { name: "Genius — GPT-4.1",        value: "genius" },
+              { name: "Speedster — GPT-4.1 Mini", value: "speedster" },
+              { name: "Thinker — GPT-4.1",       value: "thinker" },
+              { name: "Creative — GPT-4.1",      value: "creative" },
+              { name: "Efficient — GPT-4.1 Mini", value: "efficient" },
+              { name: "Vision — GPT-4.1",        value: "vision" },
+              { name: "Agent — GPT-4.1",         value: "agent" }
             )
         )
     )
 
     .addSubcommand(sub =>
       sub.setName("custom")
-        .setDescription("Set a custom personality prompt for Chrxmee AI.")
+        .setDescription("Set a custom personality prompt for Chromed AI.")
         .addStringOption(opt =>
           opt.setName("prompt")
             .setDescription("Describe how you want the AI to act.")
@@ -64,7 +77,7 @@ module.exports = {
     if (sub === "switch") {
       const type = interaction.options.getString("type");
       const model = MODELS[type];
-      if (!model) return interaction.reply({ content: "Unknown model.", ephemeral: true });
+      if (!model) return interaction.reply({ content: `${E.error} Unknown model.`, ephemeral: true });
 
       userData.model = type;
       interaction.client.memory.set(userId, userData);
@@ -85,7 +98,7 @@ module.exports = {
         await db.end();
       }
 
-      return interaction.reply(`✅ Switched to **${model.label}** (\`${model.id}\`)\\n> ${model.desc}`);
+      return interaction.reply(`${E.success} Switched to **${model.label}** (\`${model.id}\`)\n> ${model.desc}`);
     }
 
     if (sub === "custom") {
@@ -109,7 +122,7 @@ module.exports = {
         await db.end();
       }
 
-      return interaction.reply(`✅ Custom personality set!\\n> "${prompt}"\\nChrxmee AI will act like this until you reset it.`);
+      return interaction.reply(`${E.success} Custom personality set!\n> "${prompt}"\nChromed AI will act like this until you reset it.`);
     }
 
     if (sub === "reset") {
@@ -133,7 +146,7 @@ module.exports = {
         await db.end();
       }
 
-      return interaction.reply(`✅ Reset to **Genius** and cleared your custom personality.`);
+      return interaction.reply(`${E.success} Reset to **Genius** and cleared your custom personality.`);
     }
 
     if (sub === "info") {
@@ -141,7 +154,7 @@ module.exports = {
       const customPrompt = userData.customPrompt || "None";
 
       return interaction.reply({
-        content: `**Your Chrxmee AI Settings:**\\n🧠 **Model:** ${currentModel.label} (\`${currentModel.id}\`)\\n> ${currentModel.desc}\\n\\n✏️ **Custom Personality:** ${customPrompt}`,
+        content: `${E.ai} **Your Chromed AI Settings:**\n **Model:** ${currentModel.label} (\`${currentModel.id}\`)\n> ${currentModel.desc}\n\n **Custom Personality:** ${customPrompt}`,
         ephemeral: true
       });
     }
