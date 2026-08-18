@@ -16,7 +16,7 @@ function msToTime(ms) {
 
 // ==================== PFP ROTATION ====================
 const pfps = [
-  path.join(__dirname, "pfps", "pfp1.png"),
+  path.join(__dirname, "pfps", "pfp1.jpeg"),
   path.join(__dirname, "pfps", "pfp2.jpeg"),
   path.join(__dirname, "pfps", "pfp3.jpeg"),
 ];
