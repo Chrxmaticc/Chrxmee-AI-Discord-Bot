@@ -55,6 +55,8 @@ const E = {
   happy_cry: "<:happy_cry:1526029243333611530>",
   larp: "<:larp:1527401314034651246>",
   manguns: "<:manguns:1526537075778654329>",
+  point_laugh: "<:PointAndLaughingEmoji:1525657154567016469>",
+  golden_verified: "<:Golden_Verified:1531893351920697484>",
 };
 
 const CUSTOM_EMOJI_LIST = Object.values(E).join(' ');
@@ -620,7 +622,7 @@ module.exports = {
             // Fallback error message with error-toggle
             const showLink = await shouldShowSupportLink(pool, guildId);
             const fallbackMsg = showLink
-              ? "im kinda slow today.. what the hell? join the [support server](https://discord.gg/chrxmaticc) to find out why my twin. <:agreed:1525639597135237131>."
+              ? "im kinda slow today.. what the hell? join the [support server](https://discord.gg/rTrJyPyayg) to find out why my twin. <:agreed:1525639597135237131>."
               : "im kinda slow today.. what the hell? <:agreed:1525639597135237131>";
 
             const replyText = answer || fallbackMsg;
@@ -632,7 +634,7 @@ module.exports = {
             console.error("Ping Response Error:", err);
             const showLink = await shouldShowSupportLink(pool, guildId);
             const crashMsg = showLink
-              ? "MY SERVERS ARE FUCKING CRASHING! sorry, but yeah. ion know why im slow today. might be the bummy servers of mine. join the [support server](https://discord.gg/chrxmaticc) to find out."
+              ? "MY SERVERS ARE FUCKING CRASHING! sorry, but yeah. ion know why im slow today. might be the bummy servers of mine. join the [support server](https://discord.gg/rTrJyPyayg) to find out."
               : "MY SERVERS ARE FUCKING CRASHING! sorry, but yeah. ion know why im slow today. might be the bummy servers of mine.";
             return message.reply(crashMsg).catch(() => {});
           }
@@ -738,7 +740,7 @@ module.exports = {
       const data = await response.json();
       if (!data.choices?.[0]) {
         console.error("API Error Response:", JSON.stringify(data));
-        throw new Error("Invaild API response from Groq");
+        throw new Error("Invalid API response from Groq");
       }
 
       const answer = data.choices[0].message.content;
@@ -751,7 +753,7 @@ module.exports = {
       if (!err.message.includes("Unknown interaction")) {
         const showLink = await shouldShowSupportLink(client.pool, guildId);
         const crashMsg = showLink
-          ? "MY SERVERS ARE FUCKING CRASHING! sorry, but yeah. ion know why im slow today. might be the bummy servers of mine. join the [support server](https://discord.gg/chrxmaticc) to find out."
+          ? "MY SERVERS ARE FUCKING CRASHING! sorry, but yeah. ion know why im slow today. might be the bummy servers of mine. join the [support server](https://discord.gg/rTrJyPyayg) to find out."
           : "MY SERVERS ARE FUCKING CRASHING! sorry, but yeah. ion know why im slow today. might be the bummy servers of mine.";
         message.reply(crashMsg).catch(() => {});
       }
