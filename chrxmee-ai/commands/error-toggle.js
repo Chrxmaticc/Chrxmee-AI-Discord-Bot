@@ -20,28 +20,50 @@ module.exports = {
         )
     ),
 
-  async execute(interaction, client) {
-    if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-      return interaction.reply({ content: `${E.error} You need Administrator permissions.`, ephemeral: true });
+  async execute(interaction) {
+    try {
+      // Permission check
+      if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+        return interaction.reply({
+          content: `${E.error} You need Administrator permissions.`,
+          ephemeral: true,
+        });
+      }
+
+      const mode = interaction.options.getString("mode") === "on";
+      const pool = interaction.client.pool;
+      const guildId = interaction.guildId;
+
+      // Self-heal: ensure column exists before using it
+      await pool.query(`
+        ALTER TABLE guild_settings 
+        ADD COLUMN IF NOT EXISTS show_support_link BOOLEAN DEFAULT TRUE
+      `);
+
+      // Upsert the setting
+      await pool.query(
+        `INSERT INTO guild_settings (guild_id, show_support_link)
+         VALUES ($1, $2)
+         ON CONFLICT (guild_id)
+         DO UPDATE SET show_support_link = $2`,
+        [guildId, mode]
+      );
+
+      const embed = new EmbedBuilder()
+        .setColor(0x7c7ce0)
+        .setTitle(`${E.settings} Error Message Setting`)
+        .setDescription(
+          `Support link will **${mode ? "be shown" : "not be shown"}** in error messages.`
+        )
+        .setFooter({ text: "Chromed AI · 炫克人工智能" });
+
+      return interaction.reply({ embeds: [embed], ephemeral: true });
+    } catch (err) {
+      console.error("Error toggle command failed:", err);
+      return interaction.reply({
+        content: `${E.error} Something went wrong: ${err.message.substring(0, 100)}`,
+        ephemeral: true,
+      });
     }
-
-    const mode = interaction.options.getString("mode") === "on";
-    const pool = client.pool;
-    const guildId = interaction.guildId;
-
-    await pool.query(
-      `INSERT INTO guild_settings (guild_id, show_support_link)
-       VALUES ($1, $2)
-       ON CONFLICT (guild_id) DO UPDATE SET show_support_link = $2`,
-      [guildId, mode]
-    );
-
-    const embed = new EmbedBuilder()
-      .setColor(0x7c7ce0)
-      .setTitle(`${E.settings} Error Message Setting`)
-      .setDescription(`Support link will **${mode ? "be shown" : "not be shown"}** in error messages.`)
-      .setFooter({ text: "Chromed AI · 炫克人工智能" });
-
-    return interaction.reply({ embeds: [embed], ephemeral: true });
   },
 };
