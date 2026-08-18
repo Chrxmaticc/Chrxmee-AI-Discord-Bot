@@ -1,39 +1,5 @@
 const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
-
-const MODELS = {
-  genius:    { id: "llama-3.3-70b-versatile",         label: "Genius (llama 3.3 70B)" },
-  speedster: { id: "llama-3.1-8b-instant",            label: "Speedster (llama 3.1 8B)" },
-  thinker:   { id: "openai/gpt-oss-120b",             label: "Thinker (GPT-OSS 120B)" },
-  creative:  { id: "qwen/qwen3-32b",                  label: "Creative (Qwen3 32B)" },
-  efficient: { id: "qwen-qwq-32b",                    label: "Efficient (QwQ 32B)" },
-  vision:    { id: "llama-3.2-11b-vision-preview",    label: "Vision (llama 3.2 11B)" },
-  agent:     { id: "compound-beta",                   label: "Agent (Compound Beta)" },
-};
-
-const DEFAULT_MODEL = "genius";
-
-function buildSystemPrompt(modelPreference, customPrompt, personalInfo) {
-  return `You are Chrxmee AI, a smart, witty, and slightly edgy Discord bot assistant. You are helpful, casual, and fun to talk to.
-
-Personality for '${modelPreference}' mode:
-- genius: Deep, intelligent, thorough answers. Like a brilliant friend who explains things clearly.
-- speedster: Quick, punchy, get-to-the-point answers. No fluff. 
-- thinker: Slow, methodical reasoning. Think step by step before answering.
-- creative: Expressive, imaginative, loves wordplay and storytelling. 
-- efficient: Concise and practical. Answer in as few words as needed.
-- vision: Analytical and observant. Great at describing and interpreting visual or complex info.
-- agent: Research-oriented. Gather info and give comprehensive answers. Be too smart for an average human.
-
-Rules:
-- You can be edgy, sarcastic, and use casual/internet language freely.
-- Never flag normal words, slang, memes, or mild language. Words like "corny", "sus", "bruh", "wild", "slay" etc. are totally fine.
-- Only flag content if it genuinely involves: detailed instructions for making weapons, drugs, or malware; sexual content; content targeting real individuals harmfully; or clearly illegal activity with real harm potential.
-- If something is actually too harmful to answer, start your response ONLY with 'WILD_CONTENT_DETECTED' (nothing else before it).
-- Do NOT over-flag. If in doubt, just answer normally.
-- If the user has a custom personality set, follow it naturally as part of your character — don't ignore it or treat it as a separate instruction.
-${personalInfo ? `\nWhat you know about this user: ${personalInfo}. Use this naturally like a friend would.` : ""}
-${customPrompt ? `\nCustom personality the user set for you: ${customPrompt}` : ""}`;
-}
+const { buildSystemPrompt, MODELS, DEFAULT_MODEL, DEFAULT_MODE } = require("../events/messageCreate");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -55,9 +21,15 @@ module.exports = {
     const question = interaction.options.getString("question");
     const userId = interaction.user.id;
 
-    let userData = interaction.client.memory.get(userId) || { history: [], model: DEFAULT_MODEL };
+    // Initialize user data with mode
+    let userData = interaction.client.memory.get(userId) || {
+      history: [],
+      model: DEFAULT_MODEL,
+      mode: DEFAULT_MODE,
+    };
     let history = userData.history || [];
     const modelPreference = userData.model || DEFAULT_MODEL;
+    const modePreference = userData.mode || DEFAULT_MODE;
     const modelEntry = MODELS[modelPreference] || MODELS[DEFAULT_MODEL];
 
     let customPrompt = userData.customPrompt || "";
@@ -68,9 +40,10 @@ module.exports = {
       const db = new Client({ connectionString: process.env.DATABASE_URL });
       try {
         await db.connect();
-        const [customRes, personalRes] = await Promise.all([
+        const [customRes, personalRes, modeRes] = await Promise.all([
           db.query("SELECT custom_prompt, preferred_model FROM user_interactions WHERE user_id = $1", [userId]),
-          db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId])
+          db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId]),
+          db.query("SELECT preferred_mode FROM mode_interactions WHERE user_id = $1", [userId])
         ]);
         if (customRes.rows[0]) {
           customPrompt = customRes.rows[0].custom_prompt || "";
@@ -82,6 +55,9 @@ module.exports = {
         if (personalRes.rows[0]?.personal_info) {
           try { userData.personal = JSON.parse(personalRes.rows[0].personal_info); }
           catch { userData.personal = { info: personalRes.rows[0].personal_info }; }
+        }
+        if (modeRes.rows[0]?.preferred_mode) {
+          userData.mode = modeRes.rows[0].preferred_mode;
         }
         interaction.client.memory.set(userId, userData);
       } catch (err) {
@@ -97,17 +73,24 @@ module.exports = {
         .join(", ");
     }
 
-    const systemContent = buildSystemPrompt(modelPreference, customPrompt, personalInfo);
+    // Use the user's preferred mode (or default if not set)
+    const systemContent = buildSystemPrompt(
+      modelPreference,
+      modePreference,
+      customPrompt,
+      personalInfo,
+      false
+    );
 
     history.push({ role: "user", content: question });
     if (history.length > 25) history = history.slice(-25);
 
     try {
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      const response = await fetch("https://api.navy/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          Authorization: `Bearer ${process.env.NAVY_API_KEY}`,
         },
         body: JSON.stringify({
           model: modelEntry.id,
@@ -168,7 +151,7 @@ module.exports = {
 
     } catch (err) {
       console.error(`Ask command error: ${err.message}`);
-      const errText = `Failed to reach Chrxmee AI: ${err.message.substring(0, 100)}`;
+      const errText = `failed to reach me slowpoke! nah jk but heres the error msg: ${err.message.substring(0, 100)}`;
       if (isButtonSim) await interaction.followUp(errText);
       else await interaction.editReply(errText);
     }
