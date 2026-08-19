@@ -1,27 +1,66 @@
 const { SlashCommandBuilder } = require("discord.js");
 
-// ─── CUSTOM EMOJIS ──────────────────────────────
-const E = {
-  success: "<:Verified_Icon:1527194184841167010>",
-  error: "<:no:1530373946795364362>",
-  ai: "<:Chrxmaticc_AI:1480094799292928132>",
-  settings: "<:Settings:1525601248278216725>",
-  agree: "<:agreed:1525639597135237131>",
-  angry: "<:angry_cry:1526029511882440744>",
-  crown: "<:Holographic_owner_crown:1527401510487461969>",
-  link: "<:Link:1525603398341103806>",
+// ─── HYBRID MODELS (Groq primary, Navy backup) ───────────────────
+const MODELS = {
+  genius: {
+    label: "Genius",
+    desc: "Smart, thorough, and detailed answers.",
+    providers: [
+      { name: "groq", id: "openai/gpt-oss-120b", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
+    ]
+  },
+  speedster: {
+    label: "Speedster",
+    desc: "Fast and snappy. No fluff.",
+    providers: [
+      { name: "groq", id: "openai/gpt-oss-20b", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1-mini", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
+    ]
+  },
+  thinker: {
+    label: "Thinker",
+    desc: "Deep reasoning and analysis.",
+    providers: [
+      { name: "groq", id: "openai/gpt-oss-120b", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
+    ]
+  },
+  creative: {
+    label: "Creative",
+    desc: "Imaginative and expressive writing.",
+    providers: [
+      { name: "groq", id: "qwen/qwen3.6-27b", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
+    ]
+  },
+  efficient: {
+    label: "Efficient",
+    desc: "Lightweight and concise responses.",
+    providers: [
+      { name: "groq", id: "groq/compound-mini", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1-mini", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
+    ]
+  },
+  vision: {
+    label: "Vision",
+    desc: "Analytical and observant.",
+    providers: [
+      { name: "groq", id: "qwen/qwen3.6-27b", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
+    ]
+  },
+  agent: {
+    label: "Agent",
+    desc: "Research agent with web tools.",
+    providers: [
+      { name: "groq", id: "groq/compound", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
+    ]
+  },
 };
 
-// ─── MODELS (Navy API) ─────────────────────────
-const MODELS = {
-  genius:    { id: "gpt-4.1",      label: "Genius",      desc: "Smart, thorough, and detailed answers." },
-  speedster: { id: "gpt-4.1-mini", label: "Speedster",   desc: "Fast and snappy. No fluff." },
-  thinker:   { id: "gpt-4.1",      label: "Thinker",     desc: "Deep reasoning and analysis." },
-  creative:  { id: "gpt-4.1",      label: "Creative",    desc: "Imaginative and expressive writing." },
-  efficient: { id: "gpt-4.1-mini", label: "Efficient",   desc: "Lightweight and concise responses." },
-  vision:    { id: "gpt-4.1",      label: "Vision",      desc: "Vision-enabled analysis." },
-  agent:     { id: "gpt-4.1",      label: "Agent",       desc: "Research agent with web tools." },
-};
+const DEFAULT_MODEL = "genius";
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -29,7 +68,6 @@ module.exports = {
     .setDescription("Switch Chromed AI's model or set a custom personality.")
     .setContexts([0, 1, 2])
     .setIntegrationTypes([0, 1])
-
     .addSubcommand(sub =>
       sub.setName("switch")
         .setDescription("Switch to a different AI model.")
@@ -38,17 +76,16 @@ module.exports = {
             .setDescription("Choose a model")
             .setRequired(true)
             .addChoices(
-              { name: "Genius — GPT-4.1",        value: "genius" },
-              { name: "Speedster — GPT-4.1 Mini", value: "speedster" },
-              { name: "Thinker — GPT-4.1",       value: "thinker" },
-              { name: "Creative — GPT-4.1",      value: "creative" },
-              { name: "Efficient — GPT-4.1 Mini", value: "efficient" },
-              { name: "Vision — GPT-4.1",        value: "vision" },
-              { name: "Agent — GPT-4.1",         value: "agent" }
+              { name: "Genius (Groq: GPT-OSS 120B / Navy: GPT-4.1)", value: "genius" },
+              { name: "Speedster (Groq: GPT-OSS 20B / Navy: GPT-4.1 Mini)", value: "speedster" },
+              { name: "Thinker (Groq: GPT-OSS 120B / Navy: GPT-4.1)", value: "thinker" },
+              { name: "Creative (Groq: Qwen 3.6 27B / Navy: GPT-4.1)", value: "creative" },
+              { name: "Efficient (Groq: Compound Mini / Navy: GPT-4.1 Mini)", value: "efficient" },
+              { name: "Vision (Groq: Qwen 3.6 27B / Navy: GPT-4.1)", value: "vision" },
+              { name: "Agent (Groq: Compound / Navy: GPT-4.1)", value: "agent" }
             )
         )
     )
-
     .addSubcommand(sub =>
       sub.setName("custom")
         .setDescription("Set a custom personality prompt for Chromed AI.")
@@ -58,12 +95,10 @@ module.exports = {
             .setRequired(true)
         )
     )
-
     .addSubcommand(sub =>
       sub.setName("reset")
         .setDescription("Reset your model back to Genius and clear your custom personality.")
     )
-
     .addSubcommand(sub =>
       sub.setName("info")
         .setDescription("See your current model and custom personality settings.")
@@ -72,12 +107,12 @@ module.exports = {
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
     const userId = interaction.user.id;
-    let userData = interaction.client.memory.get(userId) || { history: [], model: "genius" };
+    let userData = interaction.client.memory.get(userId) || { history: [], model: DEFAULT_MODEL };
 
     if (sub === "switch") {
       const type = interaction.options.getString("type");
       const model = MODELS[type];
-      if (!model) return interaction.reply({ content: `${E.error} Unknown model.`, ephemeral: true });
+      if (!model) return interaction.reply({ content: "Unknown model.", ephemeral: true });
 
       userData.model = type;
       interaction.client.memory.set(userId, userData);
@@ -98,7 +133,8 @@ module.exports = {
         await db.end();
       }
 
-      return interaction.reply(`${E.success} Switched to **${model.label}** (\`${model.id}\`)\n> ${model.desc}`);
+      const providerList = model.providers.map(p => `${p.name}: ${p.id}`).join(" | ");
+      return interaction.reply(` Switched to **${model.label}**\n> ${model.desc}\n> Providers: ${providerList}`);
     }
 
     if (sub === "custom") {
@@ -122,11 +158,11 @@ module.exports = {
         await db.end();
       }
 
-      return interaction.reply(`${E.success} Custom personality set!\n> "${prompt}"\nChromed AI will act like this until you reset it.`);
+      return interaction.reply(` Custom personality set!\n> "${prompt}"\nChromed AI will act like this until you reset it.`);
     }
 
     if (sub === "reset") {
-      userData.model = "genius";
+      userData.model = DEFAULT_MODEL;
       userData.customPrompt = "";
       interaction.client.memory.set(userId, userData);
 
@@ -146,15 +182,15 @@ module.exports = {
         await db.end();
       }
 
-      return interaction.reply(`${E.success} Reset to **Genius** and cleared your custom personality.`);
+      return interaction.reply(` Reset to **Genius** and cleared your custom personality.`);
     }
 
     if (sub === "info") {
-      const currentModel = MODELS[userData.model] || MODELS["genius"];
+      const currentModel = MODELS[userData.model] || MODELS[DEFAULT_MODEL];
       const customPrompt = userData.customPrompt || "None";
 
       return interaction.reply({
-        content: `${E.ai} **Your Chromed AI Settings:**\n **Model:** ${currentModel.label} (\`${currentModel.id}\`)\n> ${currentModel.desc}\n\n **Custom Personality:** ${customPrompt}`,
+        content: `**Your Chromed AI Settings:**\n **Model:** ${currentModel.label}\n> ${currentModel.desc}\n> Providers: ${currentModel.providers.map(p => `${p.name}: ${p.id}`).join(" | ")}\n\n **Custom Personality:** ${customPrompt}`,
         ephemeral: true
       });
     }
