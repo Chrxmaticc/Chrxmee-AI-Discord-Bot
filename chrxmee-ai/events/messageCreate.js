@@ -103,50 +103,50 @@ const MODELS = {
   genius: {
     label: "Genius",
     providers: [
-      { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
-      { name: "groq", id: "llama-3.3-70b-versatile", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" }
+      { name: "groq", id: "llama-3.3-70b-instruct", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
     ]
   },
   speedster: {
     label: "Speedster",
     providers: [
-      { name: "navy", id: "gpt-4.1-mini", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
-      { name: "groq", id: "llama-3.1-8b-instant", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" }
+      { name: "groq", id: "llama-3.1-8b-instant", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1-mini", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
     ]
   },
   thinker: {
     label: "Thinker",
     providers: [
-      { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
-      { name: "groq", id: "openai/gpt-oss-120b", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" }
+      { name: "groq", id: "qwen-2.5-32b", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
     ]
   },
   creative: {
     label: "Creative",
     providers: [
-      { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
-      { name: "groq", id: "qwen/qwen3-32b", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" }
+      { name: "groq", id: "qwen-2.5-coder-32b", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
     ]
   },
   efficient: {
     label: "Efficient",
     providers: [
-      { name: "navy", id: "gpt-4.1-mini", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
-      { name: "groq", id: "qwen-qwq-32b", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" }
+      { name: "groq", id: "llama-3.2-3b-preview", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1-mini", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
     ]
   },
   vision: {
     label: "Vision",
     providers: [
-      { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
-      { name: "groq", id: "llama-3.2-11b-vision-preview", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" }
+      { name: "groq", id: "llama-3.2-11b-vision-preview", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
     ]
   },
   agent: {
     label: "Agent",
     providers: [
-      { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
-      { name: "groq", id: "compound-beta", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" }
+      { name: "groq", id: "deepseek-r1-distill-llama-70b", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
     ]
   },
 };
