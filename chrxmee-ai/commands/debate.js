@@ -1,66 +1,68 @@
 const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 
-// ─── HYBRID MODELS (Navy primary, Groq backup) ───────────────────
+// ─── HYBRID MODELS (Groq primary, Navy backup) ───────────────────
 const MODELS = {
   genius: {
     label: "Genius",
     providers: [
-      { name: "navy", id: "gpt-4.1",      url: "https://api.navy/v1/chat/completions",      keyEnv: "NAVY_API_KEY" },
-      { name: "groq", id: "llama-3.3-70b-versatile", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" }
+      { name: "groq", id: "openai/gpt-oss-120b", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
     ]
   },
   speedster: {
     label: "Speedster",
     providers: [
-      { name: "navy", id: "gpt-4.1-mini", url: "https://api.navy/v1/chat/completions",      keyEnv: "NAVY_API_KEY" },
-      { name: "groq", id: "llama-3.1-8b-instant",    url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" }
+      { name: "groq", id: "openai/gpt-oss-20b", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1-mini", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
     ]
   },
   thinker: {
     label: "Thinker",
     providers: [
-      { name: "navy", id: "gpt-4.1",      url: "https://api.navy/v1/chat/completions",      keyEnv: "NAVY_API_KEY" },
-      { name: "groq", id: "openai/gpt-oss-120b",     url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" }
+      { name: "groq", id: "openai/gpt-oss-120b", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
     ]
   },
   creative: {
     label: "Creative",
     providers: [
-      { name: "navy", id: "gpt-4.1",      url: "https://api.navy/v1/chat/completions",      keyEnv: "NAVY_API_KEY" },
-      { name: "groq", id: "qwen/qwen3-32b",          url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" }
+      { name: "groq", id: "qwen/qwen3.6-27b", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
     ]
   },
   efficient: {
     label: "Efficient",
     providers: [
-      { name: "navy", id: "gpt-4.1-mini", url: "https://api.navy/v1/chat/completions",      keyEnv: "NAVY_API_KEY" },
-      { name: "groq", id: "qwen-qwq-32b",            url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" }
+      { name: "groq", id: "groq/compound-mini", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1-mini", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
     ]
   },
   vision: {
     label: "Vision",
     providers: [
-      { name: "navy", id: "gpt-4.1",      url: "https://api.navy/v1/chat/completions",      keyEnv: "NAVY_API_KEY" },
-      { name: "groq", id: "llama-3.2-11b-vision-preview", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" }
+      { name: "groq", id: "qwen/qwen3.6-27b", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
     ]
   },
   agent: {
     label: "Agent",
     providers: [
-      { name: "navy", id: "gpt-4.1",      url: "https://api.navy/v1/chat/completions",      keyEnv: "NAVY_API_KEY" },
-      { name: "groq", id: "compound-beta",           url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" }
+      { name: "groq", id: "groq/compound", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+      { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" }
     ]
   },
 };
 
 const DEFAULT_MODEL = "genius";
 
-async function callAI(modelKey, messages, temperature = 0.75, maxTokens = 1024) {
+async function callAI(modelKey, messages, temperature = 0.8, maxTokens = 1024) {
   const model = MODELS[modelKey] || MODELS[DEFAULT_MODEL];
   let lastError;
   for (const provider of model.providers) {
     const apiKey = process.env[provider.keyEnv];
     if (!apiKey) continue;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
     try {
       const response = await fetch(provider.url, {
         method: "POST",
@@ -74,7 +76,9 @@ async function callAI(modelKey, messages, temperature = 0.75, maxTokens = 1024) 
           temperature,
           max_tokens: maxTokens,
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`${provider.name} error ${response.status}: ${errorText.slice(0, 200)}`);
@@ -84,6 +88,7 @@ async function callAI(modelKey, messages, temperature = 0.75, maxTokens = 1024) 
       if (content) return content;
       throw new Error(`No content from ${provider.name}`);
     } catch (err) {
+      clearTimeout(timeout);
       console.error(`${provider.name} failed:`, err.message);
       lastError = err;
     }
@@ -93,59 +98,123 @@ async function callAI(modelKey, messages, temperature = 0.75, maxTokens = 1024) 
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName("ask")
-    .setDescription("Ask Chromed AI anything!")
-    .setContexts([0, 1, 2])
-    .setIntegrationTypes([0, 1])
-    .addStringOption((option) =>
-      option.setName("question").setDescription("Your question").setRequired(true)
+    .setName("debate")
+    .setDescription("Start an interactive group or solo debate with Chromed AI")
+    .addStringOption(option =>
+      option.setName("mode")
+        .setDescription("Solo or Group")
+        .setRequired(true)
+        .addChoices(
+          { name: "Solo", value: "solo" },
+          { name: "Group", value: "group" }
+        )
+    )
+    .addStringOption(option =>
+      option.setName("topic")
+        .setDescription("The debate topic")
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option.setName("side")
+        .setDescription("Your side as starter")
+        .setRequired(true)
+        .addChoices(
+          { name: "Pro (agree)", value: "pro" },
+          { name: "Con (disagree)", value: "con" }
+        )
     ),
+
   async execute(interaction) {
-    const isButtonSim = interaction.isButton && interaction.isButton();
-    if (!isButtonSim) await interaction.deferReply();
+    await interaction.deferReply();
 
-    const question = interaction.options.getString("question");
-    const userId = interaction.user.id;
+    const mode = interaction.options.getString("mode");
+    const topic = interaction.options.getString("topic");
+    const starterSide = interaction.options.getString("side");
+    const botSide = starterSide === "pro" ? "con" : "pro";
+    const starter = interaction.user;
 
-    // In-memory history
-    if (!interaction.client.memory) interaction.client.memory = new Map();
-    let userData = interaction.client.memory.get(userId) || { history: [], model: DEFAULT_MODEL };
-    const modelKey = userData.model || DEFAULT_MODEL;
-    const history = userData.history || [];
-
-    // Build system prompt
-    const systemPrompt = `You are Chromed AI, a witty and edgy Discord bot. You speak with internet slang and lowercase mostly. Keep answers helpful and slightly sarcastic. Never use racial slurs or harmful content.`;
-
-    const messages = [{ role: "system", content: systemPrompt }, ...history, { role: "user", content: question }];
+    // Use user's selected model if stored, otherwise default
+    const starterData = interaction.client.memory?.get(starter.id) || { model: DEFAULT_MODEL };
+    const modelKey = starterData.model || DEFAULT_MODEL;
+    const modelLabel = MODELS[modelKey]?.label || "Genius";
 
     try {
-      const answer = await callAI(modelKey, messages, 0.75, 1024);
+      const thread = await interaction.channel.threads.create({
+        name: `⚖️ ${mode === "solo" ? "Solo" : "Group"} Debate: ${topic.substring(0, 40)}`,
+        autoArchiveDuration: 60,
+      });
+      await thread.members.add(starter.id);
 
-      // Store history
-      history.push({ role: "user", content: question });
-      history.push({ role: "assistant", content: answer });
-      if (history.length > 25) history = history.slice(-25);
-      userData.history = history;
-      interaction.client.memory.set(userId, userData);
+      await interaction.editReply(` Debate created in ${thread}`);
 
-      const modelLabel = MODELS[modelKey]?.label || "Genius";
-      const replyText = `> **Q:** ${question}\n**Chromed AI (${modelLabel}):** ${answer}`;
+      // Opening argument from bot
+      const opening = await callAI(
+        modelKey,
+        [
+          { role: "system", content: "You are a logical and persuasive debater." },
+          { role: "user", content: `Debate Topic: "${topic}". You are on the ${botSide.toUpperCase()} side. Provide a powerful opening argument.` }
+        ],
+        0.8,
+        1024
+      );
 
-      if (answer.length > 1900) {
-        const chunks = answer.match(/[\s\S]{1,1900}/g);
-        const first = `> **Q:** ${question}\n**Chromed AI (${modelLabel}):** ${chunks[0]}...`;
-        if (isButtonSim) await interaction.followUp(first);
-        else await interaction.editReply(first);
-        for (let i = 1; i < chunks.length; i++) await interaction.followUp(chunks[i]);
-      } else {
-        if (isButtonSim) await interaction.followUp(replyText);
-        else await interaction.editReply(replyText);
+      await thread.send(`🎙️ **Chromed AI (${modelLabel}):** ${opening}`);
+
+      const sides = new Map();
+      sides.set(starter.id, starterSide);
+
+      if (mode === "group") {
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId("debate_join_pro").setLabel("Join PRO").setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId("debate_join_con").setLabel("Join CON").setStyle(ButtonStyle.Danger)
+        );
+        const joinMsg = await thread.send({
+          content: `⚖️ **Debate Topic:** ${topic}\n\nClick below to join a side! (Ends in 60s)`,
+          components: [row],
+        });
+        const collector = joinMsg.createMessageComponentCollector({ time: 60000 });
+        collector.on("collect", async (i) => {
+          const side = i.customId === "debate_join_pro" ? "pro" : "con";
+          sides.set(i.user.id, side);
+          await i.reply({ content: `You joined the **${side.toUpperCase()}** side!`, ephemeral: true });
+          await thread.send(`📢 **${i.user.username}** joined side **${side.toUpperCase()}**!`);
+        });
+        collector.on("end", () => joinMsg.edit({ components: [] }));
       }
+
+      // Collect responses
+      const filter = (m) => !m.author.bot && sides.has(m.author.id);
+      const debateCollector = thread.createMessageCollector({ filter, idle: 300000 });
+
+      debateCollector.on("collect", async (m) => {
+        const userSide = sides.get(m.author.id);
+        await thread.sendTyping();
+        const instruction = userSide === botSide
+          ? "They are your teammate. Support their point and add a new layer of argument."
+          : "They are your opponent. Counter their specific point with logic and evidence.";
+
+        const response = await callAI(
+          modelKey,
+          [
+            { role: "system", content: `You are in a debate on "${topic}". You are ${botSide.toUpperCase()}.` },
+            { role: "user", content: `User (${userSide.toUpperCase()}) said: "${m.content}". ${instruction}` }
+          ],
+          0.8,
+          1024
+        );
+
+        if (response.length > 2000) {
+          const chunks = response.match(/[\s\S]{1,1900}/g);
+          for (const chunk of chunks) await thread.send(`🎙️ **Chromed AI:** ${chunk}`);
+        } else {
+          await thread.send(` **Chromed AI:** ${response}`);
+        }
+      });
+
+      debateCollector.on("end", () => thread.send(" Debate ended."));
     } catch (err) {
-      console.error("Ask error:", err.message);
-      const errorMsg = "AI services are down. Try again later.";
-      if (isButtonSim) await interaction.followUp(errorMsg);
-      else await interaction.editReply(errorMsg);
+      console.error("Debate error:", err);
+      await interaction.editReply("Failed to start debate.");
     }
   },
 };
