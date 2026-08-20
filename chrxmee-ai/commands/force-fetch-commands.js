@@ -1,15 +1,19 @@
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 
 const OWNER_ID = '1332518492620197961';
 // by the way you can change it to your own user id, if youre using this repo on your bot!
 
 module.exports = {
-  name: 'forcefetch',
-  aliases: ['ff', 'fetchcmds'],
-  async execute(client, message) {
-    if (message.author.id !== OWNER_ID) return;
+  data: new SlashCommandBuilder()
+    .setName('forcefetch')
+    .setDescription('force fetch global commands'),
 
-    const msg = await message.reply('fetching commands rq!!');
+  async execute(client, interaction) {
+    if (interaction.user.id !== OWNER_ID) {
+      return interaction.reply({ content: 'nah', ephemeral: true });
+    }
+
+    await interaction.reply('fetching commands rq!!');
 
     try {
       const commands = await client.application.commands.fetch();
@@ -18,15 +22,15 @@ module.exports = {
         .setColor(0x57f287)
         .setDescription(`fetched ${commands.size} commands ig it worked prob`);
 
-      await msg.edit({ content: null, embeds: [embed] });
+      await interaction.editReply({ content: null, embeds: [embed] });
     } catch (err) {
       console.error(err);
 
       const embed = new EmbedBuilder()
         .setColor(0xed4245)
-        .setDescription('fetch failed bruh😭 error: ${err.message}');
+        .setDescription(`fetch failed bruh😭 error: ${err.message}`);
 
-      await msg.edit({ content: null, embeds: [embed] });
+      await interaction.editReply({ content: null, embeds: [embed] });
     }
   }
 };
