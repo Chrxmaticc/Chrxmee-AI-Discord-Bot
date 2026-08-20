@@ -569,6 +569,9 @@ console.log("MEGA MIGRATION COMPLETE – all tables and columns exist.");
     await pgClient.query(`CREATE TABLE IF NOT EXISTS guild_settings (guild_id BIGINT PRIMARY KEY, wake_up_mode TEXT DEFAULT 'default', auto_respond BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT NOW())`);
     console.log("guild_settings table ready");
 
+    await pgClient.query(`ALTER TABLE guild_settings ADD COLUMN IF NOT EXISTS prefix TEXT DEFAULT '!'`);
+console.log("guild_settings.prefix column ready");
+
     await pgClient.query(`CREATE TABLE IF NOT EXISTS user_birthdays (user_id BIGINT PRIMARY KEY, birthday_date DATE NOT NULL, timezone TEXT NOT NULL, birthday_role_id BIGINT, ping_role_id BIGINT, set_at TIMESTAMP DEFAULT NOW())`);
     console.log("user_birthdays table ready");
 
