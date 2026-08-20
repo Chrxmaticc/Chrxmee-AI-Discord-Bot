@@ -8,24 +8,18 @@ module.exports = {
     const client = message.client;
     const allowedOwners = [process.env.OWNER_ID, process.env.OWNER_ID2].filter(Boolean);
 
-    if (commandName === "ping") {
-      return message.reply("pong!");
-    }
-
-    if (commandName === "id") {
-      return message.reply(`Client ID: ${client.user.id}\nTag: ${client.user.tag}`);
-    }
+    if (commandName === "ping") return message.reply("pong!");
+    if (commandName === "id") return message.reply(`Client ID: ${client.user.id}\nTag: ${client.user.tag}`);
 
     if (commandName === "deploy") {
-      if (!allowedOwners.includes(message.author.id)) {
-        return message.reply("Owner only.");
-      }
+      if (!allowedOwners.includes(message.author.id)) return message.reply("Owner only.");
 
       const { REST, Routes } = require("discord.js");
       const fs = require("fs");
       const path = require("path");
 
       const commands = [];
+      const seen = new Set();
       const commandsPath = path.join(__dirname, "..", "commands");
       const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith(".js"));
 
@@ -33,6 +27,12 @@ module.exports = {
         try {
           const command = require(path.join(commandsPath, file));
           if ("data" in command && "execute" in command) {
+            const name = command.data.name;
+            if (seen.has(name)) {
+              console.warn(` Duplicate command name skipped: ${name} (from ${file})`);
+              continue;
+            }
+            seen.add(name);
             commands.push(command.data.toJSON());
           }
         } catch (e) {
@@ -41,13 +41,12 @@ module.exports = {
       }
 
       const rest = new REST({ version: "10" }).setToken(process.env.BOT_TOKEN);
-
       try {
         const registered = await rest.put(
           Routes.applicationCommands(client.user.id),
           { body: commands }
         );
-        return message.reply(` Registered **${registered.length}** slash commands. They should appear shortly.`);
+        return message.reply(` Registered **${registered.length}** slash commands.`);
       } catch (err) {
         return message.reply(` Registration failed: ${err.message}`);
       }
