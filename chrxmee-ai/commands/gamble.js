@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
-const OWNER_ID = '902685494247325776';
+const OWNER_ID = '1332518492620197961';
 
 // ── COOLDOWNS ──────────────────────────────────────────────────────────────
 const cooldowns = new Map();
