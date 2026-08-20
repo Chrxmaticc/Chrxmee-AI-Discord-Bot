@@ -1,6 +1,15 @@
 const fs = require("fs");
 const path = require("path");
 
+// ─── CUSTOM EMOJIS ──────────────────────────────
+const E = {
+  success: "<:Verified_Icon:1527194184841167010>",
+  error: "<:no:1530373946795364362>",
+  ai: "<:Chrxmaticc_AI:1480094799292928132>",
+  agree: "<:agreed:1525639597135237131>",
+  angry: "<:angry_cry:1526029511882440744>",
+};
+
 module.exports = {
   name: "messageCreate",
   async execute(message) {
@@ -18,7 +27,6 @@ module.exports = {
       } catch {}
     }
 
-    // Ignore if message doesn't start with prefix
     if (!message.content.startsWith(prefix)) return;
 
     const args = message.content.slice(prefix.length).trim().split(/ +/);
@@ -27,16 +35,18 @@ module.exports = {
 
     // ─── Dedicated prefix commands ────
     if (commandName === "ping") {
-      return message.reply("pong!");
+      return message.reply(`${E.agree} pong!`);
     }
 
     if (commandName === "id") {
-      return message.reply(`Client ID: ${client.user.id}\nTag: ${client.user.tag}`);
+      return message.reply(`${E.ai} client id: ${client.user.id}\ntag: ${client.user.tag}`);
     }
 
     if (commandName === "deploy") {
       const allowedOwners = [process.env.OWNER_ID, process.env.OWNER_ID2].filter(Boolean);
-      if (!allowedOwners.includes(message.author.id)) return message.reply("Owner only.");
+      if (!allowedOwners.includes(message.author.id)) {
+        return message.reply(`${E.error} owner only.`);
+      }
 
       const { REST, Routes } = require("discord.js");
       const fs = require("fs");
@@ -55,14 +65,14 @@ module.exports = {
             const name = command.data.name.toLowerCase();
             if (seen.has(name)) {
               duplicates.push(command.data.name);
-              console.warn(`duplicate command name skipped: ${command.data.name} (from ${file})`);
+              console.warn(`⚠️ duplicate command name skipped: ${command.data.name} (from ${file})`);
               continue;
             }
             seen.add(name);
             commands.push(command.data.toJSON());
           }
         } catch (e) {
-          console.error(`Skipped ${file}: ${e.message}`);
+          console.error(`skipped ${file}: ${e.message}`);
         }
       }
 
@@ -72,9 +82,9 @@ module.exports = {
           Routes.applicationCommands(client.user.id),
           { body: commands }
         );
-        return message.reply(`registered **${registered.length}** slash commands twin.${duplicates.length ? ` (skipped duplicates: ${duplicates.join(", ")})` : ""}`);
+        return message.reply(`${E.success} registered **${registered.length}** slash commands.${duplicates.length ? ` (skipped duplicates: ${duplicates.join(", ")})` : ""}`);
       } catch (err) {
-        return message.reply(`registration failed: ${err.message}`);
+        return message.reply(`${E.error} registration failed: ${err.message}`);
       }
     }
 
@@ -97,7 +107,7 @@ module.exports = {
     const command = client.prefixCommands.get(commandName);
     if (!command) return;
 
-    // Build fake interaction object
+    // Build fake interaction with string/object support and custom emojis
     const interaction = {
       user: message.author,
       member: message.member,
@@ -112,14 +122,23 @@ module.exports = {
         if (typeof options === "string") return message.reply(options);
         if (options && options.embeds) return message.reply({ embeds: options.embeds });
         if (options && options.content) return message.reply(options.content);
-        return message.reply("Done.");
+        if (options && options.embeds && options.content) return message.reply({ content: options.content, embeds: options.embeds });
+        return message.reply(`${E.error} done.`);
       },
       followUp: async (options) => {
         if (typeof options === "string") return message.channel.send(options);
         if (options && options.embeds) return message.channel.send({ embeds: options.embeds });
-        return message.channel.send(options.content || "Done.");
+        if (options && options.content) return message.channel.send(options.content);
+        if (options && options.embeds && options.content) return message.channel.send({ content: options.content, embeds: options.embeds });
+        return message.channel.send(`${E.error} done.`);
       },
-      editReply: async (options) => message.reply(options.content || "Done."),
+      editReply: async (options) => {
+        if (typeof options === "string") return message.reply(options);
+        if (options && options.embeds) return message.reply({ embeds: options.embeds });
+        if (options && options.content) return message.reply(options.content);
+        if (options && options.embeds && options.content) return message.reply({ content: options.content, embeds: options.embeds });
+        return message.reply(`${E.error} done.`);
+      },
       options: {
         getSubcommand: () => args[0] || null,
         getString: () => args.join(" ") || null,
@@ -137,7 +156,7 @@ module.exports = {
       await command.execute(interaction, client);
     } catch (err) {
       console.error(`prefix execution error for ${commandName}:`, err.message);
-      message.reply("something went wrong with that prefix command twin.").catch(() => {});
+      message.reply(`${E.error} something went wrong with that prefix command.`).catch(() => {});
     }
   },
 };
