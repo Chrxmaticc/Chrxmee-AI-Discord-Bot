@@ -241,27 +241,34 @@ client.once("ready", async () => {
     }, 30_000);
 
         // ─── AUTO-REGISTER SLASH COMMANDS ─────────────
-    const { REST, Routes } = require("discord.js");
+        const { REST, Routes } = require("discord.js");
     const fs = require("fs");
     const path = require("path");
     const commands = [];
+    const seen = new Set();
     const commandsPath = path.join(__dirname, "commands");
     const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith(".js"));
 
     for (const file of commandFiles) {
       const command = require(path.join(commandsPath, file));
       if ("data" in command && "execute" in command) {
+        const name = command.data.name;
+        if (seen.has(name)) {
+          console.warn(`⚠️ Duplicate command name skipped: ${name} (from ${file})`);
+          continue;
+        }
+        seen.add(name);
         commands.push(command.data.toJSON());
       }
     }
 
     const rest = new REST({ version: "10" }).setToken(process.env.BOT_TOKEN);
     try {
-      console.log(` Registering ${commands.length} slash commands...`);
+      console.log(`🔄 Registering ${commands.length} slash commands...`);
       await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-      console.log(" Slash commands registered successfully!");
+      console.log("✅ Slash commands registered successfully!");
     } catch (err) {
-      console.error(" Slash command registration failed:", err);
+      console.error("❌ Slash command registration failed:", err);
     }
 
     // Initial streaming presence
