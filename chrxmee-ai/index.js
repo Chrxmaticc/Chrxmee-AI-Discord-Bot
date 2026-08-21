@@ -629,6 +629,22 @@ console.log("guild_settings.prefix column ready");
         await pgClient.query(`CREATE TABLE IF NOT EXISTS user_fonts (user_id BIGINT PRIMARY KEY, style TEXT DEFAULT 'normal')`);
 console.log("user_fonts table ready");
 
+    // Command access table
+await pgClient.query(`CREATE TABLE IF NOT EXISTS cmd_access (
+  id SERIAL PRIMARY KEY,
+  guild_id BIGINT NOT NULL,
+  command_name TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  target_id BIGINT NOT NULL,
+  access TEXT NOT NULL,
+  UNIQUE (guild_id, command_name, target_type, target_id)
+)`);
+console.log("cmd_access table ready");
+
+// Add default mode column to guild_settings
+await pgClient.query(`ALTER TABLE guild_settings ADD COLUMN IF NOT EXISTS cmd_default_mode TEXT DEFAULT 'allow_all'`);
+console.log("guild_settings.cmd_default_mode column ready");
+
 // Blacklist & Whitelist tables
 await pgClient.query(`CREATE TABLE IF NOT EXISTS user_blacklist (
   user_id BIGINT PRIMARY KEY,
