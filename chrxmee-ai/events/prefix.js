@@ -1,14 +1,13 @@
 const fs = require("fs");
 const path = require("path");
 
-// ─── CUSTOM EMOJIS ──────────────────────────────
 const E = {
   success: "<:Verified_Icon:1527194184841167010>",
   error: "<:no:1530373946795364362>",
   ai: "<:Chrxmaticc_AI:1480094799292928132>",
   agree: "<:agreed:1525639597135237131>",
-  angry: "<:angry_cry:1526029511882440744>",
 };
+const APPEAL_LINK = "https://discord.gg/rTrJyPyayg";
 
 module.exports = {
   name: "messageCreate",
@@ -17,6 +16,26 @@ module.exports = {
 
     const client = message.client;
     const pool = client.pool;
+
+    // ─── Blacklist gate for prefix commands ────
+    const userId = message.author.id;
+    const guildId = message.guildId;
+    try {
+      const userBl = await pool.query(`SELECT reason FROM user_blacklist WHERE user_id = $1`, [userId]);
+      if (userBl.rows[0]) {
+        const reason = userBl.rows[0].reason || "no reason provided";
+        return message.reply(`${E.error} yeah you can’t access this command, WELL FOLLOW THE RULES BUDDY. heres the reason, appeal in ${APPEAL_LINK} if you think this is false. reason: ${reason}`).catch(() => {});
+      }
+      if (guildId) {
+        const serverBl = await pool.query(`SELECT reason FROM server_blacklist WHERE guild_id = $1`, [guildId]);
+        if (serverBl.rows[0]) {
+          const reason = serverBl.rows[0].reason || "no reason provided";
+          return message.reply(`${E.error} this server is blacklisted. reason: ${reason}. appeal at ${APPEAL_LINK}`).catch(() => {});
+        }
+      }
+    } catch (err) {
+      console.error("Blacklist check in prefix failed:", err.message);
+    }
 
     // ─── Get server-specific prefix from DB ────
     let prefix = "!";
@@ -33,25 +52,17 @@ module.exports = {
     const commandName = args.shift()?.toLowerCase();
     if (!commandName) return;
 
-    // ─── Dedicated prefix commands ────
-    if (commandName === "ping") {
-      return message.reply(`${E.agree} pong!`);
-    }
-
-    if (commandName === "id") {
-      return message.reply(`${E.ai} client id: ${client.user.id}\ntag: ${client.user.tag}`);
-    }
+    // ─── Dedicated prefix commands (ping, id, deploy) ────
+    if (commandName === "ping") return message.reply(`${E.agree} pong!`);
+    if (commandName === "id") return message.reply(`${E.ai} client id: ${client.user.id}\ntag: ${client.user.tag}`);
 
     if (commandName === "deploy") {
       const allowedOwners = [process.env.OWNER_ID, process.env.OWNER_ID2].filter(Boolean);
-      if (!allowedOwners.includes(message.author.id)) {
-        return message.reply(`${E.error} owner only.`);
-      }
+      if (!allowedOwners.includes(message.author.id)) return message.reply(`${E.error} owner only.`);
 
       const { REST, Routes } = require("discord.js");
       const fs = require("fs");
       const path = require("path");
-
       const commands = [];
       const seen = new Set();
       const duplicates = [];
@@ -65,7 +76,7 @@ module.exports = {
             const name = command.data.name.toLowerCase();
             if (seen.has(name)) {
               duplicates.push(command.data.name);
-              console.warn(`⚠️ duplicate command name skipped: ${command.data.name} (from ${file})`);
+              console.warn(` duplicate command name skipped: ${command.data.name} (from ${file})`);
               continue;
             }
             seen.add(name);
@@ -78,10 +89,7 @@ module.exports = {
 
       const rest = new REST({ version: "10" }).setToken(process.env.BOT_TOKEN);
       try {
-        const registered = await rest.put(
-          Routes.applicationCommands(client.user.id),
-          { body: commands }
-        );
+        const registered = await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
         return message.reply(`${E.success} registered **${registered.length}** slash commands.${duplicates.length ? ` (skipped duplicates: ${duplicates.join(", ")})` : ""}`);
       } catch (err) {
         return message.reply(`${E.error} registration failed: ${err.message}`);
@@ -107,7 +115,7 @@ module.exports = {
     const command = client.prefixCommands.get(commandName);
     if (!command) return;
 
-    // Build fake interaction with string/object support and custom emojis
+    // Build fake interaction
     const interaction = {
       user: message.author,
       member: message.member,
