@@ -715,7 +715,7 @@ console.log("server_autochange columns ensured with interval_minutes");
   reward_amount INTEGER NOT NULL DEFAULT 100,
   cooldown_hours INTEGER NOT NULL DEFAULT 24,
   announce_channel BIGINT,
-  announce_message TEXT DEFAULT '🎉 **+{amount} merits** for repping the invite! Share daily for more.'
+  announce_message TEXT DEFAULT 'you gotten **+{amount} merits** for repping the invite! share the link for more twin ❤️.'
 )`);
 console.log("vanity_config table ready");
 
