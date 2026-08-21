@@ -9,24 +9,25 @@ const E = {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("cmdaccess")
-    .setDescription("Manage command permissions for roles or users")
+    .setDescription("manage command permissions for roles or users")
     .addSubcommand(sub =>
       sub.setName("allow")
         .setDescription("Allow a command for a role or user")
         .addStringOption(opt => opt.setName("target_type").setDescription("Role or User").setRequired(true)
           .addChoices({ name: "Role", value: "role" }, { name: "User", value: "user" }))
+        .addStringOption(opt => opt.setName("command").setDescription("Command name (or 'all')").setRequired(true))
         .addRoleOption(opt => opt.setName("role").setDescription("Role to allow").setRequired(false))
         .addUserOption(opt => opt.setName("user").setDescription("User to allow").setRequired(false))
-        .addStringOption(opt => opt.setName("command").setDescription("Command name (or 'all')").setRequired(true))
     )
     .addSubcommand(sub =>
       sub.setName("deny")
         .setDescription("Deny a command for a role or user")
         .addStringOption(opt => opt.setName("target_type").setDescription("Role or User").setRequired(true)
           .addChoices({ name: "Role", value: "role" }, { name: "User", value: "user" }))
+        .addStringOption(opt => opt.setName("command").setDescription("Command name (or 'all')").setRequired(true))
         .addRoleOption(opt => opt.setName("role").setDescription("Role to deny").setRequired(false))
         .addUserOption(opt => opt.setName("user").setDescription("User to deny").setRequired(false))
-        .addStringOption(opt => opt.setName("command").setDescription("Command name (or 'all')").setRequired(true))
+        .addStringOption(opt => opt.setName("reason").setDescription("Reason for denying (shown to user)").setRequired(false))
     )
     .addSubcommand(sub =>
       sub.setName("list")
@@ -59,26 +60,28 @@ module.exports = {
       const role = interaction.options.getRole("role");
       const user = interaction.options.getUser("user");
       const command = interaction.options.getString("command").toLowerCase();
-      const access = sub; // allow or deny
+      const access = sub;
+      const reason = sub === "deny" ? interaction.options.getString("reason") || null : null;
 
       const targetId = targetType === "role" ? role?.id : user?.id;
       if (!targetId) return interaction.reply({ content: `${E.error} you must specify the ${targetType}.`, ephemeral: true });
 
       await pool.query(
-        `INSERT INTO cmd_access (guild_id, command_name, target_type, target_id, access)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO cmd_access (guild_id, command_name, target_type, target_id, access, reason)
+         VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (guild_id, command_name, target_type, target_id)
-         DO UPDATE SET access = $5`,
-        [guildId, command, targetType, targetId, access]
+         DO UPDATE SET access = $5, reason = $6`,
+        [guildId, command, targetType, targetId, access, reason]
       );
 
       const targetName = targetType === "role" ? role.name : user.username;
-      return interaction.reply({ embeds: [new EmbedBuilder().setColor(0x7c7ce0).setDescription(`${E.success} ${access}ed **${targetName}** for command **${command}**.`)] });
+      const extra = reason ? `\nreason: ${reason}` : "";
+      return interaction.reply({ embeds: [new EmbedBuilder().setColor(0x7c7ce0).setDescription(`${E.success} ${access}ed **${targetName}** for command **${command}**.${extra}`)] });
     }
 
     if (sub === "list") {
       const commandFilter = interaction.options.getString("command")?.toLowerCase();
-      let query = `SELECT command_name, target_type, target_id, access FROM cmd_access WHERE guild_id = $1`;
+      let query = `SELECT command_name, target_type, target_id, access, reason FROM cmd_access WHERE guild_id = $1`;
       const params = [guildId];
       if (commandFilter) {
         query += ` AND command_name = $2`;
@@ -89,7 +92,8 @@ module.exports = {
 
       const lines = res.rows.map(r => {
         const targetStr = r.target_type === "role" ? `<@&${r.target_id}>` : `<@${r.target_id}>`;
-        return `\`${r.command_name}\` - ${targetStr} - ${r.access}`;
+        const reasonStr = r.reason ? ` — ${r.reason}` : "";
+        return `\`${r.command_name}\` - ${targetStr} - ${r.access}${reasonStr}`;
       }).join("\n");
       return interaction.reply({ embeds: [new EmbedBuilder().setColor(0x7c7ce0).setTitle("Command Access Rules").setDescription(lines)] });
     }
