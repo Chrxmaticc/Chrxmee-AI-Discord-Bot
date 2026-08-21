@@ -45,7 +45,32 @@ module.exports = {
             return message.reply(`${E.error} yeah you can’t access this command, WELL FOLLOW THE RULES BUDDY. heres the reason, appeal in ${APPEAL_LINK} if you think this is false. reason: ${reason}`).catch(() => {});
           }
         }
+  
+        // ─── COMMAND ACCESS CHECK FOR PREFIX ───
+        if (message.guild) {
+          const defRes = await pool.query(`SELECT cmd_default_mode FROM guild_settings WHERE guild_id = $1`, [message.guildId]);
+          const defaultMode = defRes.rows[0]?.cmd_default_mode || "allow_all";
 
+          const rules = await pool.query(
+            `SELECT target_type, target_id, access FROM cmd_access
+             WHERE guild_id = $1 AND (command_name = $2 OR command_name = 'all')`,
+            [message.guildId, commandName]
+          );
+
+          let allowed = defaultMode === "allow_all";
+          for (const rule of rules.rows) {
+            const isMatch = rule.target_type === "user"
+              ? rule.target_id === message.author.id
+              : message.member?.roles.cache.has(rule.target_id);
+            if (!isMatch) continue;
+            if (rule.access === "deny") { allowed = false; break; }
+            else if (rule.access === "allow") allowed = true;
+          }
+          if (!allowed) {
+            return message.reply(`${E.error} you don't have permission to use this command in this server.`).catch(() => {});
+          }
+        }
+        
         // Check server blacklist
         if (guildId && !isServerWhitelisted) {
           const serverBl = await pool.query(`SELECT reason FROM server_blacklist WHERE guild_id = $1`, [guildId]);
