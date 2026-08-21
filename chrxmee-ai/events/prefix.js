@@ -17,24 +17,46 @@ module.exports = {
     const client = message.client;
     const pool = client.pool;
 
-    // ─── Blacklist gate for prefix commands ────
+    // ─── WHITELIST OVERRIDE CHECK ───
     const userId = message.author.id;
     const guildId = message.guildId;
+
+    let isUserWhitelisted = false;
+    let isServerWhitelisted = false;
+
     try {
-      const userBl = await pool.query(`SELECT reason FROM user_blacklist WHERE user_id = $1`, [userId]);
-      if (userBl.rows[0]) {
-        const reason = userBl.rows[0].reason || "no reason provided";
-        return message.reply(`${E.error} yeah you can’t access this command, WELL FOLLOW THE RULES BUDDY. heres the reason, appeal in ${APPEAL_LINK} if you think this is false. reason: ${reason}`).catch(() => {});
-      }
+      const userWl = await pool.query(`SELECT 1 FROM user_whitelist WHERE user_id = $1`, [userId]);
+      isUserWhitelisted = userWl.rows.length > 0;
+
       if (guildId) {
-        const serverBl = await pool.query(`SELECT reason FROM server_blacklist WHERE guild_id = $1`, [guildId]);
-        if (serverBl.rows[0]) {
-          const reason = serverBl.rows[0].reason || "no reason provided";
-          return message.reply(`${E.error} this server is blacklisted. reason: ${reason}. appeal at ${APPEAL_LINK}`).catch(() => {});
+        const serverWl = await pool.query(`SELECT 1 FROM server_whitelist WHERE guild_id = $1`, [guildId]);
+        isServerWhitelisted = serverWl.rows.length > 0;
+      }
+
+      // If whitelisted, skip blacklist checks entirely
+      if (isUserWhitelisted && (guildId ? isServerWhitelisted : true)) {
+        // allowed
+      } else {
+        // Check user blacklist
+        if (!isUserWhitelisted) {
+          const userBl = await pool.query(`SELECT reason FROM user_blacklist WHERE user_id = $1`, [userId]);
+          if (userBl.rows[0]) {
+            const reason = userBl.rows[0].reason || "no reason provided";
+            return message.reply(`${E.error} yeah you can’t access this command, WELL FOLLOW THE RULES BUDDY. heres the reason, appeal in ${APPEAL_LINK} if you think this is false. reason: ${reason}`).catch(() => {});
+          }
+        }
+
+        // Check server blacklist
+        if (guildId && !isServerWhitelisted) {
+          const serverBl = await pool.query(`SELECT reason FROM server_blacklist WHERE guild_id = $1`, [guildId]);
+          if (serverBl.rows[0]) {
+            const reason = serverBl.rows[0].reason || "no reason provided";
+            return message.reply(`${E.error} this server is blacklisted. reason: ${reason}. appeal at ${APPEAL_LINK}`).catch(() => {});
+          }
         }
       }
     } catch (err) {
-      console.error("Blacklist check in prefix failed:", err.message);
+      console.error("Blacklist/whitelist check in prefix failed:", err.message);
     }
 
     // ─── Get server-specific prefix from DB ────
@@ -76,7 +98,7 @@ module.exports = {
             const name = command.data.name.toLowerCase();
             if (seen.has(name)) {
               duplicates.push(command.data.name);
-              console.warn(` duplicate command name skipped: ${command.data.name} (from ${file})`);
+              console.warn(`⚠️ duplicate command name skipped: ${command.data.name} (from ${file})`);
               continue;
             }
             seen.add(name);
