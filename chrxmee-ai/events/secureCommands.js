@@ -18,7 +18,6 @@ module.exports = {
       originalExecute.set(name, original);
 
       command.execute = async function (interaction, ...rest) {
-        // Owner-only commands bypass everything
         if (name === "blacklist" || name === "whitelist" || name === "cmdaccess") {
           return original.call(this, interaction, ...rest);
         }
@@ -27,15 +26,33 @@ module.exports = {
         const guildId = interaction.guildId;
 
         try {
-          // ─── BLACKLIST CHECK (user, then server) ───
-          const userBl = await pool.query(`SELECT reason FROM user_blacklist WHERE user_id = $1`, [userId]);
-          if (userBl.rows[0]) {
-            const reason = userBl.rows[0].reason || "no reason provided";
-            await interaction.reply({ content: `${E.error} yeah you can’t access this command, WELL FOLLOW THE RULES BUDDY. heres the reason, appeal in ${APPEAL_LINK} if you think this is false. reason: ${reason}`, ephemeral: true });
-            return;
+          // ─── WHITELIST OVERRIDE CHECK ───
+          const userWl = await pool.query(`SELECT 1 FROM user_whitelist WHERE user_id = $1`, [userId]);
+          const isUserWhitelisted = userWl.rows.length > 0;
+
+          let isServerWhitelisted = false;
+          if (guildId) {
+            const serverWl = await pool.query(`SELECT 1 FROM server_whitelist WHERE guild_id = $1`, [guildId]);
+            isServerWhitelisted = serverWl.rows.length > 0;
           }
 
-          if (guildId) {
+          // If both user and server whitelisted, allow
+          if (isUserWhitelisted && (guildId ? isServerWhitelisted : true)) {
+            return original.call(this, interaction, ...rest);
+          }
+
+          // ─── USER BLACKLIST ───
+          if (!isUserWhitelisted) {
+            const userBl = await pool.query(`SELECT reason FROM user_blacklist WHERE user_id = $1`, [userId]);
+            if (userBl.rows[0]) {
+              const reason = userBl.rows[0].reason || "no reason provided";
+              await interaction.reply({ content: `${E.error} yeah you can’t access this command, WELL FOLLOW THE RULES BUDDY. heres the reason, appeal in ${APPEAL_LINK} if you think this is false. reason: ${reason}`, ephemeral: true });
+              return;
+            }
+          }
+
+          // ─── SERVER BLACKLIST ───
+          if (guildId && !isServerWhitelisted) {
             const serverBl = await pool.query(`SELECT reason FROM server_blacklist WHERE guild_id = $1`, [guildId]);
             if (serverBl.rows[0]) {
               const reason = serverBl.rows[0].reason || "no reason provided";
@@ -44,7 +61,7 @@ module.exports = {
             }
           }
 
-          // ─── COMMAND ACCESS CHECK ───
+          // Command access check
           if (guildId) {
             const defRes = await pool.query(`SELECT cmd_default_mode FROM guild_settings WHERE guild_id = $1`, [guildId]);
             const defaultMode = defRes.rows[0]?.cmd_default_mode || "allow_all";
@@ -91,6 +108,6 @@ module.exports = {
       };
     }
 
-    console.log(" Slash commands wrapped with blacklist + command access checks (reasons supported).");
+    console.log(" Slash commands wrapped with blacklist + whitelist override + command access.");
   },
 };
