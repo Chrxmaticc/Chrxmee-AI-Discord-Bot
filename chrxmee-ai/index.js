@@ -147,11 +147,11 @@ client.on("messageDelete", (message) => {
   const text = message.content.toLowerCase();
   let roast = "";
   if (text.includes("kill") || text.includes("die") || text.includes("murder")) {
-    roast = `Whoa ${message.author}, threats already? Taking notes... God mode engaged.`;
+    roast = `hey man ${message.author}, dont say threats <:Son:1526536930693484575>`;
   } else if (text.includes("fuck") || text.includes("bitch") || text.includes("shit")) {
-    roast = `God, I guess? ${message.author} typed that with full chest and zero brain cells. Touch grass.`;
+    roast = `hey twin ${message.author} dont swear ples, JS KIDDING. but dont be callin nobody a bih got me?.`;
   } else if (text.includes("ugly") || text.includes("stupid") || text.includes("loser")) {
-    roast = `Oof ${message.author}... projecting much? Mirror called, wants its feelings back.`;
+    roast = `hey bro ${message.author} stop projecting yourself its not nice to talk about yourself that way :(.`;
   }
   if (roast) message.channel.send(roast).catch(() => {});
 });
