@@ -3,7 +3,7 @@ const { SlashCommandBuilder } = require("discord.js");
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("chat")
-    .setDescription("Start or continue a continuous conversation session")
+    .setDescription("start or continue a continuous conversation session")
     .addStringOption(option =>
       option.setName("mode")
         .setDescription("choose between solo or group mode to chat to me.")
