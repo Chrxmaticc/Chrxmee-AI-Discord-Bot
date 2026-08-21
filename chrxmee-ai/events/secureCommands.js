@@ -10,13 +10,12 @@ module.exports = {
     const pool = client.pool;
     const originalExecute = new Map();
 
-    // Wrap each slash command's execute function with a blacklist gate
     for (const [name, command] of client.commands) {
       if (typeof command.execute !== "function") continue;
       originalExecute.set(name, command.execute);
 
       command.execute = async function (interaction, ...rest) {
-        // Skip if owner commands (whitelist/blacklist) so they can always be used
+        // Always allow owner-only commands
         if (name === "blacklist" || name === "whitelist") {
           return originalExecute.get(name).call(this, interaction, ...rest);
         }
@@ -25,14 +24,33 @@ module.exports = {
         const guildId = interaction.guildId;
 
         try {
-          const userBl = await pool.query(`SELECT reason FROM user_blacklist WHERE user_id = $1`, [userId]);
-          if (userBl.rows[0]) {
-            const reason = userBl.rows[0].reason || "no reason provided";
-            await interaction.reply({ content: `${E.error} yeah you can’t access this command, WELL FOLLOW THE RULES BUDDY. heres the reason, appeal in ${APPEAL_LINK} if you think this is false. reason: ${reason}`, ephemeral: true });
-            return;
+          // ─── CHECK WHITELIST FIRST ───
+          const userWl = await pool.query(`SELECT 1 FROM user_whitelist WHERE user_id = $1`, [userId]);
+          const isUserWhitelisted = userWl.rows.length > 0;
+
+          let isServerWhitelisted = false;
+          if (guildId) {
+            const serverWl = await pool.query(`SELECT 1 FROM server_whitelist WHERE guild_id = $1`, [guildId]);
+            isServerWhitelisted = serverWl.rows.length > 0;
           }
 
-          if (guildId) {
+          // If both user and server are whitelisted, allow without any blacklist check
+          if (isUserWhitelisted && (guildId ? isServerWhitelisted : true)) {
+            return originalExecute.get(name).call(this, interaction, ...rest);
+          }
+
+          // ─── USER BLACKLIST (unless user whitelisted) ───
+          if (!isUserWhitelisted) {
+            const userBl = await pool.query(`SELECT reason FROM user_blacklist WHERE user_id = $1`, [userId]);
+            if (userBl.rows[0]) {
+              const reason = userBl.rows[0].reason || "no reason provided";
+              await interaction.reply({ content: `${E.error} yeah you can’t access this command, WELL FOLLOW THE RULES BUDDY. heres the reason, appeal in ${APPEAL_LINK} if you think this is false. reason: ${reason}`, ephemeral: true });
+              return;
+            }
+          }
+
+          // ─── SERVER BLACKLIST (unless server whitelisted) ───
+          if (guildId && !isServerWhitelisted) {
             const serverBl = await pool.query(`SELECT reason FROM server_blacklist WHERE guild_id = $1`, [guildId]);
             if (serverBl.rows[0]) {
               const reason = serverBl.rows[0].reason || "no reason provided";
@@ -41,17 +59,7 @@ module.exports = {
             }
           }
 
-          // Check whitelist overrides
-          const userWl = await pool.query(`SELECT 1 FROM user_whitelist WHERE user_id = $1`, [userId]);
-          if (!userWl.rows[0]) {
-            if (guildId) {
-              const serverWl = await pool.query(`SELECT 1 FROM server_whitelist WHERE guild_id = $1`, [guildId]);
-              if (!serverWl.rows[0]) {
-              }
-            }
-          }
-
-          // No blacklist, proceed
+          // If no blacklist or whitelist bypass, proceed normally
           return originalExecute.get(name).call(this, interaction, ...rest);
         } catch (err) {
           console.error(`Blacklist gate error for ${name}:`, err.message);
@@ -60,6 +68,6 @@ module.exports = {
       };
     }
 
-    console.log(" slash commands have been wrapped with blacklist checks.");
+    console.log("Slash commands wrapped with blacklist/whitelist checks.");
   },
 };
