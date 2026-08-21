@@ -629,7 +629,7 @@ console.log("guild_settings.prefix column ready");
         await pgClient.query(`CREATE TABLE IF NOT EXISTS user_fonts (user_id BIGINT PRIMARY KEY, style TEXT DEFAULT 'normal')`);
 console.log("user_fonts table ready");
 
-    // Command access table
+// Command access table with reason column
 await pgClient.query(`CREATE TABLE IF NOT EXISTS cmd_access (
   id SERIAL PRIMARY KEY,
   guild_id BIGINT NOT NULL,
@@ -637,9 +637,14 @@ await pgClient.query(`CREATE TABLE IF NOT EXISTS cmd_access (
   target_type TEXT NOT NULL,
   target_id BIGINT NOT NULL,
   access TEXT NOT NULL,
+  reason TEXT,
   UNIQUE (guild_id, command_name, target_type, target_id)
 )`);
 console.log("cmd_access table ready");
+
+// Ensure reason column exists on older tables
+await pgClient.query(`ALTER TABLE cmd_access ADD COLUMN IF NOT EXISTS reason TEXT`);
+console.log("cmd_access.reason column ready");
 
 // Add default mode column to guild_settings
 await pgClient.query(`ALTER TABLE guild_settings ADD COLUMN IF NOT EXISTS cmd_default_mode TEXT DEFAULT 'allow_all'`);
