@@ -17,11 +17,14 @@ module.exports = {
     const client = message.client;
     const pool = client.pool;
 
-    // ─── GET PREFIX FIRST ───
+    // ─── GET SERVER-SPECIFIC PREFIX ───
     let prefix = "!";
     if (message.guild) {
       try {
-        const res = await pool.query(`SELECT prefix FROM guild_settings WHERE guild_id = $1`, [message.guildId]);
+        const res = await pool.query(
+          `SELECT prefix FROM guild_settings WHERE guild_id = $1`,
+          [message.guildId]
+        );
         if (res.rows[0]?.prefix) prefix = res.rows[0].prefix;
       } catch {}
     }
@@ -35,31 +38,59 @@ module.exports = {
     const userId = message.author.id;
     const guildId = message.guildId;
 
-    // ─── WHITELIST / BLACKLIST CHECK ───
+    // ─── WHITELIST OVERRIDE & BLACKLIST CHECK ───
+    let isUserWhitelisted = false;
+    let isServerWhitelisted = false;
+
     try {
-      const userWl = await pool.query(`SELECT 1 FROM user_whitelist WHERE user_id = $1`, [userId]);
-      const isUserWhitelisted = userWl.rows.length > 0;
-      let isServerWhitelisted = false;
+      const userWl = await pool.query(
+        `SELECT 1 FROM user_whitelist WHERE user_id = $1`,
+        [userId]
+      );
+      isUserWhitelisted = userWl.rows.length > 0;
+
       if (guildId) {
-        const serverWl = await pool.query(`SELECT 1 FROM server_whitelist WHERE guild_id = $1`, [guildId]);
+        const serverWl = await pool.query(
+          `SELECT 1 FROM server_whitelist WHERE guild_id = $1`,
+          [guildId]
+        );
         isServerWhitelisted = serverWl.rows.length > 0;
       }
 
-      const isFullyWhitelisted = isUserWhitelisted && (guildId ? isServerWhitelisted : true);
+      // If fully whitelisted, skip blacklist checks
+      const isFullyWhitelisted =
+        isUserWhitelisted && (guildId ? isServerWhitelisted : true);
 
       if (!isFullyWhitelisted) {
+        // Check user blacklist
         if (!isUserWhitelisted) {
-          const userBl = await pool.query(`SELECT reason FROM user_blacklist WHERE user_id = $1`, [userId]);
+          const userBl = await pool.query(
+            `SELECT reason FROM user_blacklist WHERE user_id = $1`,
+            [userId]
+          );
           if (userBl.rows[0]) {
             const reason = userBl.rows[0].reason || "no reason provided";
-            return message.reply(`${E.error} yeah you can’t access this command, WELL FOLLOW THE RULES BUDDY. heres the reason, appeal in ${APPEAL_LINK} if you think this is false. reason: ${reason}`).catch(() => {});
+            return message
+              .reply(
+                `${E.error} yeah you can’t access this command, WELL FOLLOW THE RULES BUDDY. heres the reason, appeal in ${APPEAL_LINK} if you think this is false. reason: ${reason}`
+              )
+              .catch(() => {});
           }
         }
+
+        // Check server blacklist
         if (guildId && !isServerWhitelisted) {
-          const serverBl = await pool.query(`SELECT reason FROM server_blacklist WHERE guild_id = $1`, [guildId]);
+          const serverBl = await pool.query(
+            `SELECT reason FROM server_blacklist WHERE guild_id = $1`,
+            [guildId]
+          );
           if (serverBl.rows[0]) {
             const reason = serverBl.rows[0].reason || "no reason provided";
-            return message.reply(`${E.error} this server is blacklisted. reason: ${reason}. appeal at ${APPEAL_LINK}`).catch(() => {});
+            return message
+              .reply(
+                `${E.error} this server is blacklisted. reason: ${reason}. appeal at ${APPEAL_LINK}`
+              )
+              .catch(() => {});
           }
         }
       }
@@ -67,21 +98,29 @@ module.exports = {
       console.error("blacklist/whitelist check in prefix failed:", err.message);
     }
 
+    // ─── DEDICATED PREFIX COMMANDS ───
     if (commandName === "ping") return message.reply(`${E.agree} pong!`);
-    if (commandName === "id") return message.reply(`${E.ai} client id: ${client.user.id}\ntag: ${client.user.tag}`);
+    if (commandName === "id")
+      return message.reply(
+        `${E.ai} client id: ${client.user.id}\ntag: ${client.user.tag}`
+      );
 
     if (commandName === "deploy") {
       const allowedOwners = [process.env.OWNER_ID, process.env.OWNER_ID2].filter(Boolean);
-      if (!allowedOwners.includes(message.author.id)) return message.reply(`${E.error} owner only.`);
+      if (!allowedOwners.includes(message.author.id))
+        return message.reply(`${E.error} owner only.`);
 
       const { REST, Routes } = require("discord.js");
       const fs = require("fs");
       const path = require("path");
+
       const commands = [];
       const seen = new Set();
       const duplicates = [];
       const commandsPath = path.join(__dirname, "..", "commands");
-      const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith(".js"));
+      const commandFiles = fs
+        .readdirSync(commandsPath)
+        .filter((file) => file.endsWith(".js"));
 
       for (const file of commandFiles) {
         try {
@@ -90,7 +129,9 @@ module.exports = {
             const name = command.data.name.toLowerCase();
             if (seen.has(name)) {
               duplicates.push(command.data.name);
-              console.warn(`⚠️ duplicate command name skipped: ${command.data.name} (from ${file})`);
+              console.warn(
+                `⚠️ duplicate command name skipped: ${command.data.name} (from ${file})`
+              );
               continue;
             }
             seen.add(name);
@@ -103,17 +144,28 @@ module.exports = {
 
       const rest = new REST({ version: "10" }).setToken(process.env.BOT_TOKEN);
       try {
-        const registered = await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-        return message.reply(`${E.success} registered **${registered.length}** slash commands.${duplicates.length ? ` (skipped duplicates: ${duplicates.join(", ")})` : ""}`);
+        const registered = await rest.put(
+          Routes.applicationCommands(client.user.id),
+          { body: commands }
+        );
+        return message.reply(
+          `${E.success} registered **${registered.length}** slash commands.${
+            duplicates.length
+              ? ` (skipped duplicates: ${duplicates.join(", ")})`
+              : ""
+          }`
+        );
       } catch (err) {
         return message.reply(`${E.error} registration failed: ${err.message}`);
       }
     }
 
-    // Universal handler
+    // ─── UNIVERSAL HANDLER FOR OTHER SLASH COMMANDS ───
     if (!client.prefixCommands) {
       const commandsPath = path.join(__dirname, "..", "commands");
-      const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith(".js"));
+      const commandFiles = fs
+        .readdirSync(commandsPath)
+        .filter((file) => file.endsWith(".js"));
       const commands = new Map();
       for (const file of commandFiles) {
         try {
@@ -129,10 +181,13 @@ module.exports = {
     const command = client.prefixCommands.get(commandName);
     if (!command) return;
 
-    // ─── COMMAND ACCESS CHECK ───
+    // ─── COMMAND ACCESS CHECK (per-server, with reasons) ───
     if (message.guild) {
       try {
-        const defRes = await pool.query(`SELECT cmd_default_mode FROM guild_settings WHERE guild_id = $1`, [message.guildId]);
+        const defRes = await pool.query(
+          `SELECT cmd_default_mode FROM guild_settings WHERE guild_id = $1`,
+          [message.guildId]
+        );
         const defaultMode = defRes.rows[0]?.cmd_default_mode || "allow_all";
 
         const rules = await pool.query(
@@ -145,10 +200,12 @@ module.exports = {
         let denialReason = null;
 
         for (const rule of rules.rows) {
-          const isMatch = rule.target_type === "user"
-            ? rule.target_id === message.author.id
-            : message.member?.roles.cache.has(rule.target_id);
+          const isMatch =
+            rule.target_type === "user"
+              ? rule.target_id === message.author.id
+              : message.member?.roles.cache.has(rule.target_id);
           if (!isMatch) continue;
+
           if (rule.access === "deny") {
             allowed = false;
             denialReason = rule.reason || null;
@@ -158,6 +215,7 @@ module.exports = {
             denialReason = null;
           }
         }
+
         if (!allowed) {
           const errorMsg = denialReason
             ? `${E.error} ${denialReason}`
@@ -169,7 +227,7 @@ module.exports = {
       }
     }
 
-    // Fake interaction
+    // ─── FAKE INTERACTION ───
     const interaction = {
       user: message.author,
       member: message.member,
@@ -182,23 +240,33 @@ module.exports = {
       deferReply: async () => {},
       reply: async (options) => {
         if (typeof options === "string") return message.reply(options);
-        if (options && options.embeds) return message.reply({ embeds: options.embeds });
+        if (options && options.embeds)
+          return message.reply({ embeds: options.embeds });
         if (options && options.content) return message.reply(options.content);
-        if (options && options.embeds && options.content) return message.reply({ content: options.content, embeds: options.embeds });
+        if (options && options.embeds && options.content)
+          return message.reply({ content: options.content, embeds: options.embeds });
         return message.reply(`${E.error} done.`);
       },
       followUp: async (options) => {
         if (typeof options === "string") return message.channel.send(options);
-        if (options && options.embeds) return message.channel.send({ embeds: options.embeds });
-        if (options && options.content) return message.channel.send(options.content);
-        if (options && options.embeds && options.content) return message.channel.send({ content: options.content, embeds: options.embeds });
+        if (options && options.embeds)
+          return message.channel.send({ embeds: options.embeds });
+        if (options && options.content)
+          return message.channel.send(options.content);
+        if (options && options.embeds && options.content)
+          return message.channel.send({
+            content: options.content,
+            embeds: options.embeds,
+          });
         return message.channel.send(`${E.error} done.`);
       },
       editReply: async (options) => {
         if (typeof options === "string") return message.reply(options);
-        if (options && options.embeds) return message.reply({ embeds: options.embeds });
+        if (options && options.embeds)
+          return message.reply({ embeds: options.embeds });
         if (options && options.content) return message.reply(options.content);
-        if (options && options.embeds && options.content) return message.reply({ content: options.content, embeds: options.embeds });
+        if (options && options.embeds && options.content)
+          return message.reply({ content: options.content, embeds: options.embeds });
         return message.reply(`${E.error} done.`);
       },
       options: {
@@ -218,7 +286,9 @@ module.exports = {
       await command.execute(interaction, client);
     } catch (err) {
       console.error(`prefix execution error for ${commandName}:`, err.message);
-      message.reply(`${E.error} something went wrong with that prefix command.`).catch(() => {});
+      message
+        .reply(`${E.error} something went wrong with that prefix command.`)
+        .catch(() => {});
     }
   },
 };
