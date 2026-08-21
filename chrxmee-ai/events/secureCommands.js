@@ -12,7 +12,7 @@ module.exports = {
 
     for (const [name, command] of client.commands) {
       if (typeof command.execute !== "function") continue;
-      if (originalExecute.has(name)) continue; // avoid double wrapping
+      if (originalExecute.has(name)) continue;
 
       const original = command.execute;
       originalExecute.set(name, original);
@@ -46,50 +46,51 @@ module.exports = {
 
           // ─── COMMAND ACCESS CHECK ───
           if (guildId) {
-            // Get default mode
             const defRes = await pool.query(`SELECT cmd_default_mode FROM guild_settings WHERE guild_id = $1`, [guildId]);
             const defaultMode = defRes.rows[0]?.cmd_default_mode || "allow_all";
 
-            // Get all rules for this command (including 'all')
-            const commandName = name; // the command's name
             const rules = await pool.query(
-              `SELECT target_type, target_id, access FROM cmd_access
+              `SELECT target_type, target_id, access, reason FROM cmd_access
                WHERE guild_id = $1 AND (command_name = $2 OR command_name = 'all')`,
-              [guildId, commandName]
+              [guildId, name]
             );
 
-            let allowed = defaultMode === "allow_all"; // if allow_all, default allow; if deny_all, default deny
+            let allowed = defaultMode === "allow_all";
+            let denialReason = null;
 
             for (const rule of rules.rows) {
-              const isMatch = rule.target_type === "user" 
-                ? rule.target_id === userId 
+              const isMatch = rule.target_type === "user"
+                ? rule.target_id === userId
                 : interaction.member.roles.cache.has(rule.target_id);
               if (!isMatch) continue;
 
               if (rule.access === "deny") {
                 allowed = false;
-                break; // deny overrides
+                denialReason = rule.reason || null;
+                break;
               } else if (rule.access === "allow") {
                 allowed = true;
+                denialReason = null;
               }
             }
 
             if (!allowed) {
-              await interaction.reply({ content: `${E.error} you don't have permission to use this command in this server.`, ephemeral: true });
+              const errorMsg = denialReason
+                ? `${E.error} ${denialReason}`
+                : `${E.error} you don't have permission to use this command in this server.`;
+              await interaction.reply({ content: errorMsg, ephemeral: true });
               return;
             }
           }
 
-          // All checks passed, execute original
           return original.call(this, interaction, ...rest);
         } catch (err) {
           console.error(`Command gate error for ${name}:`, err.message);
-          // If gate fails, still try to execute original to avoid breaking
           return original.call(this, interaction, ...rest);
         }
       };
     }
 
-    console.log(" Slash commands wrapped with blacklist + command access checks.");
+    console.log(" Slash commands wrapped with blacklist + command access checks (reasons supported).");
   },
 };
