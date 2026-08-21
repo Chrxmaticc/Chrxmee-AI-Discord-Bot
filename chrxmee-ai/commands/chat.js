@@ -6,7 +6,7 @@ module.exports = {
     .setDescription("Start or continue a continuous conversation session")
     .addStringOption(option =>
       option.setName("mode")
-        .setDescription("Choose between Solo or Group mode")
+        .setDescription("choose between solo or group mode to chat to me.")
         .setRequired(true)
         .addChoices(
           { name: "Solo (Only responds to you)", value: "solo" },
@@ -28,6 +28,6 @@ module.exports = {
     client.memory.set(userId, userData);
     
     const modeText = mode === "solo" ? "hey, ur in solo mode so ima ONLY respond to YOU, AND YOU ONLY." : "hey, we all talking as a group (anybody in this channel gets replied to!)";
-    await interaction.reply(`WEEE BOUTTA CHATTTTT, also heres my model.\n${modeText}\njust type normally to respond to me, mentions and replies also work twin!.\nif no one talks for 3 mins, the session cancels!.`);
+    await interaction.reply(`WEEE BOUTTA CHATTTTT, also heres your chat mode.\n${modeText}\njust type normally to respond to me, mentions and replies also work twin!.\nif no one talks for 3 mins, the session cancels!.`);
   },
 };
