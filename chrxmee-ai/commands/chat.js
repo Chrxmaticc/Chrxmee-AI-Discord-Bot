@@ -27,7 +27,7 @@ module.exports = {
     userData.lastActivity = Date.now();
     client.memory.set(userId, userData);
     
-    const modeText = mode === "solo" ? "👤 **Solo Mode** (I will only respond to you)" : "👥 **Group Mode** (I will respond to everyone here)";
-    await interaction.reply(`💬 **Continuous Conversation Active!**\n${modeText}\nJust type messages normally. Say 'stop' to end.\nSession will timeout after 3 minutes of inactivity.`);
+    const modeText = mode === "solo" ? "hey, ur in solo mode so ima ONLY respond to YOU, AND YOU ONLY." : "hey, we all talking as a group (anybody in this channel gets replied to!)";
+    await interaction.reply(`WEEE BOUTTA CHATTTTT, also heres my model.\n${modeText}\njust type normally to respond to me, mentions and replies also work twin!.\nif no one talks for 3 mins, the session cancels!.`);
   },
 };
