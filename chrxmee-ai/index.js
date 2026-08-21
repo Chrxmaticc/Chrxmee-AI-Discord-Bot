@@ -254,7 +254,7 @@ client.once("ready", async () => {
       if ("data" in command && "execute" in command) {
         const name = command.data.name;
         if (seen.has(name)) {
-          console.warn(`⚠️ Duplicate command name skipped: ${name} (from ${file})`);
+          console.warn(` Duplicate command name skipped: ${name} (from ${file})`);
           continue;
         }
         seen.add(name);
@@ -264,11 +264,11 @@ client.once("ready", async () => {
 
     const rest = new REST({ version: "10" }).setToken(process.env.BOT_TOKEN);
     try {
-      console.log(`🔄 Registering ${commands.length} slash commands...`);
+      console.log(` Registering ${commands.length} slash commands...`);
       await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-      console.log("✅ Slash commands registered successfully!");
+      console.log(" Slash commands registered successfully!");
     } catch (err) {
-      console.error("❌ Slash command registration failed:", err);
+      console.error(" Slash command registration failed:", err);
     }
 
     // Initial streaming presence
@@ -629,7 +629,32 @@ console.log("guild_settings.prefix column ready");
         await pgClient.query(`CREATE TABLE IF NOT EXISTS user_fonts (user_id BIGINT PRIMARY KEY, style TEXT DEFAULT 'normal')`);
 console.log("user_fonts table ready");
 
+// Blacklist & Whitelist tables
+await pgClient.query(`CREATE TABLE IF NOT EXISTS user_blacklist (
+  user_id BIGINT PRIMARY KEY,
+  reason TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+)`);
+console.log("user_blacklist table ready");
 
+await pgClient.query(`CREATE TABLE IF NOT EXISTS server_blacklist (
+  guild_id BIGINT PRIMARY KEY,
+  reason TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+)`);
+console.log("server_blacklist table ready");
+
+await pgClient.query(`CREATE TABLE IF NOT EXISTS user_whitelist (
+  user_id BIGINT PRIMARY KEY,
+  created_at TIMESTAMP DEFAULT NOW()
+)`);
+console.log("user_whitelist table ready");
+
+await pgClient.query(`CREATE TABLE IF NOT EXISTS server_whitelist (
+  guild_id BIGINT PRIMARY KEY,
+  created_at TIMESTAMP DEFAULT NOW()
+)`);
+console.log("server_whitelist table ready");
 
     // ─── SERVER AUTOCHANGE TABLE ─────────────────
 await pgClient.query(`CREATE TABLE IF NOT EXISTS server_autochange (
