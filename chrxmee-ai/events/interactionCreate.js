@@ -8,71 +8,66 @@ module.exports = {
     if (interaction.user.bot) return;
 
     if (interaction.isChatInputCommand()) {
-      console.log(`Command received: /${interaction.commandName} from ${interaction.user.tag}`);
       const command = client.commands.get(interaction.commandName);
-      if (!command) {
-        console.log(`Command not found: ${interaction.commandName}`);
-        return;
-      }
-      console.log(`Executing: /${interaction.commandName}`);
+      if (!command) return;
+
+      // IMMEDIATELY defer reply so Discord doesn't expire the token
+      try {
+        if (!interaction.deferred && !interaction.replied) {
+          await interaction.deferReply().catch(() => {});
+        }
+      } catch {}
+
       try {
         await command.execute(interaction, client);
       } catch (err) {
-        if (err.code === 10062 || err.code === 40060) {
-          console.warn(`Interaction for ${interaction.commandName} expired before response.`);
-          return;
-        }
         console.error(`Error executing ${interaction.commandName}:`, err);
-        const errorContent = "There was an error while executing this command! Please try again in a moment.";
+        const errorContent = "there was an error while executing this command.";
         try {
-          if (interaction.replied || interaction.deferred) {
-            await interaction.followUp({ content: errorContent, flags: [64] }).catch(() => {});
+          if (interaction.deferred || interaction.replied) {
+            await interaction.editReply({ content: errorContent }).catch(() => {});
           } else {
-            await interaction.reply({ content: errorContent, flags: [64] }).catch(() => {});
+            await interaction.reply({ content: errorContent, flags: 64 }).catch(() => {});
           }
         } catch (e) {
-          console.error("Failed to send error message:", e.message);
+          console.error("failed to send error message:", e.message);
         }
       }
 
-    } else if (interaction.isButton()) {
+      return;
+    }
+
+    // handle buttons (keep only what you still use, remove music stuff)
+    if (interaction.isButton()) {
       if (interaction.customId.startsWith("debate_join_")) return;
       if (!interaction.customId.includes("|")) return;
 
       const [action, userId, prompt] = interaction.customId.split("|");
       if (interaction.user.id !== userId) {
-        return interaction.reply({ content: "This is not for you!", flags: [64] });
+        return interaction.reply({ content: "this is not for you!", flags: 64 });
       }
 
       try {
         if (action === "explain_yes") {
-          await interaction.update({ content: "Re-explaining in a different way...", components: [] });
+          await interaction.update({ content: "re-explaining in a different way...", components: [] });
           const command = client.commands.get("ask");
           if (command) {
             interaction.options = {
-              getString: (name) => name === "question" ? `Explain ${prompt} in a different way` : null
+              getString: (name) => name === "question" ? `explain ${prompt} in a different way` : null
             };
-            await command.execute(interaction);
+            await command.execute(interaction, client);
           }
-
         } else if (action === "explain_no") {
-          await interaction.update({ content: "Okay, I won't explain it.", components: [] });
+          await interaction.update({ content: "okay, i won't explain it.", components: [] });
         }
-
-        // music buttons removed to avoid old lavalink errors
       } catch (err) {
-        if (err.code === 10062) {
-          console.warn("Button interaction expired.");
-        } else {
-          console.error("Button Error:", err);
-        }
+        console.error("button error:", err);
       }
+      return;
+    }
 
-    } else if (interaction.isStringSelectMenu()) {
-      if (interaction.customId.startsWith("search_select|")) {
-        // handled inside search.js collector, ignore here
-        return;
-      }
+    if (interaction.isStringSelectMenu()) {
+      if (interaction.customId.startsWith("search_select|")) return;
     }
   },
 };
