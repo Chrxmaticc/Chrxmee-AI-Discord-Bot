@@ -11,13 +11,6 @@ module.exports = {
       const command = client.commands.get(interaction.commandName);
       if (!command) return;
 
-      // IMMEDIATELY defer reply so Discord doesn't expire the token
-      try {
-        if (!interaction.deferred && !interaction.replied) {
-          await interaction.deferReply().catch(() => {});
-        }
-      } catch {}
-
       try {
         await command.execute(interaction, client);
       } catch (err) {
@@ -33,11 +26,9 @@ module.exports = {
           console.error("failed to send error message:", e.message);
         }
       }
-
       return;
     }
 
-    // handle buttons (keep only what you still use, remove music stuff)
     if (interaction.isButton()) {
       if (interaction.customId.startsWith("debate_join_")) return;
       if (!interaction.customId.includes("|")) return;
