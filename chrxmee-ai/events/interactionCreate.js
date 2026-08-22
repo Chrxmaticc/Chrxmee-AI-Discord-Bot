@@ -57,38 +57,9 @@ module.exports = {
 
         } else if (action === "explain_no") {
           await interaction.update({ content: "Okay, I won't explain it.", components: [] });
-
-        } else if (action === "save_song") {
-          const musicPlayer = client.lavalink.getPlayer(interaction.guild.id);
-          if (!musicPlayer?.queue.current) {
-            return interaction.reply({ content: "❌ Nothing is playing!", ephemeral: true });
-          }
-          const track = musicPlayer.queue.current;
-          try {
-            await interaction.user.send({
-              embeds: [
-                new EmbedBuilder()
-                  .setColor("#5865F2")
-                  .setTitle("💾 Saved Song")
-                  .setDescription(`**[${track.info.title}](${track.info.uri})**`)
-                  .addFields(
-                    { name: "Author", value: track.info.author, inline: true },
-                    { name: "Duration", value: client.msToTime(track.info.duration), inline: true }
-                  )
-                  .setThumbnail(track.info.artworkUrl)
-                  .setFooter({ text: `Saved from ${interaction.guild.name}` })
-                  .setTimestamp()
-              ]
-            });
-            await interaction.reply({ content: "💾 Saved! Check your DMs.", ephemeral: true });
-          } catch {
-            await interaction.reply({ content: "❌ I couldn't DM you! Make sure your DMs are open.", ephemeral: true });
-          }
-
-        } else if (action === "add_to_playlist") {
-          await interaction.reply({ content: "📋 Use `/playlist add <name>` to add the current song to a playlist!", ephemeral: true });
         }
 
+        // music buttons removed to avoid old lavalink errors
       } catch (err) {
         if (err.code === 10062) {
           console.warn("Button interaction expired.");
