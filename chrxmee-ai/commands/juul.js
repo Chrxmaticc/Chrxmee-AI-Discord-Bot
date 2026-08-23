@@ -62,7 +62,7 @@ async function ensureSchema(pool) {
       verified BOOLEAN DEFAULT FALSE,
       verified_by TEXT,
       verified_at TIMESTAMP,
-      respawn_seconds INTEGER DEFAULT 1500,
+      respawn_seconds INTEGER DEFAULT 120,
       break_hits INTEGER DEFAULT 10,
       hit_cd_seconds INTEGER DEFAULT 3,
       steal_cd_seconds INTEGER DEFAULT 12,
