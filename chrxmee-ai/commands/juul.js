@@ -155,7 +155,8 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName("juul")
     .setDescription("chaos juul minigame")
-    .addSubcommand((sub) => sub.setName("setup").setDescription("verify & enable the juul minigame"))
+    .addSubcommand((sub) => sub.setName("setup").setDescription("show verification instructions"))
+    .addSubcommand((sub) => sub.setName("verify").setDescription("verify the juul minigame (manage messages)"))
     .addSubcommand((sub) => sub.setName("hit").setDescription("take a hit of the juul"))
     .addSubcommand((sub) => sub.setName("charge").setDescription("charge the juul (only if you're holding it)"))
     .addSubcommand((sub) => sub.setName("steal").setDescription("steal the juul from current holder"))
@@ -220,7 +221,6 @@ module.exports = {
     const now = Date.now();
 
     if (state.broken && state.respawn_at > 0 && now >= state.respawn_at) {
-      // respawn juul
       const online = guild.members.cache.filter((m) => !m.user.bot && m.presence?.status !== "offline");
       const target = online.random() || guild.members.cache.random();
       if (target) {
@@ -267,54 +267,28 @@ module.exports = {
       }
     }
 
-    // ─── SETUP ───
+    // ─── SETUP (text only) ───
     if (sub === "setup") {
-      if (!interaction.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
-        return interaction.editReply(`${E.error} you need manage messages to verify this setup.`);
-      }
-
       const embed = new EmbedBuilder()
         .setColor(0x7c7ce0)
         .setTitle(`${E.settings} juul minigame setup`)
         .setDescription(
-          `hey, to setup this "juul" minigame, just realize this is fictional and not real life, we are not sponsoring with juul companies or other bs that uses nicotine. click "verify" to verify the juul minigame.`
+          `hey, to setup this "juul" minigame, just realize this is fictional and not real life, we are not sponsoring with juul companies or other bs that uses nicotine.\n\n` +
+          `type \`/juul verify\` (or \`!juul verify\` if using prefix) to verify and enable the minigame.\n` +
+          `only people with **manage messages** can verify.`
         )
         .setFooter({ text: "this is a fictional minigame, not real vaping" });
 
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId("juul_verify")
-          .setLabel("verify")
-          .setStyle(ButtonStyle.Success)
-      );
+      return interaction.editReply({ embeds: [embed] });
+    }
 
-      const message = await interaction.editReply({ embeds: [embed], components: [row] });
-
-      const collector = message.createMessageComponentCollector({
-        filter: (i) => i.customId === "juul_verify" && i.user.id === userId,
-        time: 300000,
-        max: 1,
-      });
-
-      collector.on("collect", async (i) => {
-        if (!i.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
-          return i.reply({ content: `${E.error} you need manage messages.`, ephemeral: true });
-        }
-        await saveJuulConfig(pool, guildId, { verified: true, verified_by: userId, verified_at: new Date() });
-        await i.update({
-          content: `${E.success} juul minigame verified and enabled.`,
-          embeds: [],
-          components: [],
-        });
-      });
-
-      collector.on("end", async (collected) => {
-        if (collected.size === 0) {
-          await message.edit({ components: [] }).catch(() => {});
-        }
-      });
-
-      return;
+    // ─── VERIFY (text confirmation) ───
+    if (sub === "verify") {
+      if (!interaction.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
+        return interaction.editReply(`${E.error} you need manage messages to verify.`);
+      }
+      await saveJuulConfig(pool, guildId, { verified: true, verified_by: userId, verified_at: new Date() });
+      return interaction.editReply(`${E.success} juul minigame verified and enabled.`);
     }
 
     // ─── CONFIG ───
@@ -356,7 +330,7 @@ module.exports = {
     }
 
     // ─── NON-SETUP / ADMIN COMMANDS REQUIRE VERIFIED ───
-    if (!config.verified && sub !== "setup") {
+    if (!config.verified && sub !== "setup" && sub !== "verify") {
       return interaction.editReply(`${E.error} juul minigame is not verified. use /juul setup first.`);
     }
 
@@ -427,7 +401,6 @@ module.exports = {
       client.juulCooldowns.set(hitCdKey, now);
 
       if (brokenNow) {
-        // penalty: can't steal for 1 minute if betrayal break, but we'll apply to all breaks for simplicity? user said betrayal break penalty.
         if (betrayalBreak) {
           client.juulCooldowns.set(`steal-${guildId}-${userId}`, now + 60000);
         }
