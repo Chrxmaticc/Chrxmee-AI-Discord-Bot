@@ -202,6 +202,9 @@ module.exports = {
     const guild = interaction.guild;
     if (!guild) return;
 
+    // fallback in case client.juulCooldowns wasn't initialized in main file
+    if (!client.juulCooldowns) client.juulCooldowns = new Map();
+
     const isButtonSim = interaction.isButton && interaction.isButton();
     if (!isButtonSim) {
       try {
@@ -267,6 +270,26 @@ module.exports = {
       }
     }
 
+    // ─── INITIAL SPAWN: if no holder and not broken, give to random online member ───
+    if (!state.broken && !state.holder_id) {
+      const online = guild.members.cache.filter((m) => !m.user.bot && m.presence?.status !== "offline");
+      const target = online.random() || guild.members.cache.random();
+      if (target) {
+        await saveJuulState(pool, guildId, {
+          holder_id: target.id,
+          battery: 100,
+          consecutive_hits: 0,
+          last_action_at: now,
+        });
+        state.holder_id = target.id;
+        state.battery = 100;
+        state.consecutive_hits = 0;
+        try {
+          await interaction.channel.send(`${E.success} juul spawned and landed on **${target.user.username}** ${JUUL_EMOJI}`);
+        } catch {}
+      }
+    }
+
     // ─── SETUP (text only) ───
     if (sub === "setup") {
       const embed = new EmbedBuilder()
@@ -288,6 +311,21 @@ module.exports = {
         return interaction.editReply(`${E.error} you need manage messages to verify.`);
       }
       await saveJuulConfig(pool, guildId, { verified: true, verified_by: userId, verified_at: new Date() });
+
+      // spawn on random member right away if no holder
+      if (!state.holder_id && !state.broken) {
+        const online = guild.members.cache.filter((m) => !m.user.bot && m.presence?.status !== "offline");
+        const target = online.random() || guild.members.cache.random();
+        if (target) {
+          await saveJuulState(pool, guildId, {
+            holder_id: target.id,
+            battery: 100,
+            consecutive_hits: 0,
+            last_action_at: Date.now(),
+          });
+        }
+      }
+
       return interaction.editReply(`${E.success} juul minigame verified and enabled.`);
     }
 
@@ -341,7 +379,6 @@ module.exports = {
       }
 
       if (state.dead_but_not_broken) {
-        // it explodes on next hit
         await saveJuulState(pool, guildId, {
           broken: true,
           dead_but_not_broken: false,
@@ -359,13 +396,12 @@ module.exports = {
       }
 
       const hitCdKey = `hit-${guildId}-${userId}`;
-      const lastHit = client.juulCooldowns?.get(hitCdKey) || 0;
+      const lastHit = client.juulCooldowns.get(hitCdKey) || 0;
       if (now - lastHit < config.hit_cd_seconds * 1000) {
         const waitMs = Math.ceil((config.hit_cd_seconds * 1000 - (now - lastHit)) / 1000);
         return interaction.editReply(`${E.error} you hit the cooldown on the ${JUUL_EMOJI} **juul** hits. the cooldowns r 10 secs per hit, wait ${waitMs} seconds for your hit.`);
       }
 
-      // drain battery
       let newBattery = state.battery - 10;
       if (newBattery < 0) newBattery = 0;
       let brokenNow = false;
@@ -386,6 +422,10 @@ module.exports = {
         brokenNow = true;
       }
 
+      // update total_hits
+      const newTotalHits = state.total_hits + 1;
+      const newTotalBreaks = state.total_breaks + (brokenNow ? 1 : 0);
+
       await saveJuulState(pool, guildId, {
         battery: newBattery,
         consecutive_hits: brokenNow || deadButNotBroken ? 0 : consecutive,
@@ -394,6 +434,8 @@ module.exports = {
         respawn_at: brokenNow ? now + config.respawn_seconds * 1000 : state.respawn_at,
         last_break_by: brokenNow ? userId : state.last_break_by,
         last_action_at: now,
+        total_hits: newTotalHits,
+        total_breaks: newTotalBreaks,
       });
 
       await addLeaderboard(pool, guildId, userId, "puffs", 1);
@@ -431,7 +473,7 @@ module.exports = {
       }
 
       const chargeCdKey = `charge-${guildId}-${userId}`;
-      const lastCharge = client.juulCooldowns?.get(chargeCdKey) || 0;
+      const lastCharge = client.juulCooldowns.get(chargeCdKey) || 0;
       const cdRemaining = lastCharge - now;
       if (cdRemaining > 0) {
         const waitSec = Math.ceil(cdRemaining / 1000);
@@ -464,7 +506,7 @@ module.exports = {
         return interaction.editReply(`${E.error} juul is broken.`);
       }
       const stealCdKey = `steal-${guildId}-${userId}`;
-      const lastSteal = client.juulCooldowns?.get(stealCdKey) || 0;
+      const lastSteal = client.juulCooldowns.get(stealCdKey) || 0;
       if (now < lastSteal) {
         const waitSec = Math.ceil((lastSteal - now) / 1000);
         return interaction.editReply(`${E.error} you're on steal cooldown. wait ${waitSec} seconds.`);
@@ -478,7 +520,12 @@ module.exports = {
         return interaction.editReply(`${E.error} you already have the juul.`);
       }
 
-      await saveJuulState(pool, guildId, { holder_id: userId, consecutive_hits: 0, last_action_at: now });
+      await saveJuulState(pool, guildId, {
+        holder_id: userId,
+        consecutive_hits: 0,
+        last_action_at: now,
+        total_steals: state.total_steals + 1,
+      });
       await addLeaderboard(pool, guildId, userId, "steals", 1);
 
       client.juulCooldowns.set(stealCdKey, now + config.steal_cd_seconds * 1000);
@@ -495,7 +542,12 @@ module.exports = {
       }
       const target = interaction.options.getUser("user");
       if (!target) return interaction.editReply(`${E.error} provide a user.`);
-      await saveJuulState(pool, guildId, { holder_id: target.id, consecutive_hits: 0, last_action_at: now });
+      await saveJuulState(pool, guildId, {
+        holder_id: target.id,
+        consecutive_hits: 0,
+        last_action_at: now,
+        total_passes: state.total_passes + 1,
+      });
       await addLeaderboard(pool, guildId, userId, "passes", 1);
       return interaction.editReply(`${E.success} passed the ${JUUL_EMOJI} juul to **${target.username}**.`);
     }
@@ -553,7 +605,6 @@ module.exports = {
       return interaction.editReply({ embeds: [embed] });
     }
 
-    // fallback
     return interaction.editReply(`${E.error} unknown subcommand.`);
   },
 };
