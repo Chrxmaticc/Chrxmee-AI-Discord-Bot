@@ -22,6 +22,7 @@ const E = {
   lock: "<:lock:1530377198324945056>",
   unlock: "<:unlock:1530377714995826831>",
   crown: "<:Holographic_owner_crown:1527401510487461969>",
+  sneaky: "<:sneaky:1527401423690792970>",
 };
 
 const BATTERY_EMOJIS = {
@@ -61,7 +62,7 @@ async function ensureSchema(pool) {
       verified BOOLEAN DEFAULT FALSE,
       verified_by TEXT,
       verified_at TIMESTAMP,
-      respawn_seconds INTEGER DEFAULT 120,
+      respawn_seconds INTEGER DEFAULT 1500,
       break_hits INTEGER DEFAULT 10,
       hit_cd_seconds INTEGER DEFAULT 3,
       steal_cd_seconds INTEGER DEFAULT 12,
@@ -186,6 +187,7 @@ module.exports = {
         .setDescription("(admin) force juul to a member")
         .addUserOption((opt) => opt.setName("user").setDescription("target user").setRequired(true))
     )
+    .addSubcommand((sub) => sub.setName("respawn").setDescription("(admin) manually respawn the juul"))
     .addSubcommand((sub) =>
       sub
         .setName("config")
@@ -202,7 +204,6 @@ module.exports = {
     const guild = interaction.guild;
     if (!guild) return;
 
-    // fallback in case client.juulCooldowns wasn't initialized in main file
     if (!client.juulCooldowns) client.juulCooldowns = new Map();
 
     const isButtonSim = interaction.isButton && interaction.isButton();
@@ -220,9 +221,9 @@ module.exports = {
     const config = await getJuulConfig(pool, guildId);
     const state = await getJuulState(pool, guildId);
 
-    // ─── AUTO RESPAWN / PASS IF HOLDER OFFLINE ───
     const now = Date.now();
 
+    // auto respawn
     if (state.broken && state.respawn_at > 0 && now >= state.respawn_at) {
       const online = guild.members.cache.filter((m) => !m.user.bot && m.presence?.status !== "offline");
       const target = online.random() || guild.members.cache.random();
@@ -250,6 +251,7 @@ module.exports = {
       }
     }
 
+    // auto-pass if holder offline
     if (!state.broken && state.holder_id) {
       const holder = await guild.members.fetch(state.holder_id).catch(() => null);
       if (!holder || holder.presence?.status === "offline") {
@@ -270,7 +272,7 @@ module.exports = {
       }
     }
 
-    // ─── INITIAL SPAWN: if no holder and not broken, give to random online member ───
+    // initial spawn if no holder
     if (!state.broken && !state.holder_id) {
       const online = guild.members.cache.filter((m) => !m.user.bot && m.presence?.status !== "offline");
       const target = online.random() || guild.members.cache.random();
@@ -290,7 +292,7 @@ module.exports = {
       }
     }
 
-    // ─── SETUP (text only) ───
+    // setup
     if (sub === "setup") {
       const embed = new EmbedBuilder()
         .setColor(0x7c7ce0)
@@ -305,14 +307,13 @@ module.exports = {
       return interaction.editReply({ embeds: [embed] });
     }
 
-    // ─── VERIFY (text confirmation) ───
+    // verify
     if (sub === "verify") {
       if (!interaction.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
         return interaction.editReply(`${E.error} you need manage messages to verify.`);
       }
       await saveJuulConfig(pool, guildId, { verified: true, verified_by: userId, verified_at: new Date() });
 
-      // spawn on random member right away if no holder
       if (!state.holder_id && !state.broken) {
         const online = guild.members.cache.filter((m) => !m.user.bot && m.presence?.status !== "offline");
         const target = online.random() || guild.members.cache.random();
@@ -329,7 +330,7 @@ module.exports = {
       return interaction.editReply(`${E.success} juul minigame verified and enabled.`);
     }
 
-    // ─── CONFIG ───
+    // config
     if (sub === "config") {
       if (!interaction.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
         return interaction.editReply(`${E.error} you need manage messages.`);
@@ -356,7 +357,7 @@ module.exports = {
       });
     }
 
-    // ─── FORCE ───
+    // force
     if (sub === "force") {
       if (!interaction.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
         return interaction.editReply(`${E.error} you need manage messages.`);
@@ -367,12 +368,33 @@ module.exports = {
       return interaction.editReply(`${E.success} forced juul to **${target.username}** ${JUUL_EMOJI}`);
     }
 
-    // ─── NON-SETUP / ADMIN COMMANDS REQUIRE VERIFIED ───
+    // respawn
+    if (sub === "respawn") {
+      if (!interaction.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
+        return interaction.editReply(`${E.error} you need manage messages.`);
+      }
+      const online = guild.members.cache.filter((m) => !m.user.bot && m.presence?.status !== "offline");
+      const target = online.random() || guild.members.cache.random();
+      if (!target) return interaction.editReply(`${E.error} no members to respawn to.`);
+      await saveJuulState(pool, guildId, {
+        broken: false,
+        dead_but_not_broken: false,
+        battery: 100,
+        holder_id: target.id,
+        consecutive_hits: 0,
+        last_break_by: null,
+        respawn_at: 0,
+        last_action_at: now,
+      });
+      return interaction.editReply(`${E.success} manually respawned the ${JUUL_EMOJI} juul and gave it to **${target.user.username}**.`);
+    }
+
+    // require verified
     if (!config.verified && sub !== "setup" && sub !== "verify") {
       return interaction.editReply(`${E.error} juul minigame is not verified. use /juul setup first.`);
     }
 
-    // ─── HIT ───
+    // hit
     if (sub === "hit") {
       if (state.broken) {
         return interaction.editReply(`${EXPLOSION_EMOJI} kaboom bih! the juul is already broken. wait ${msToTime(state.respawn_at - now)} for respawn.`);
@@ -422,7 +444,6 @@ module.exports = {
         brokenNow = true;
       }
 
-      // update total_hits
       const newTotalHits = state.total_hits + 1;
       const newTotalBreaks = state.total_breaks + (brokenNow ? 1 : 0);
 
@@ -456,11 +477,29 @@ module.exports = {
         return interaction.editReply(`${E.success} battery is dead, but it doesn't look broken... one more hit might kaboom. ${BATTERY_EMOJIS[0]}`);
       }
 
+      // gremlin event every 10 total hits
+      if (newTotalHits % 10 === 0 && newTotalHits > 0) {
+        const online = guild.members.cache.filter((m) => !m.user.bot && m.presence?.status !== "offline" && m.id !== userId);
+        const gremlinTarget = online.random() || guild.members.cache.filter((m) => !m.user.bot && m.id !== userId).random();
+        if (gremlinTarget) {
+          await saveJuulState(pool, guildId, {
+            holder_id: gremlinTarget.id,
+            consecutive_hits: 0,
+            last_action_at: now,
+          });
+          state.holder_id = gremlinTarget.id;
+          state.consecutive_hits = 0;
+          try {
+            await interaction.channel.send(`${E.sneaky} a juul gremlin snatched the ${JUUL_EMOJI} and gave it to **${gremlinTarget.user.username}**!`);
+          } catch {}
+        }
+      }
+
       const batteryEmoji = getBatteryEmoji(newBattery);
       return interaction.editReply(`${E.success} ight u took a hit of the ${JUUL_EMOJI} **juul**, don't forget to charge it. battery: ${batteryEmoji} (${newBattery}%)`);
     }
 
-    // ─── CHARGE ───
+    // charge
     if (sub === "charge") {
       if (state.broken || state.dead_but_not_broken) {
         return interaction.editReply(`${E.error} juul is broken or dead. wait for respawn.`);
@@ -500,7 +539,7 @@ module.exports = {
       return interaction.editReply(`${E.success} charged to **${newBattery}%** ${batteryEmoji} (cd ${cooldownSeconds}s)`);
     }
 
-    // ─── STEAL ───
+    // steal
     if (sub === "steal") {
       if (state.broken) {
         return interaction.editReply(`${E.error} juul is broken.`);
@@ -535,7 +574,7 @@ module.exports = {
       return interaction.editReply(`${E.success} ${interaction.user.username} stole the ${JUUL_EMOJI} juul from **${holderName}**!`);
     }
 
-    // ─── PASS ───
+    // pass
     if (sub === "pass") {
       if (state.holder_id !== userId) {
         return interaction.editReply(`${E.error} you don't have the juul.`);
@@ -552,7 +591,7 @@ module.exports = {
       return interaction.editReply(`${E.success} passed the ${JUUL_EMOJI} juul to **${target.username}**.`);
     }
 
-    // ─── FLAVOR ───
+    // flavor
     if (sub === "flavor") {
       if (state.holder_id !== userId) {
         return interaction.editReply(`${E.error} you don't have the juul.`);
@@ -562,7 +601,7 @@ module.exports = {
       return interaction.editReply(`${E.success} flavor changed to **${flavor}** ${JUUL_EMOJI}`);
     }
 
-    // ─── STATS ───
+    // stats
     if (sub === "stats") {
       const holder = state.holder_id ? await guild.members.fetch(state.holder_id).catch(() => null) : null;
       const embed = new EmbedBuilder()
@@ -583,7 +622,7 @@ module.exports = {
       return interaction.editReply({ embeds: [embed] });
     }
 
-    // ─── LEADERBOARD ───
+    // leaderboard
     if (sub === "leaderboard") {
       const res = await pool.query(
         `SELECT user_id, puffs, steals, breaks_caused FROM juul_leaderboard WHERE guild_id = $1 ORDER BY puffs DESC LIMIT 10`,
