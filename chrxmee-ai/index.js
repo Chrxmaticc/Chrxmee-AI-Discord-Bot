@@ -629,6 +629,31 @@ console.log("guild_settings.prefix column ready");
         await pgClient.query(`CREATE TABLE IF NOT EXISTS user_fonts (user_id BIGINT PRIMARY KEY, style TEXT DEFAULT 'normal')`);
 console.log("user_fonts table ready");
 
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS honeypot_config (
+  guild_id TEXT PRIMARY KEY,
+  enabled BOOLEAN DEFAULT FALSE,
+  channel_id TEXT,
+  punishment_type TEXT DEFAULT 'ban',
+  threshold INTEGER DEFAULT 1,
+  mute_minutes INTEGER DEFAULT 10,
+  ban_duration_minutes INTEGER,
+  warning_message TEXT DEFAULT 'warning: this channel is a honeypot. leave before you get caught.',
+  activation_message TEXT DEFAULT 'honeypot triggered. you fell for it.',
+  last_updated_by TEXT,
+  last_updated_at TIMESTAMP DEFAULT NOW()
+)`);
+console.log("honeypot_config table ready");
+
+await pgClient.query(`CREATE TABLE IF NOT EXISTS honeypot_strikes (
+  guild_id TEXT,
+  channel_id TEXT,
+  user_id TEXT,
+  strike_count INTEGER DEFAULT 0,
+  last_strike_at TIMESTAMP DEFAULT NOW(),
+  PRIMARY KEY (guild_id, channel_id, user_id)
+)`);
+console.log("honeypot_strikes table ready");
+    
 // Command access table with reason column
 await pgClient.query(`CREATE TABLE IF NOT EXISTS cmd_access (
   id SERIAL PRIMARY KEY,
