@@ -238,7 +238,7 @@ function getChargerLimit(tier) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("juul")
-    .setDescription("chaos juul minigame")
+    .setDescription("chaos juul minigame and other bs")
     .addSubcommand((sub) => sub.setName("setup").setDescription("show verification instructions"))
     .addSubcommand((sub) => sub.setName("verify").setDescription("verify the juul minigame (manage messages)"))
     .addSubcommand((sub) => sub.setName("hit").setDescription("take a hit of the juul"))
