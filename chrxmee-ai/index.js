@@ -629,6 +629,98 @@ console.log("guild_settings.prefix column ready");
         await pgClient.query(`CREATE TABLE IF NOT EXISTS user_fonts (user_id BIGINT PRIMARY KEY, style TEXT DEFAULT 'normal')`);
 console.log("user_fonts table ready");
 
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS juul_config (
+  guild_id TEXT PRIMARY KEY,
+  verified BOOLEAN DEFAULT FALSE,
+  verified_by TEXT,
+  verified_at TIMESTAMP,
+  respawn_seconds INTEGER DEFAULT 1500,
+  break_hits INTEGER DEFAULT 10,
+  hit_cd_seconds INTEGER DEFAULT 3,
+  steal_cd_seconds INTEGER DEFAULT 12,
+  charge_cd_regular INTEGER DEFAULT 15,
+  charge_cd_special INTEGER DEFAULT 40,
+  charge_boost_over50 INTEGER DEFAULT 30,
+  charge_boost_under50 INTEGER DEFAULT 40,
+  instant_break_chance REAL DEFAULT 0.5,
+  hostage_seconds INTEGER DEFAULT 5,
+  hostage_max_hits INTEGER DEFAULT 3,
+  allowed_channel_id TEXT DEFAULT NULL,
+  gremlin_enabled BOOLEAN DEFAULT TRUE,
+  gremlin_frequency INTEGER DEFAULT 10,
+  medical_hand_cost INTEGER DEFAULT 250,
+  medical_throat_cost INTEGER DEFAULT 100
+)`);
+console.log("juul_config table ready");
+
+await pgClient.query(`CREATE TABLE IF NOT EXISTS juul_state (
+  guild_id TEXT PRIMARY KEY,
+  battery INTEGER DEFAULT 100,
+  holder_id TEXT,
+  current_flavor TEXT DEFAULT 'classic',
+  dead_but_not_broken BOOLEAN DEFAULT FALSE,
+  broken BOOLEAN DEFAULT FALSE,
+  respawn_at BIGINT DEFAULT 0,
+  last_break_by TEXT,
+  consecutive_hits INTEGER DEFAULT 0,
+  total_hits INTEGER DEFAULT 0,
+  total_breaks INTEGER DEFAULT 0,
+  total_steals INTEGER DEFAULT 0,
+  total_passes INTEGER DEFAULT 0,
+  hostage_until BIGINT DEFAULT 0,
+  hostage_hits_used INTEGER DEFAULT 0,
+  last_action_at BIGINT DEFAULT 0
+)`);
+console.log("juul_state table ready");
+
+await pgClient.query(`CREATE TABLE IF NOT EXISTS juul_leaderboard (
+  guild_id TEXT,
+  user_id TEXT,
+  puffs INTEGER DEFAULT 0,
+  steals INTEGER DEFAULT 0,
+  breaks_caused INTEGER DEFAULT 0,
+  charges INTEGER DEFAULT 0,
+  passes INTEGER DEFAULT 0,
+  PRIMARY KEY (guild_id, user_id)
+)`);
+console.log("juul_leaderboard table ready");
+
+await pgClient.query(`CREATE TABLE IF NOT EXISTS juul_users (
+  guild_id TEXT,
+  user_id TEXT,
+  hits_balance INTEGER DEFAULT 0,
+  charges_used INTEGER DEFAULT 0,
+  charger_tier INTEGER DEFAULT 0,
+  owned_flavors TEXT[] DEFAULT '{}',
+  hands_broken BOOLEAN DEFAULT FALSE,
+  throat_melted BOOLEAN DEFAULT FALSE,
+  acid_hits INTEGER DEFAULT 0,
+  PRIMARY KEY (guild_id, user_id)
+)`);
+console.log("juul_users table ready");
+
+// add missing columns if tables already existed
+await pgClient.query(`ALTER TABLE juul_config ADD COLUMN IF NOT EXISTS allowed_channel_id TEXT DEFAULT NULL`);
+await pgClient.query(`ALTER TABLE juul_config ADD COLUMN IF NOT EXISTS gremlin_enabled BOOLEAN DEFAULT TRUE`);
+await pgClient.query(`ALTER TABLE juul_config ADD COLUMN IF NOT EXISTS gremlin_frequency INTEGER DEFAULT 10`);
+await pgClient.query(`ALTER TABLE juul_config ADD COLUMN IF NOT EXISTS medical_hand_cost INTEGER DEFAULT 250`);
+await pgClient.query(`ALTER TABLE juul_config ADD COLUMN IF NOT EXISTS medical_throat_cost INTEGER DEFAULT 100`);
+await pgClient.query(`ALTER TABLE juul_config ADD COLUMN IF NOT EXISTS hostage_seconds INTEGER DEFAULT 5`);
+await pgClient.query(`ALTER TABLE juul_config ADD COLUMN IF NOT EXISTS hostage_max_hits INTEGER DEFAULT 3`);
+
+await pgClient.query(`ALTER TABLE juul_state ADD COLUMN IF NOT EXISTS hostage_until BIGINT DEFAULT 0`);
+await pgClient.query(`ALTER TABLE juul_state ADD COLUMN IF NOT EXISTS hostage_hits_used INTEGER DEFAULT 0`);
+
+await pgClient.query(`ALTER TABLE juul_users ADD COLUMN IF NOT EXISTS hits_balance INTEGER DEFAULT 0`);
+await pgClient.query(`ALTER TABLE juul_users ADD COLUMN IF NOT EXISTS charges_used INTEGER DEFAULT 0`);
+await pgClient.query(`ALTER TABLE juul_users ADD COLUMN IF NOT EXISTS charger_tier INTEGER DEFAULT 0`);
+await pgClient.query(`ALTER TABLE juul_users ADD COLUMN IF NOT EXISTS owned_flavors TEXT[] DEFAULT '{}'`);
+await pgClient.query(`ALTER TABLE juul_users ADD COLUMN IF NOT EXISTS hands_broken BOOLEAN DEFAULT FALSE`);
+await pgClient.query(`ALTER TABLE juul_users ADD COLUMN IF NOT EXISTS throat_melted BOOLEAN DEFAULT FALSE`);
+await pgClient.query(`ALTER TABLE juul_users ADD COLUMN IF NOT EXISTS acid_hits INTEGER DEFAULT 0`);
+
+console.log("juul schema updates ready");
+
     await pgClient.query(`CREATE TABLE IF NOT EXISTS honeypot_config (
   guild_id TEXT PRIMARY KEY,
   enabled BOOLEAN DEFAULT FALSE,
