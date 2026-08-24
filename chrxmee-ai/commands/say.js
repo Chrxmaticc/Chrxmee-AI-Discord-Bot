@@ -1,6 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 
-const OWNER_IDS = ['902685494247325776', '954709865698312213'];
+const OWNER_IDS = ['1332518492620197961', '954709865698312213'];
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -9,7 +9,7 @@ module.exports = {
         .addStringOption(option =>
             option
                 .setName('message')
-                .setDescription('What the bot should say')
+                .setDescription('what the bot should say')
                 .setRequired(true)
         ),
 
@@ -17,7 +17,7 @@ module.exports = {
         // Owner check (both IDs)
         if (!OWNER_IDS.includes(interaction.user.id)) {
             return interaction.reply({
-                content: 'You are NOT the owner brotato.',
+                content: 'you are NOT the owner brotato.',
                 ephemeral: true
             });
         }
@@ -26,7 +26,7 @@ module.exports = {
 
         // Ephemeral confirmation
         await interaction.reply({
-            content: 'Saying...',
+            content: 'saying...',
             ephemeral: true
         });
 
