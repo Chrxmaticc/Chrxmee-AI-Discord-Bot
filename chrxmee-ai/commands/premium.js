@@ -20,7 +20,6 @@ const PRICES = {
 };
 
 const YOUR_GUILD_ID = '1463346110566502443';   // Official server where purchases happen
-const PREMIUM_ROLE_ID = 'PASTE_YOUR_PREMIUM_ROLE_ID_HERE';  // Optional
 
 module.exports = {
   data: new SlashCommandBuilder()
