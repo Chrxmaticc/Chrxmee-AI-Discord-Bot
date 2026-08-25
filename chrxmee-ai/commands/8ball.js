@@ -1,56 +1,66 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
+
+const E = {
+  success: "<:Verified_Icon:1527194184841167010>",
+  error: "<:no:1530373946795364362>",
+  ai: "<:Chrxmaticc_AI:1480094799292928132>",
+  agree: "<:agreed:1525639597135237131>",
+  angry: "<:angry_cry:1526029511882440744>",
+  sneaky: "<:sneaky:1527401423690792970>",
+  money_cry: "<:Money_Cry_Son:1526538340264841257>",
+  cringe_laugh: "<:Cringe_Laughing_Son:1526539082564374710>",
+  point_laugh: "<:PointAndLaughingEmoji:1525657154567016469>",
+};
+
+const responses = [
+  { text: "yeah, for sure", emoji: E.agree },
+  { text: "no way lil bro", emoji: E.angry },
+  { text: "maybe, but don't hold your breath", emoji: E.sneaky },
+  { text: "ask again later, i'm busy", emoji: E.cringe_laugh },
+  { text: "bro, absolutely not", emoji: E.error },
+  { text: "100% yes, no cap", emoji: E.success },
+  { text: "that's a hard no", emoji: E.angry },
+  { text: "i'm seeing good vibes", emoji: E.ai },
+  { text: "don't even think about it", emoji: E.point_laugh },
+  { text: "yeah, but it's gonna cost you", emoji: E.money_cry },
+  { text: "the universe says yes", emoji: E.agree },
+  { text: "the universe says no, ggs", emoji: E.error },
+  { text: "chances are slim, just like your wifi", emoji: E.cringe_laugh },
+  { text: "hell yeah twin", emoji: E.success },
+  { text: "idk, go ask someone else", emoji: E.sneaky },
+  { text: "only if you slide some robux", emoji: E.money_cry },
+];
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('8ball')
-    .setDescription('Ask the magic 8-ball a question (9 layers of chaos)')
-    .addStringOption(option =>
-      option.setName('question')
-        .setDescription('Your question for the 8-ball')
+    .setName("8ball")
+    .setDescription("ask the magic 8ball")
+    .addStringOption(opt =>
+      opt.setName("question")
+        .setDescription("what u wanna ask")
         .setRequired(true)
     ),
+
   async execute(interaction) {
-    await interaction.deferReply();
-
-    const question = interaction.options.getString('question');
-
-    // 9 arrays - each layer adds its own flavor of randomness
-    const array1 = ["Yes, definitely", "No way", "Absolutely", "Not in a million years", "Maybe..."];
-    const array2 = ["...but only if you", "...unless you", "...if you dare", "...when hell freezes over", "...in your wildest dreams"];
-    const array3 = ["sacrifice your left sock", "dance in the snow naked", "roast me first", "feed me your secrets", "survive the next hour"];
-    const array4 = ["while screaming", "at 3 AM", "with a straight face", "in reverse", "under the moonlight"];
-    const array5 = ["or the universe explodes", "and the snow melts", "but Chrxmee AI judges you", "while the void watches", "and nobody claps"];
-    const array6 = ["...probably", "...definitely not", "...ask again later", "...better not tell you now", "...without a doubt"];
-    const array7 = ["(trust me)", "(don't trust me)", "(I'm lying)", "(I'm always right)", "(Chrxmee knows all)"];
-    const array8 = ["❄️", "🚀", "💀", "🔥", "😭"];
-    const array9 = ["Chrxmee AI has spoken.", "The snow has decided.", "Chrxmee approves... maybe.", "The void is laughing.", "Good luck lol."];
-
-    const pickRandom = arr => arr[Math.floor(Math.random() * arr.length)];
-
-    const response = [
-      pickRandom(array1),
-      pickRandom(array2),
-      pickRandom(array3),
-      pickRandom(array4),
-      pickRandom(array5),
-      pickRandom(array6),
-      pickRandom(array7),
-      pickRandom(array8),
-      pickRandom(array9)
-    ].join(' ');
-
-    const embed = {
-      color: 0xFF69B4,
-      title: '🎱 The Magic 8-Ball Speaks...',
-      description: `**Question:** ${question}\n\n**Answer:** ${response}`,
-      footer: { text: 'Chrxmee AI - Chaos Level 9000 ❄️' }
-    };
-
-    if (Math.random() > 0.8) {
-      embed.description += "\n\n**Bonus Chaos:** I'm feeling extra spicy today. Don't take this advice seriously... or do, I'm just an AI.";
-      embed.color = 0xFF0000;
+    // handle prefix fake interaction
+    const isButtonSim = interaction.isButton && interaction.isButton();
+    if (!isButtonSim) {
+      try { await interaction.deferReply(); } catch {}
     }
 
-    await interaction.editReply({ embeds: [embed] });
+    const question = interaction.options.getString("question");
+    const random = responses[Math.floor(Math.random() * responses.length)];
+
+    const embed = new EmbedBuilder()
+      .setColor(0x7c7ce0)
+      .setTitle(`${E.ai} 8ball`)
+      .addFields(
+        { name: "question", value: question, inline: false },
+        { name: "answer", value: `${random.emoji} ${random.text}`, inline: false }
+      )
+      .setFooter({ text: "made by @chrxmeelst, peak right?" })
+      .setTimestamp();
+
+    return interaction.editReply({ embeds: [embed] });
   },
 };
