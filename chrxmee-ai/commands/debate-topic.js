@@ -3,7 +3,7 @@ const { SlashCommandBuilder } = require("discord.js");
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("debate-topic")
-    .setDescription("Get a controversial topic idea for a debate")
+    .setDescription("get a controversial topic idea for a debate")
     .setContexts([0, 1, 2])
     .setIntegrationTypes([0, 1]),
   async execute(interaction) {
@@ -19,10 +19,10 @@ module.exports = {
         body: JSON.stringify({
           model: "llama-3.1-8b-instant",
           messages: [
-            { role: "system", content: "You are a creative debate moderator. Provide one highly interesting and slightly controversial debate topic. Keep it under 200 characters." },
-            { role: "user", content: "Give me a debate topic." }
+            { role: "system", content: "you are a creative debate moderator. Provide one highly interesting and slightly controversial debate topic. Keep it under 200 characters." },
+            { role: "user", content: "give me a debate topic." }
           ],
-          temperature: 0.9,
+          temperature: 1,
         }),
       });
 
