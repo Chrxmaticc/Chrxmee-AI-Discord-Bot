@@ -1,90 +1,127 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
+
+const E = {
+  success: "<:Verified_Icon:1527194184841167010>",
+  error: "<:no:1530373946795364362>",
+  ai: "<:Chrxmaticc_AI:1480094799292928132>",
+  agree: "<:agreed:1525639597135237131>",
+  angry: "<:angry_cry:1526029511882440744>",
+  sneaky: "<:sneaky:1527401423690792970>",
+  money_cry: "<:Money_Cry_Son:1526538340264841257>",
+  cringe_laugh: "<:Cringe_Laughing_Son:1526539082564374710>",
+  point_laugh: "<:PointAndLaughingEmoji:1525657154567016469>",
+};
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('snipe')
-    .setDescription('Snipe deleted/edited messages or go make me deal with insanity.')
-    .addStringOption(option =>
-      option.setName('mode')
-        .setDescription('What to snipe')
-        .setRequired(true)
-        .addChoices(
-          { name: 'removed (deleted)', value: 'removed' },
-          { name: 'edit (edited)', value: 'edit' },
-          { name: 'last50 (recent)', value: 'last50' },
-          { name: 'insane (spicy keywords)', value: 'insane' }
-        ))
-    .addIntegerOption(option =>
-      option.setName('count')
-        .setDescription('How many messages? (max 50)')
-        .setRequired(false)),
+    .setName("snipe")
+    .setDescription("snitch on what got deleted or changed")
+    .addSubcommand(sub =>
+      sub.setName("deleted")
+        .setDescription("get the last deleted message")
+    )
+    .addSubcommand(sub =>
+      sub.setName("edited")
+        .setDescription("get the last edited message")
+    )
+    .addSubcommand(sub =>
+      sub.setName("reaction")
+        .setDescription("get the last removed reaction")
+    ),
 
-  async execute(interaction, client) {
-    // DEFER FIRST — literally line 1, no code before this
-    await interaction.deferReply({ ephemeral: true });
-
-    // Debug log so you can see it in Render logs
-    console.log(`[SNIPE] Deferred for ${interaction.user.tag} - mode: ${interaction.options.getString('mode') || 'none'}`);
-
-    const mode = interaction.options.getString('mode');
-    const count = Math.min(interaction.options.getInteger('count') || 5, mode === 'last50' ? 50 : 10);
-
-    const snipes = client.snipes.get(interaction.channelId) || [];
-
-    if (mode === 'removed') {
-      const deleted = snipes.filter(s => s.type === 'delete').slice(-count);
-      if (deleted.length === 0) return interaction.editReply('Snipe: Deleted. No insanity for me to deal with today.');
-
-      const embed = new EmbedBuilder()
-        .setColor('#ff4444')
-        .setTitle('Snipe: Deleted')
-        .setDescription(deleted.map(s => `**${s.author.tag}** (${s.timestamp.toLocaleTimeString()}): ${s.content || '[empty/attachment]'}`).join('\n\n'))
-        .setFooter({ text: 'Sniped by Chrxmee AI' });
-
-      return interaction.editReply({ embeds: [embed] });
+  async execute(interaction) {
+    const isButtonSim = interaction.isButton && interaction.isButton();
+    if (!isButtonSim) {
+      try { await interaction.deferReply(); } catch {}
     }
 
-    if (mode === 'edit') {
-      const edited = snipes.filter(s => s.type === 'edit').slice(-count);
-      if (edited.length === 0) return interaction.editReply('Snipe: Edit. No one’s changing their mind today... boring.');
+    const sub = interaction.options.getSubcommand();
+    const client = interaction.client;
+    const channelId = interaction.channelId;
 
-      const embed = new EmbedBuilder()
-        .setColor('#ffaa00')
-        .setTitle('Snipe: Edited')
-        .setDescription(edited.map(s => `**${s.author.tag}** (${s.timestamp.toLocaleTimeString()}):\n**Before:** ${s.oldContent || '[empty]'}\n**After:** ${s.content || '[empty]'}`).join('\n\n'))
-        .setFooter({ text: 'Sniped by Chrxmee AI' });
+    try {
+      let embed;
 
-      return interaction.editReply({ embeds: [embed] });
+      if (sub === "deleted") {
+        const snipes = client.snipes?.get(channelId) || [];
+        if (!snipes.length) {
+          embed = new EmbedBuilder()
+            .setColor(0xff0000)
+            .setTitle(`${E.error} nothing to snipe`)
+            .setDescription(`${E.angry} no deleted messages in this channel.`);
+        } else {
+          const s = snipes[0];
+          embed = new EmbedBuilder()
+            .setColor(0x7c7ce0)
+            .setTitle(`${E.sneaky} deleted message`)
+            .setDescription(s.content)
+            .addFields(
+              { name: "author", value: s.author, inline: true },
+              { name: "channel", value: `<#${s.channelId}>`, inline: true },
+              { name: "time", value: `<t:${Math.floor(s.timestamp / 1000)}:R>`, inline: true }
+            )
+            .setFooter({ text: "sniped by chromed" })
+            .setTimestamp();
+
+          if (s.attachments?.length) {
+            const att = s.attachments[0];
+            embed.setImage(att.url);
+            embed.addFields({ name: "attachment", value: `[${att.name}](${att.url})`, inline: false });
+          }
+        }
+      } else if (sub === "edited") {
+        const edits = client.editSnipes?.get(channelId) || [];
+        if (!edits.length) {
+          embed = new EmbedBuilder()
+            .setColor(0xff0000)
+            .setTitle(`${E.error} nothing to snipe`)
+            .setDescription(`${E.angry} no edited messages in this channel.`);
+        } else {
+          const e = edits[0];
+          embed = new EmbedBuilder()
+            .setColor(0x7c7ce0)
+            .setTitle(`${E.sneaky} edited message`)
+            .addFields(
+              { name: "before", value: e.oldContent || "*(empty)*", inline: false },
+              { name: "after", value: e.newContent || "*(empty)*", inline: false },
+              { name: "author", value: e.author, inline: true },
+              { name: "time", value: `<t:${Math.floor(e.timestamp / 1000)}:R>`, inline: true }
+            )
+            .setFooter({ text: "no edit goes unnoticed" })
+            .setTimestamp();
+        }
+      } else if (sub === "reaction") {
+        const reactions = client.reactionSnipes?.get(channelId) || [];
+        if (!reactions.length) {
+          embed = new EmbedBuilder()
+            .setColor(0xff0000)
+            .setTitle(`${E.error} nothing to snipe`)
+            .setDescription(`${E.angry} no removed reactions in this channel.`);
+        } else {
+          const r = reactions[0];
+          embed = new EmbedBuilder()
+            .setColor(0x7c7ce0)
+            .setTitle(`${E.sneaky} removed reaction`)
+            .addFields(
+              { name: "reaction", value: r.emoji, inline: true },
+              { name: "user", value: r.userTag, inline: true },
+              { name: "message", value: r.messageContent, inline: false },
+              { name: "time", value: `<t:${Math.floor(r.timestamp / 1000)}:R>`, inline: true }
+            )
+            .setFooter({ text: "even reactions get caught" })
+            .setTimestamp();
+        }
+      }
+
+      return interaction.editReply({ embeds: [embed] }).catch(() => interaction.followUp({ embeds: [embed] }));
+
+    } catch (err) {
+      console.error("snipe error:", err);
+      const errorEmbed = new EmbedBuilder()
+        .setColor(0xff0000)
+        .setTitle(`${E.error} snipe failed`)
+        .setDescription(`${E.angry} something went wrong: ${err.message}`);
+      return interaction.editReply({ embeds: [errorEmbed] }).catch(() => interaction.followUp({ embeds: [errorEmbed] }));
     }
-
-    if (mode === 'last50') {
-      const recent = snipes.slice(-count);
-      if (recent.length === 0) return interaction.editReply('Snipe: Last50. Channel’s so dead even ghosts left.');
-
-      const embed = new EmbedBuilder()
-        .setColor('#44ff44')
-        .setTitle(`Last ${recent.length} Messages`)
-        .setDescription(recent.map(s => `**${s.author.tag}** (${s.timestamp.toLocaleTimeString()}): ${s.content || '[attachment/media]'}`).join('\n\n'))
-        .setFooter({ text: 'Sniped by Chrxmee AI' });
-
-      return interaction.editReply({ embeds: [embed] });
-    }
-
-    if (mode === 'insane') {
-      const heavy = snipes.filter(s => {
-        const t = (s.content || '').toLowerCase();
-        return t.includes('fuck') || t.includes('bitch') || t.includes('kill') || t.includes('die') || t.includes('ugly') || t.includes('hate') || t.includes('loser');
-      }).slice(-5);
-
-      if (heavy.length === 0) return interaction.editReply('Snipe: Insane. Everyone’s too chill today... disappointing.');
-
-      const embed = new EmbedBuilder()
-        .setColor('#ff0000')
-        .setTitle('INSANE SNIPE MODE')
-        .setDescription(heavy.map(s => `**${s.author.tag}** said: ${s.content}`).join('\n\n'))
-        .setFooter({ text: 'Chrxmee AI remembers everything' });
-
-      return interaction.editReply({ embeds: [embed] });
-    }
-  }
+  },
 };
