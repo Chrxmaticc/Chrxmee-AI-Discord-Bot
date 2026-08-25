@@ -1,56 +1,54 @@
-const { SlashCommandBuilder } = require("discord.js");
+const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
+
+const E = {
+  success: "<:Verified_Icon:1527194184841167010>",
+  error: "<:no:1530373946795364362>",
+  ai: "<:Chrxmaticc_AI:1480094799292928132>",
+  agree: "<:agreed:1525639597135237131>",
+  angry: "<:angry_cry:1526029511882440744>",
+  sneaky: "<:sneaky:1527401423690792970>",
+  money_cry: "<:Money_Cry_Son:1526538340264841257>",
+  cringe_laugh: "<:Cringe_Laughing_Son:1526539082564374710>",
+  point_laugh: "<:PointAndLaughingEmoji:1525657154567016469>",
+};
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName("dream")
-    .setDescription("Get a creative and surreal interpretation of a dream or idea")
+    .setName("imagine")
+    .setDescription("generate an image from your imagination")
     .addStringOption(option =>
-      option.setName("idea")
-        .setDescription("What's the seed of your dream?")
-        .setRequired(true))
+      option.setName("prompt")
+        .setDescription("what do you want to imagine?")
+        .setRequired(true)
+    )
     .setContexts([0, 1, 2])
     .setIntegrationTypes([0, 1]),
+
   async execute(interaction) {
-    await interaction.deferReply();
-    const idea = interaction.options.getString("idea");
+    const isButtonSim = interaction.isButton && interaction.isButton();
+    if (!isButtonSim) {
+      try { await interaction.deferReply(); } catch {}
+    }
+
+    const prompt = interaction.options.getString("prompt");
+    const seed = Math.floor(Math.random() * 1000000); // random seed for variety
+
+    // Pollinations free image API — no key needed
+    const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&seed=${seed}&nologo=true`;
+
+    const embed = new EmbedBuilder()
+      .setColor(0x7c7ce0) // periwinkle
+      .setTitle(`${E.ai} imagine`)
+      .setDescription(`${E.success} here's your image for: **${prompt}**`)
+      .setImage(imageUrl)
+      .setFooter({ text: "generated with pollinations ai" })
+      .setTimestamp();
 
     try {
-      const starterData = interaction.client.memory.get(interaction.user.id) || { model: "smart" };
-      const userModel = starterData.model || "smart";
-
-      const models = {
-        smart: "llama-3.3-70b-versatile",
-        fast: "llama-3.1-8b-instant",
-        thinker: "deepseek-r1-distill-llama-70b",
-        creative: "llama-3.3-70b-versatile",
-        efficient: "llama-3.1-8b-instant",
-        visionary: "llama-3.3-70b-versatile",
-        analyst: "llama-3.1-8b-instant",
-        classic: "llama-3.3-70b-versatile"
-      };
-
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: models[userModel] || models.smart,
-          messages: [
-            { role: "system", content: "You are a dream weaver. Create a surreal, poetic, and vivid description of a dream sequence based on the user's input." },
-            { role: "user", content: `Dream about: ${idea}` }
-          ],
-        }),
-      });
-
-      const data = await response.json();
-      const result = data.choices[0].message.content;
-
-      await interaction.editReply(`🌙 **Dream Sequence:**\n\n${result}`);
+      return interaction.editReply({ embeds: [embed] });
     } catch (err) {
-      console.error("Dream Error:", err);
-      await interaction.editReply("The dream faded away before I could capture it...");
+      console.error("imagine error:", err);
+      return interaction.followUp({ content: `${E.error} image generation failed: ${err.message}` }).catch(() => {});
     }
   },
 };
