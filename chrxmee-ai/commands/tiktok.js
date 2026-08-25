@@ -39,34 +39,58 @@ module.exports = {
     const sub = interaction.options.getSubcommand();
 
     try {
-      if (sub === "video") {
-        const url = interaction.options.getString("url");
-        const apiUrl = `https://api.popcat.xyz/tiktok?url=${encodeURIComponent(url)}`;
-        const res = await fetch(apiUrl);
-        const data = await res.json();
-        if (!data || !data.video) throw new Error("no video found");
+    if (sub === "video") {
+  const url = interaction.options.getString("url");
+  let videoData = null;
 
-        // fetch video buffer
-        const videoRes = await fetch(data.video);
-        const videoBuffer = Buffer.from(await videoRes.arrayBuffer());
+  // try popcat first
+  try {
+    const popcatRes = await fetch(`https://api.popcat.xyz/tiktok?url=${encodeURIComponent(url)}`);
+    const data = await popcatRes.json();
+    if (data && data.video) {
+      videoData = {
+        title: data.title || "no title",
+        author: data.author || "unknown",
+        videoUrl: data.video,
+        cover: data.cover || null,
+      };
+    }
+  } catch {}
 
-        const embed = new EmbedBuilder()
-          .setColor(0x7c7ce0)
-          .setTitle(`${E.ai} tiktok video`)
-          .setDescription(`**${data.title || "no title"}**`)
-          .addFields(
-            { name: "author", value: data.author || "unknown", inline: true },
-            { name: "likes", value: data.likes || "0", inline: true },
-            { name: "comments", value: data.comments || "0", inline: true }
-          )
-          .setImage(data.cover || null)
-          .setFooter({ text: "scraped by chromed" })
-          .setTimestamp();
+  // fallback to tikwm
+  if (!videoData) {
+    const tikwmRes = await fetch(`https://www.tikwm.com/api/?url=${encodeURIComponent(url)}`);
+    const data = await tikwmRes.json();
+    if (data.code === 0 && data.data) {
+      videoData = {
+        title: data.data.title || "no title",
+        author: data.data.author?.nickname || "unknown",
+        videoUrl: data.data.play,
+        cover: data.data.cover || null,
+      };
+    }
+  }
 
-        const attachment = new AttachmentBuilder(videoBuffer, { name: "tiktok.mp4" });
-        return interaction.editReply({ embeds: [embed], files: [attachment] }).catch(() => interaction.followUp({ embeds: [embed], files: [attachment] }));
-      }
+  if (!videoData) throw new Error("couldn't fetch tiktok video");
 
+  // fetch video buffer
+  const videoRes = await fetch(videoData.videoUrl);
+  const videoBuffer = Buffer.from(await videoRes.arrayBuffer());
+
+  const embed = new EmbedBuilder()
+    .setColor(0x7c7ce0)
+    .setTitle(`${E.ai} tiktok video`)
+    .setDescription(`**${videoData.title}**`)
+    .addFields(
+      { name: "author", value: videoData.author, inline: true }
+    )
+    .setImage(videoData.cover)
+    .setFooter({ text: "scraped by chromed" })
+    .setTimestamp();
+
+  const attachment = new AttachmentBuilder(videoBuffer, { name: "tiktok.mp4" });
+  return interaction.editReply({ embeds: [embed], files: [attachment] }).catch(() => interaction.followUp({ embeds: [embed], files: [attachment] }));
+}
       if (sub === "profile") {
         const username = interaction.options.getString("username");
         const apiUrl = `https://api.popcat.xyz/tiktok?user=${encodeURIComponent(username)}`;
