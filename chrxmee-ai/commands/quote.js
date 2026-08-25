@@ -5,12 +5,7 @@ const E = {
   success: "<:Verified_Icon:1527194184841167010>",
   error: "<:no:1530373946795364362>",
   ai: "<:Chrxmaticc_AI:1480094799292928132>",
-  agree: "<:agreed:1525639597135237131>",
   angry: "<:angry_cry:1526029511882440744>",
-  sneaky: "<:sneaky:1527401423690792970>",
-  money_cry: "<:Money_Cry_Son:1526538340264841257>",
-  cringe_laugh: "<:Cringe_Laughing_Son:1526539082564374710>",
-  point_laugh: "<:PointAndLaughingEmoji:1525657154567016469>",
 };
 
 module.exports = {
@@ -111,7 +106,20 @@ module.exports = {
       ctx.font = "16px sans-serif";
       ctx.fillText(`— ${target.username}`, pfpX + pfpSize + 40, height - 50);
 
-      // convert to buffer
+      // ===== WATERMARK =====
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = "#e8e8e8";
+      ctx.font = "12px sans-serif";
+      ctx.textAlign = "right";
+      ctx.textBaseline = "bottom";
+
+      // short watermark bottom-right
+      ctx.fillText("chromed quote · fake", width - 20, height - 20);
+      ctx.fillText("defame = blacklist", width - 20, height - 36);
+      ctx.restore();
+
+      // ===== EMBED =====
       const buffer = canvas.toBuffer("image/png");
       const attachment = new AttachmentBuilder(buffer, { name: "quote.png" });
 
@@ -120,7 +128,12 @@ module.exports = {
         .setTitle(`${E.ai} quote card`)
         .setDescription(`${E.success} here's your quote`)
         .setImage("attachment://quote.png")
-        .setFooter({ text: "keep quoting." })
+        .addFields({
+          name: "🚨 disclaimer",
+          value: "this is a **fake quote** created by chromed. do not try to defame people or you will be **blacklisted** from using chromed. if someone uses this to harass or mislead, report them to the server admins.",
+          inline: false,
+        })
+        .setFooter({ text: "chromed quote system — not real" })
         .setTimestamp();
 
       return interaction.editReply({ embeds: [embed], files: [attachment] }).catch(() => interaction.followUp({ embeds: [embed], files: [attachment] }));
