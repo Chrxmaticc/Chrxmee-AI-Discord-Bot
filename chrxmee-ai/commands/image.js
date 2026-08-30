@@ -21,13 +21,20 @@ const FLASH_COLORS = {
   black: { r: 0, g: 0, b: 0 },
   red: { r: 255, g: 0, b: 0 },
   blue: { r: 0, g: 0, b: 255 },
+  green: { r: 0, g: 255, b: 0 },
+  purple: { r: 128, g: 0, b: 128 },
 };
+
+function toImageData(ctx, data, width, height) {
+  const imgData = ctx.createImageData(width, height);
+  imgData.data.set(data);
+  return imgData;
+}
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("image")
     .setDescription("image manipulation chaos")
-    // subcommands
     .addSubcommand(sub =>
       sub.setName("invert").setDescription("invert colors")
         .addUserOption(opt => opt.setName("user").setDescription("user avatar").setRequired(false))
@@ -81,7 +88,9 @@ module.exports = {
             { name: "white", value: "white" },
             { name: "black", value: "black" },
             { name: "red", value: "red" },
-            { name: "blue", value: "blue" }
+            { name: "blue", value: "blue" },
+            { name: "green", value: "green" },
+            { name: "purple", value: "purple" }
           ))
         .addIntegerOption(opt => opt.setName("intensity").setDescription("intensity 1-10").setRequired(false).setMinValue(1).setMaxValue(10))
         .addUserOption(opt => opt.setName("user").setDescription("user avatar").setRequired(false))
@@ -98,6 +107,34 @@ module.exports = {
     .addSubcommand(sub =>
       sub.setName("contrast").setDescription("adjust contrast")
         .addIntegerOption(opt => opt.setName("value").setDescription("-100 to 100").setRequired(true).setMinValue(-100).setMaxValue(100))
+        .addUserOption(opt => opt.setName("user").setDescription("user avatar").setRequired(false))
+        .addStringOption(opt => opt.setName("url").setDescription("image url").setRequired(false))
+        .addAttachmentOption(opt => opt.setName("file").setDescription("image file").setRequired(false))
+    )
+    .addSubcommand(sub =>
+      sub.setName("saturation").setDescription("adjust saturation")
+        .addIntegerOption(opt => opt.setName("value").setDescription("-100 to 100").setRequired(true).setMinValue(-100).setMaxValue(100))
+        .addUserOption(opt => opt.setName("user").setDescription("user avatar").setRequired(false))
+        .addStringOption(opt => opt.setName("url").setDescription("image url").setRequired(false))
+        .addAttachmentOption(opt => opt.setName("file").setDescription("image file").setRequired(false))
+    )
+    .addSubcommand(sub =>
+      sub.setName("hue").setDescription("rotate hue")
+        .addIntegerOption(opt => opt.setName("degrees").setDescription("degrees (0-360)").setRequired(true).setMinValue(0).setMaxValue(360))
+        .addUserOption(opt => opt.setName("user").setDescription("user avatar").setRequired(false))
+        .addStringOption(opt => opt.setName("url").setDescription("image url").setRequired(false))
+        .addAttachmentOption(opt => opt.setName("file").setDescription("image file").setRequired(false))
+    )
+    .addSubcommand(sub =>
+      sub.setName("vibrance").setDescription("adjust vibrance")
+        .addIntegerOption(opt => opt.setName("value").setDescription("-100 to 100").setRequired(true).setMinValue(-100).setMaxValue(100))
+        .addUserOption(opt => opt.setName("user").setDescription("user avatar").setRequired(false))
+        .addStringOption(opt => opt.setName("url").setDescription("image url").setRequired(false))
+        .addAttachmentOption(opt => opt.setName("file").setDescription("image file").setRequired(false))
+    )
+    .addSubcommand(sub =>
+      sub.setName("noise").setDescription("add random noise")
+        .addIntegerOption(opt => opt.setName("amount").setDescription("noise amount (1-100)").setRequired(false).setMinValue(1).setMaxValue(100))
         .addUserOption(opt => opt.setName("user").setDescription("user avatar").setRequired(false))
         .addStringOption(opt => opt.setName("url").setDescription("image url").setRequired(false))
         .addAttachmentOption(opt => opt.setName("file").setDescription("image file").setRequired(false))
@@ -152,7 +189,6 @@ module.exports = {
     const url = interaction.options.getString("url");
     const attachment = interaction.options.getAttachment("file");
 
-    // function to get image URL from various sources
     let imageUrl = null;
 
     if (attachment) {
@@ -162,10 +198,8 @@ module.exports = {
     } else if (user) {
       imageUrl = user.displayAvatarURL({ extension: "png", size: 512 });
     } else if (isButtonSim && interaction.message?.attachments?.size > 0) {
-      // prefix: message attachment
       imageUrl = interaction.message.attachments.first().url;
     } else if (interaction.reference) {
-      // replied message attachment fallback
       try {
         const replied = await interaction.channel.messages.fetch(interaction.reference.messageId);
         if (replied.attachments.size > 0) imageUrl = replied.attachments.first().url;
@@ -183,78 +217,88 @@ module.exports = {
     }
 
     try {
-      // load image
       const img = await loadImage(imageUrl);
-
-      // create canvas
       const canvas = createCanvas(img.width, img.height);
       const ctx = canvas.getContext("2d");
       ctx.drawImage(img, 0, 0);
 
-      // apply effect based on subcommand
       switch (sub) {
-        case "invert":
-          applyInvert(ctx, img.width, img.height);
-          break;
-        case "grayscale":
-          applyGrayscale(ctx, img.width, img.height);
-          break;
-        case "sepia":
-          applySepia(ctx, img.width, img.height);
-          break;
-        case "blur":
+        case "invert": applyInvert(ctx, img.width, img.height); break;
+        case "grayscale": applyGrayscale(ctx, img.width, img.height); break;
+        case "sepia": applySepia(ctx, img.width, img.height); break;
+        case "blur": {
           const strength = interaction.options.getInteger("strength") || 5;
           ctx.filter = `blur(${strength}px)`;
           ctx.drawImage(canvas, 0, 0);
           ctx.filter = "none";
           break;
-        case "pixelate":
-          const pixelSize = interaction.options.getInteger("size") || 10;
-          applyPixelate(canvas, ctx, img.width, img.height, pixelSize);
+        }
+        case "pixelate": {
+          const size = interaction.options.getInteger("size") || 10;
+          applyPixelate(canvas, ctx, img.width, img.height, size);
           break;
-        case "flip":
+        }
+        case "flip": {
           const dir = interaction.options.getString("direction");
           applyFlip(ctx, canvas, dir);
           break;
-        case "rotate":
+        }
+        case "rotate": {
           const deg = interaction.options.getInteger("degrees");
           applyRotate(canvas, ctx, deg);
           break;
-        case "flash":
+        }
+        case "flash": {
           const mode = interaction.options.getString("mode");
           const intensity = interaction.options.getInteger("intensity") || 5;
           applyFlash(ctx, img.width, img.height, FLASH_COLORS[mode], intensity / 10);
           break;
-        case "brightness":
-          const bVal = interaction.options.getInteger("value");
-          applyBrightness(ctx, img.width, img.height, bVal);
+        }
+        case "brightness": {
+          const val = interaction.options.getInteger("value");
+          applyBrightness(ctx, img.width, img.height, val);
           break;
-        case "contrast":
-          const cVal = interaction.options.getInteger("value");
-          applyContrast(ctx, img.width, img.height, cVal);
+        }
+        case "contrast": {
+          const val = interaction.options.getInteger("value");
+          applyContrast(ctx, img.width, img.height, val);
           break;
-        case "posterize":
+        }
+        case "saturation": {
+          const val = interaction.options.getInteger("value");
+          applySaturation(ctx, img.width, img.height, val);
+          break;
+        }
+        case "hue": {
+          const deg = interaction.options.getInteger("degrees");
+          applyHue(ctx, img.width, img.height, deg);
+          break;
+        }
+        case "vibrance": {
+          const val = interaction.options.getInteger("value");
+          applyVibrance(ctx, img.width, img.height, val);
+          break;
+        }
+        case "noise": {
+          const amount = interaction.options.getInteger("amount") || 20;
+          applyNoise(ctx, img.width, img.height, amount);
+          break;
+        }
+        case "posterize": {
           const levels = interaction.options.getInteger("levels");
           applyPosterize(ctx, img.width, img.height, levels);
           break;
-        case "threshold":
+        }
+        case "threshold": {
           const thresh = interaction.options.getInteger("value");
           applyThreshold(ctx, img.width, img.height, thresh);
           break;
-        case "edge":
-          applyEdge(ctx, img.width, img.height);
-          break;
-        case "emboss":
-          applyEmboss(ctx, img.width, img.height);
-          break;
-        case "sharpen":
-          applySharpen(ctx, img.width, img.height);
-          break;
-        case "deepfry":
-          applyDeepfry(ctx, img.width, img.height);
-          break;
-        default:
-          break;
+        }
+        case "edge": applyEdge(ctx, img.width, img.height); break;
+        case "emboss": applyEmboss(ctx, img.width, img.height); break;
+        case "sharpen": applySharpen(ctx, img.width, img.height); break;
+        case "deepfry": applyDeepfry(ctx, img.width, img.height); break;
+        default: break;
       }
 
       const buffer = canvas.toBuffer("image/png");
@@ -281,7 +325,7 @@ module.exports = {
   },
 };
 
-// ─── pixel manipulation helpers ────────────────────────────
+// ─── pixel manipulation helpers (all using ctx.createImageData) ───
 
 function getImageData(ctx, width, height) {
   return ctx.getImageData(0, 0, width, height);
@@ -329,11 +373,10 @@ function applySepia(ctx, width, height) {
 function applyBrightness(ctx, width, height, value) {
   const imageData = getImageData(ctx, width, height);
   const data = imageData.data;
-  const adjust = value; // -100 to 100
   for (let i = 0; i < data.length; i += 4) {
-    data[i] = Math.max(0, Math.min(255, data[i] + adjust));
-    data[i+1] = Math.max(0, Math.min(255, data[i+1] + adjust));
-    data[i+2] = Math.max(0, Math.min(255, data[i+2] + adjust));
+    data[i] = Math.max(0, Math.min(255, data[i] + value));
+    data[i+1] = Math.max(0, Math.min(255, data[i+1] + value));
+    data[i+2] = Math.max(0, Math.min(255, data[i+2] + value));
   }
   putImageData(ctx, imageData);
 }
@@ -346,6 +389,102 @@ function applyContrast(ctx, width, height, value) {
     data[i] = Math.max(0, Math.min(255, factor * (data[i] - 128) + 128));
     data[i+1] = Math.max(0, Math.min(255, factor * (data[i+1] - 128) + 128));
     data[i+2] = Math.max(0, Math.min(255, factor * (data[i+2] - 128) + 128));
+  }
+  putImageData(ctx, imageData);
+}
+
+function applySaturation(ctx, width, height, value) {
+  const imageData = getImageData(ctx, width, height);
+  const data = imageData.data;
+  const factor = 1 + value / 100;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i], g = data[i+1], b = data[i+2];
+    const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+    data[i] = Math.max(0, Math.min(255, gray + factor * (r - gray)));
+    data[i+1] = Math.max(0, Math.min(255, gray + factor * (g - gray)));
+    data[i+2] = Math.max(0, Math.min(255, gray + factor * (b - gray)));
+  }
+  putImageData(ctx, imageData);
+}
+
+function applyHue(ctx, width, height, degrees) {
+  const imageData = getImageData(ctx, width, height);
+  const data = imageData.data;
+  const rad = degrees * Math.PI / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i] / 255, g = data[i+1] / 255, b = data[i+2] / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    const d = max - min;
+    if (d === 0) continue;
+    const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    let h;
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+    h = (h + degrees) % 360;
+    const c = (1 - Math.abs(2*l - 1)) * s;
+    const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+    const m = l - c / 2;
+    let rp, gp, bp;
+    if (h < 60) { rp = c; gp = x; bp = 0; }
+    else if (h < 120) { rp = x; gp = c; bp = 0; }
+    else if (h < 180) { rp = 0; gp = c; bp = x; }
+    else if (h < 240) { rp = 0; gp = x; bp = c; }
+    else if (h < 300) { rp = x; gp = 0; bp = c; }
+    else { rp = c; gp = 0; bp = x; }
+    data[i] = Math.min(255, (rp + m) * 255);
+    data[i+1] = Math.min(255, (gp + m) * 255);
+    data[i+2] = Math.min(255, (bp + m) * 255);
+  }
+  putImageData(ctx, imageData);
+}
+
+function applyVibrance(ctx, width, height, value) {
+  const imageData = getImageData(ctx, width, height);
+  const data = imageData.data;
+  const factor = 1 + value / 100;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i], g = data[i+1], b = data[i+2];
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    const s = max === min ? 0 : (max - min) / (1 - Math.abs(2*l - 1));
+    const newS = Math.min(1, s * factor);
+    // convert back
+    const d = (max - min) * newS / (s || 1);
+    const avg = (max + min) / 2;
+    if (max === r) {
+      data[i] = avg + d;
+      data[i+1] = avg;
+      data[i+2] = avg;
+    } else if (max === g) {
+      data[i] = avg;
+      data[i+1] = avg + d;
+      data[i+2] = avg;
+    } else if (max === b) {
+      data[i] = avg;
+      data[i+1] = avg;
+      data[i+2] = avg + d;
+    }
+  }
+  putImageData(ctx, imageData);
+}
+
+function applyNoise(ctx, width, height, amount) {
+  const imageData = getImageData(ctx, width, height);
+  const data = imageData.data;
+  const noise = amount / 100;
+  for (let i = 0; i < data.length; i += 4) {
+    if (Math.random() < noise) {
+      const val = Math.random() * 255;
+      data[i] = val;
+      data[i+1] = val;
+      data[i+2] = val;
+    }
   }
   putImageData(ctx, imageData);
 }
@@ -379,10 +518,8 @@ function applyPixelate(canvas, ctx, width, height, pixelSize) {
   const tempCanvas = createCanvas(width, height);
   const tempCtx = tempCanvas.getContext("2d");
   tempCtx.drawImage(canvas, 0, 0);
-
   ctx.save();
   ctx.imageSmoothingEnabled = false;
-  // draw scaled down then up
   ctx.drawImage(tempCanvas, 0, 0, width, height, 0, 0, width / pixelSize, height / pixelSize);
   ctx.drawImage(tempCanvas, 0, 0, width / pixelSize, height / pixelSize, 0, 0, width, height);
   ctx.restore();
@@ -441,7 +578,8 @@ function applyEdge(ctx, width, height) {
       newData[idx+2] = val;
     }
   }
-  putImageData(ctx, new ImageData(newData, width, height));
+  const newImageData = toImageData(ctx, newData, width, height);
+  putImageData(ctx, newImageData);
 }
 
 function applyEmboss(ctx, width, height) {
@@ -465,17 +603,14 @@ function applyEmboss(ctx, width, height) {
       newData[idx+2] = val;
     }
   }
-  putImageData(ctx, new ImageData(newData, width, height));
+  const newImageData = toImageData(ctx, newData, width, height);
+  putImageData(ctx, newImageData);
 }
 
 function applySharpen(ctx, width, height) {
   const imageData = getImageData(ctx, width, height);
   const data = imageData.data;
-  const kernel = [
-    0, -1, 0,
-    -1, 5, -1,
-    0, -1, 0
-  ];
+  const kernel = [0, -1, 0, -1, 5, -1, 0, -1, 0];
   const original = new Uint8ClampedArray(data);
   const newData = new Uint8ClampedArray(data);
   for (let y = 1; y < height - 1; y++) {
@@ -493,60 +628,12 @@ function applySharpen(ctx, width, height) {
       }
     }
   }
-  putImageData(ctx, new ImageData(newData, width, height));
+  const newImageData = toImageData(ctx, newData, width, height);
+  putImageData(ctx, newImageData);
 }
 
 function applyDeepfry(ctx, width, height) {
-  // increase contrast and saturation, add noise
   applyContrast(ctx, width, height, 50);
-  // saturation boost
-  const imageData = getImageData(ctx, width, height);
-  const data = imageData.data;
-  const factor = 1.5;
-  for (let i = 0; i < data.length; i += 4) {
-    const r = data[i], g = data[i+1], b = data[i+2];
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    const l = (max + min) / 2;
-    const s = max === min ? 0 : (max - min) / (1 - Math.abs(2*l - 1));
-    if (s > 0) {
-      const hue = (() => {
-        const d = max - min;
-        let h;
-        if (max === r) h = ((g - b) / d) % 6;
-        else if (max === g) h = (b - r) / d + 2;
-        else h = (r - g) / d + 4;
-        h *= 60;
-        if (h < 0) h += 360;
-        return h;
-      })();
-      // adjust saturation
-      const newS = Math.min(1, s * factor);
-      const c = (1 - Math.abs(2*l - 1)) * newS;
-      const x = c * (1 - Math.abs((h / 60) % 2 - 1));
-      const m = l - c / 2;
-      let rp, gp, bp;
-      if (h < 60) { rp = c; gp = x; bp = 0; }
-      else if (h < 120) { rp = x; gp = c; bp = 0; }
-      else if (h < 180) { rp = 0; gp = c; bp = x; }
-      else if (h < 240) { rp = 0; gp = x; bp = c; }
-      else if (h < 300) { rp = x; gp = 0; bp = c; }
-      else { rp = c; gp = 0; bp = x; }
-      data[i] = Math.min(255, (rp + m) * 255);
-      data[i+1] = Math.min(255, (gp + m) * 255);
-      data[i+2] = Math.min(255, (bp + m) * 255);
-    }
-  }
-  putImageData(ctx, imageData);
-  // add noise
-  const noiseData = getImageData(ctx, width, height);
-  for (let i = 0; i < noiseData.data.length; i += 4) {
-    if (Math.random() < 0.1) {
-      const noise = Math.random() * 50 - 25;
-      noiseData.data[i] = Math.max(0, Math.min(255, noiseData.data[i] + noise));
-      noiseData.data[i+1] = Math.max(0, Math.min(255, noiseData.data[i+1] + noise));
-      noiseData.data[i+2] = Math.max(0, Math.min(255, noiseData.data[i+2] + noise));
-    }
-  }
-  putImageData(ctx, noiseData);
+  applySaturation(ctx, width, height, 50);
+  applyNoise(ctx, width, height, 30);
 }
