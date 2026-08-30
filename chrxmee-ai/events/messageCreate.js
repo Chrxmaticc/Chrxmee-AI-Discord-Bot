@@ -4,6 +4,7 @@ const { Client } = require("pg");
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 const { handleKeywords } = require("../commands/keyword-responder");
 const { handleMessage: handleUwuify } = require("../commands/uwuify");
+const { detectTool, executeTool } = require("../tools");
 
 const db = new Client({
   connectionString: process.env.DATABASE_URL,
@@ -627,6 +628,23 @@ module.exports = {
     }
 
     await new Promise(resolve => setTimeout(resolve, Math.random() * 200 + 100));
+
+    // Try to detect and run a tool
+const tool = detectTool(message.content);
+if (tool) {
+  try {
+    const result = await executeTool(tool.tool, tool.args, { message, client: message.client });
+    if (typeof result === "string") {
+      return message.reply(result).catch(() => {});
+    } else if (result && result.type === "image") {
+      return message.reply({ files: [{ attachment: result.url, name: "image.png" }] }).catch(() => {});
+    }
+  } catch (err) {
+    console.error("Tool error:", err);
+    return message.reply("i couldn't do that.").catch(() => {});
+  }
+}
+// If no tool, continue with your existing AI flow...
 
     // 5. Wake-up mode & reply/ping detection
     if (guildId) {
