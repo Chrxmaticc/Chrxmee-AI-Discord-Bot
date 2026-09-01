@@ -632,6 +632,12 @@ console.log("user_fonts table ready");
     await pool.query(`ALTER TABLE user_xp ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
 
 await pgClient.query(`
+  ALTER TABLE merit_config
+  ADD COLUMN IF NOT EXISTS xp_merit_enabled BOOLEAN DEFAULT FALSE
+`);
+console.log("xp_merit_enabled column added");
+    
+await pgClient.query(`
   CREATE TABLE IF NOT EXISTS self_prefixes (
     user_id TEXT PRIMARY KEY,
     prefix TEXT NOT NULL
