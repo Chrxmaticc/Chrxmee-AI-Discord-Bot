@@ -631,6 +631,14 @@ console.log("user_fonts table ready");
 
     await pool.query(`ALTER TABLE user_xp ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
 
+await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS self_prefixes (
+    user_id TEXT PRIMARY KEY,
+    prefix TEXT NOT NULL
+  )
+`);
+console.log("self_prefixes table ready");
+    
     await pgClient.query(`CREATE TABLE IF NOT EXISTS juul_config (
   guild_id TEXT PRIMARY KEY,
   verified BOOLEAN DEFAULT FALSE,
