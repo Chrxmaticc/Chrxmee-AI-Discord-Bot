@@ -16,8 +16,8 @@ module.exports = {
 
     const client = message.client;
     const pool = client.pool;
-
-    // ─── SELF PREFIX (premium only) ───
+    
+   // ─── SELF PREFIX (premium only) ───
 let selfPrefix = null;
 try {
   const selfPrefRes = await pool.query(
@@ -52,6 +52,7 @@ if (!prefix && message.guild) {
 }
 if (!prefix) prefix = "!";
 
+ 
     // ─── GET SERVER-SPECIFIC PREFIX ───
     let prefix = "!";
     if (message.guild) {
