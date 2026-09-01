@@ -17,45 +17,33 @@ module.exports = {
     const client = message.client;
     const pool = client.pool;
     
-   // ─── SELF PREFIX (premium only) ───
-let selfPrefix = null;
-try {
-  const selfPrefRes = await pool.query(
-    `SELECT prefix FROM self_prefixes WHERE user_id = $1`,
-    [message.author.id]
-  );
-  if (selfPrefRes.rows[0]?.prefix) {
-    const premiumRes = await pool.query(
-      `SELECT 1 FROM user_premium
-       WHERE user_id = $1 AND server_id IS NULL
-       AND (premium_type = 'forever' OR expires_at > NOW())`,
-      [message.author.id]
-    );
-    if (premiumRes.rows.length > 0) {
-      selfPrefix = selfPrefRes.rows[0].prefix;
+    // ─── SELF PREFIX (premium only) ───
+    let selfPrefix = null;
+    try {
+      const selfPrefRes = await pool.query(
+        `SELECT prefix FROM self_prefixes WHERE user_id = $1`,
+        [message.author.id]
+      );
+      if (selfPrefRes.rows[0]?.prefix) {
+        const premiumRes = await pool.query(
+          `SELECT 1 FROM user_premium
+           WHERE user_id = $1 AND server_id IS NULL
+           AND (premium_type = 'forever' OR expires_at > NOW())`,
+          [message.author.id]
+        );
+        if (premiumRes.rows.length > 0) {
+          selfPrefix = selfPrefRes.rows[0].prefix;
+        }
+      }
+    } catch (err) {
+      console.error("self prefix check failed:", err.message);
     }
-  }
-} catch (err) {
-  console.error("self prefix check failed:", err.message);
-}
 
-// Determine which prefix to use: self prefix if available, else server prefix
-let prefix = selfPrefix || null;
-if (!prefix && message.guild) {
-  try {
-    const res = await pool.query(
-      `SELECT prefix FROM guild_settings WHERE guild_id = $1`,
-      [message.guildId]
-    );
-    if (res.rows[0]?.prefix) prefix = res.rows[0].prefix;
-  } catch {}
-}
-if (!prefix) prefix = "!";
+    // Determine which prefix to use: self prefix if available, else server prefix
+    let prefix = selfPrefix || null;
 
- 
-    // ─── GET SERVER-SPECIFIC PREFIX ───
-    let prefix = "!";
-    if (message.guild) {
+    // Server-specific prefix fallback
+    if (!prefix && message.guild) {
       try {
         const res = await pool.query(
           `SELECT prefix FROM guild_settings WHERE guild_id = $1`,
@@ -65,15 +53,15 @@ if (!prefix) prefix = "!";
       } catch {}
     }
 
+    // Default fallback
+    if (!prefix) prefix = "!";
+
     if (!message.content.startsWith(prefix)) return;
 
     const args = message.content.slice(prefix.length).trim().split(/ +/);
     const commandName = args.shift()?.toLowerCase();
     if (!commandName) return;
-
-    const userId = message.author.id;
-    const guildId = message.guildId;
-
+    
     // ─── WHITELIST OVERRIDE & BLACKLIST CHECK ───
     let isUserWhitelisted = false;
     let isServerWhitelisted = false;
