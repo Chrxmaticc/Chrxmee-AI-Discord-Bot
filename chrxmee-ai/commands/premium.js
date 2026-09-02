@@ -149,11 +149,14 @@ module.exports = {
       await pool.query(`DELETE FROM premium_tokens WHERE id = $1`, [tokenId]);
 
       const expiresAt = type === "month" ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : null;
+
+      // Remove any existing personal premium for this user
+      await pool.query(`DELETE FROM user_premium WHERE user_id = $1 AND server_id IS NULL`, [userId]);
+
+      // Insert fresh personal premium
       await pool.query(
         `INSERT INTO user_premium (user_id, premium_type, expires_at, temperature, embed_mode, embed_color)
-         VALUES ($1, $2, $3, 0.75, FALSE, '7c7ce0')
-         ON CONFLICT (user_id) WHERE server_id IS NULL
-         DO UPDATE SET premium_type = $2, expires_at = $3`,
+         VALUES ($1, $2, $3, 0.75, FALSE, '7c7ce0')`,
         [userId, type, expiresAt]
       );
 
@@ -170,7 +173,6 @@ module.exports = {
       else embed.addFields({ name: "Expires", value: "Never", inline: true });
       return interaction.reply({ embeds: [embed] });
     }
-
     // ─── USER-GIVE ────────────────────────────
     if (sub === "user-give") {
       const target = interaction.options.getUser("user");
@@ -353,20 +355,26 @@ module.exports = {
 
     // ─── GRANT (owner) ────────────────────────
     if (sub === "grant") {
-      if (interaction.user.id !== process.env.OWNER_ID) return interaction.reply({ content: `${E.error} Owner only.`, ephemeral: true });
+      if (interaction.user.id !== process.env.OWNER_ID && interaction.user.id !== process.env.OWNER_ID2) {
+        return interaction.reply({ content: `${E.error} Owner only.`, ephemeral: true });
+      }
       const user = interaction.options.getUser("user");
       const type = interaction.options.getString("type");
       const expiresAt = type === "month" ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : null;
+
+      // Remove existing personal premium for this user
+      await pool.query(`DELETE FROM user_premium WHERE user_id = $1 AND server_id IS NULL`, [user.id]);
+
+      // Insert fresh premium
       await pool.query(
         `INSERT INTO user_premium (user_id, premium_type, expires_at, temperature, embed_mode, embed_color)
-         VALUES ($1, $2, $3, 0.75, FALSE, '7c7ce0')
-         ON CONFLICT (user_id) WHERE server_id IS NULL
-         DO UPDATE SET premium_type = $2, expires_at = $3`,
+         VALUES ($1, $2, $3, 0.75, FALSE, '7c7ce0')`,
         [user.id, type, expiresAt]
       );
+
       return interaction.reply({ content: `${E.success} Granted **${type}** premium to **${user.username}**.`, ephemeral: true });
     }
-
+    
     // ─── REMOVE (admin) ───────────────────────
     if (sub === "remove") {
       if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
