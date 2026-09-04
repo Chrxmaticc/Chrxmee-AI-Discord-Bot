@@ -630,6 +630,37 @@ console.log("guild_settings.prefix column ready");
 console.log("user_fonts table ready");
 
     await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS drunklock_active (
+    guild_id TEXT,
+    user_id TEXT,
+    channel_id TEXT,
+    started_by TEXT,
+    started_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (guild_id, user_id, channel_id)
+  )
+`);
+console.log("✅ drunklock_active table ready");
+
+await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS drunklock_protected (
+    guild_id TEXT,
+    user_id TEXT,
+    protected_by TEXT,
+    protected_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (guild_id, user_id)
+  )
+`);
+console.log("✅ drunklock_protected table ready");
+
+    await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS voicemaster_settings (
+    guild_id TEXT PRIMARY KEY,
+    enabled BOOLEAN DEFAULT FALSE
+  )
+`);
+console.log("✅ voicemaster_settings table ready");
+
+    await pgClient.query(`
   CREATE TABLE IF NOT EXISTS user_workflows (
     user_id TEXT,
     guild_id TEXT,
