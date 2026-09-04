@@ -629,6 +629,36 @@ console.log("guild_settings.prefix column ready");
         await pgClient.query(`CREATE TABLE IF NOT EXISTS user_fonts (user_id BIGINT PRIMARY KEY, style TEXT DEFAULT 'normal')`);
 console.log("user_fonts table ready");
 
+await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS starboard_settings (
+    guild_id TEXT PRIMARY KEY,
+    starboard_channel_id TEXT,
+    emoji TEXT DEFAULT '<:Star:1545563186017607732>',
+    threshold INTEGER DEFAULT 3
+  )
+`);
+console.log("✅ starboard_settings table ready");
+
+await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS starboard_links (
+    guild_id TEXT,
+    source_id TEXT,
+    starboard_channel_id TEXT,
+    PRIMARY KEY (guild_id, source_id)
+  )
+`);
+console.log("✅ starboard_links table ready");
+
+await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS starboard_messages (
+    guild_id TEXT,
+    message_id TEXT,
+    starboard_message_id TEXT,
+    PRIMARY KEY (guild_id, message_id)
+  )
+`);
+console.log("✅ starboard_messages table ready");
+    
     await pool.query(`ALTER TABLE user_xp ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
 
 await pgClient.query(`
