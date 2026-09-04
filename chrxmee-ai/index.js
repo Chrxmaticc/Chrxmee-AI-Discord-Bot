@@ -630,6 +630,17 @@ console.log("guild_settings.prefix column ready");
 console.log("user_fonts table ready");
 
     await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS user_workflows (
+    user_id TEXT,
+    guild_id TEXT,
+    workflow_type TEXT DEFAULT 'chat',
+    updated_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (user_id, guild_id)
+  )
+`);
+console.log("✅ user_workflows table ready");
+
+    await pgClient.query(`
   CREATE TABLE IF NOT EXISTS boost_settings (
     guild_id TEXT PRIMARY KEY,
     enabled BOOLEAN DEFAULT FALSE,
