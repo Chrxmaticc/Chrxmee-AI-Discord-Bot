@@ -629,6 +629,37 @@ console.log("guild_settings.prefix column ready");
         await pgClient.query(`CREATE TABLE IF NOT EXISTS user_fonts (user_id BIGINT PRIMARY KEY, style TEXT DEFAULT 'normal')`);
 console.log("user_fonts table ready");
 
+    await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS boost_settings (
+    guild_id TEXT PRIMARY KEY,
+    enabled BOOLEAN DEFAULT FALSE,
+    rewards_enabled BOOLEAN DEFAULT TRUE,
+    default_role_color TEXT DEFAULT '#d2b48c',
+    role_name_template TEXT DEFAULT '{user} ★'
+  )
+`);
+console.log("✅ boost_settings table ready");
+
+await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS boost_roles (
+    guild_id TEXT,
+    user_id TEXT,
+    role_id TEXT,
+    PRIMARY KEY (guild_id, user_id)
+  )
+`);
+console.log("✅ boost_roles table ready");
+
+await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS boost_rewards (
+    guild_id TEXT,
+    reward_type TEXT,
+    reward_value TEXT,
+    PRIMARY KEY (guild_id, reward_type)
+  )
+`);
+console.log("✅ boost_rewards table ready");
+
 await pgClient.query(`
   CREATE TABLE IF NOT EXISTS starboard_settings (
     guild_id TEXT PRIMARY KEY,
