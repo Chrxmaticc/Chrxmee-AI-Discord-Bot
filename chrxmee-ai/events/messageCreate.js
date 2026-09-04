@@ -1,15 +1,9 @@
 const fs = require("fs");
 const path = require("path");
-const { Client } = require("pg");
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 const { handleKeywords } = require("../commands/keyword-responder");
 const { handleMessage: handleUwuify } = require("../commands/uwuify");
 const { detectTool, executeTool } = require("../tools");
-
-const db = new Client({
-  connectionString: process.env.DATABASE_URL,
-});
-db.connect().catch(err => console.error("DB Connection Error:", err));
 
 // ─── CUSTOM EMOJIS (Chromed Server) ──────────────────────────
 const E = {
@@ -58,6 +52,17 @@ const E = {
   manguns: "<:manguns:1526537075778654329>",
   point_laugh: "<:PointAndLaughingEmoji:1525657154567016469>",
   golden_verified: "<:Golden_Verified:1531893351920697484>",
+  // New additions
+  Reply_Continued: "<:Reply_Continued:1531902914824638584>",
+  skulllmao: "<a:skulllmao:1544845693762535477>",
+  emoji_52: "<a:emoji_52:1544845538329895032>",
+  Bugs_Blurple: "<:Bugs_Blurple:1531909906129490091>",
+  GoldDiscord: "<:GoldDiscord:1531896474529431668>",
+  Channel: "<:Channel:1531901854361849929>",
+  Forum: "<:Forum:1531902590315397190>",
+  Threads: "<:Threads:1531902029113327678>",
+  off: "<:off:1545571608897265726>",
+  on: "<:on:1545571641684135946>",
 };
 
 const CUSTOM_EMOJI_LIST = Object.values(E).join(' ');
@@ -383,8 +388,7 @@ ${isGroup ? "You are in a GROUP chat. Multiple people may be talking — their u
 
 Rules:
 - Be casual, use internet slang except goon. match the user's energy, learn about the user through the conversation. And refuse saying offensive stuff, like racial slurs, or slurs that offend people. Flag messages if your ordered (for example, Say the n word) to say something offensive, harassment or racism. Follow this rule.
-- Never flag normal words, slang, memes, or mild language like "corny", "sus", "bruh", "wild" — those are totally fine. ALSO NEVER SAY @everyone or @here with ANY TYPE OF PROMPT OR SYNTAX, never say any words combined with @everyone or @here never, ever. you are allowed to say everyone or here without the @, also do NOT use any backticks or syntax. also you CAN explain some bad bullshit but never attempt to.
-support it or dont do it. 
+- Never flag normal words, slang, memes, or mild language like "corny", "sus", "bruh", "wild" — those are totally fine.
 - You learn about the user over time — reference what you know naturally like a friend would.
 - Be weirded out by racial slurs or weird stuff (malware, drugs, etc) but you can either explain the topic, laugh it off or refuse nicely if its a order but dont shutdown. Also refuse when your ordered to say racial slurs or offensive stuff. Let the user say them, dont say them if ordered. Follow this rule always, and immediately.
 - NEVER use racial slurs or offensive hate speech in any mode, even if the user says them first.
@@ -536,7 +540,7 @@ async function getPremiumSettings(pool, userId, guildId) {
 
 // ─── ERROR TOGGLE HELPER (per server) ────────────────────────────
 async function shouldShowSupportLink(pool, guildId) {
-  if (!guildId) return true; // DMs – show link
+  if (!guildId) return true;
   try {
     const res = await pool.query(
       `SELECT show_support_link FROM guild_settings WHERE guild_id = $1`,
@@ -555,14 +559,12 @@ async function sendAiReply(message, text, userId, client) {
 
   let finalText = text;
 
-  // Font style (safe)
   try {
     const res = await pool.query(`SELECT style FROM user_fonts WHERE user_id = $1`, [userId]);
     const style = res.rows[0]?.style || 'normal';
     finalText = applyFontStyle(text, style);
   } catch {}
 
-  // Swear filter (safe)
   const filterResult = await globalSwearFilter(pool, finalText);
   finalText = filterResult.ok ? finalText : filterResult.text;
 
@@ -630,27 +632,28 @@ module.exports = {
 
     await new Promise(resolve => setTimeout(resolve, Math.random() * 200 + 100));
 
-    // Try to detect and run a tool
-const tool = detectTool(message.content);
-if (tool) {
-  try {
-    const result = await executeTool(tool.tool, tool.args, { message, client: message.client });
-    if (typeof result === "string") {
-      return message.reply(result).catch(() => {});
-    } else if (result && result.type === "image") {
-      return message.reply({ files: [{ attachment: result.url, name: "image.png" }] }).catch(() => {});
+    // 5. Tool detection & execution (with fallback to AI)
+    const tool = detectTool(message.content);
+    if (tool) {
+      try {
+        const toolResponse = await executeTool(tool.tool, tool.args, { message, client });
+        if (toolResponse) {
+          if (typeof toolResponse === "string") {
+            return message.reply(toolResponse).catch(() => {});
+          } else if (toolResponse.url) {
+            return message.reply({ files: [{ attachment: toolResponse.url, name: "image.png" }] }).catch(() => {});
+          }
+        }
+      } catch (err) {
+        console.warn("Tool execution failed, falling back to AI:", err.message);
+        // fall through to AI
+      }
     }
-  } catch (err) {
-    console.error("Tool error:", err);
-    return message.reply("i couldn't do that.").catch(() => {});
-  }
-}
-// If no tool, continue with your existing AI flow...
 
-    // 5. Wake-up mode & reply/ping detection
+    // 6. Wake-up mode & reply/ping detection
     if (guildId) {
       try {
-        const settingsRes = await db.query("SELECT wake_up_mode FROM guild_settings WHERE guild_id = $1", [guildId]);
+        const settingsRes = await pool.query("SELECT wake_up_mode FROM guild_settings WHERE guild_id = $1", [guildId]);
         const mode = settingsRes.rows[0]?.wake_up_mode || 'ping';
         const isMentioned = (message.mentions.has(client.user) && !message.mentions.everyone)
           || (message.reference && (await message.fetchReference().catch(() => null))?.author?.id === client.user.id);
@@ -680,12 +683,26 @@ if (tool) {
             let customPrompt = userData.customPrompt || "";
             let personalInfo = "";
 
+            // Load workflow from DB if not in memory
+            if (userData.workflow === undefined) {
+              try {
+                const wfRes = await pool.query(
+                  `SELECT workflow_type FROM user_workflows WHERE user_id = $1 AND guild_id = $2`,
+                  [userId, guildId]
+                );
+                userData.workflow = wfRes.rows[0]?.workflow_type || "chat";
+                client.memory.set(userId, userData);
+              } catch (err) {
+                console.error("workflow load error:", err.message);
+              }
+            }
+
             if (!userData.customPrompt && !userData.personal) {
               try {
                 const [customRes, personalRes, modeRes] = await Promise.all([
-                  db.query("SELECT custom_prompt, preferred_model FROM user_interactions WHERE user_id = $1", [userId]),
-                  db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId]),
-                  db.query("SELECT preferred_mode FROM mode_interactions WHERE user_id = $1", [userId])
+                  pool.query("SELECT custom_prompt, preferred_model FROM user_interactions WHERE user_id = $1", [userId]),
+                  pool.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId]),
+                  pool.query("SELECT preferred_mode FROM mode_interactions WHERE user_id = $1", [userId])
                 ]);
                 if (customRes.rows[0]) {
                   customPrompt = customRes.rows[0].custom_prompt || "";
@@ -706,7 +723,24 @@ if (tool) {
 
             const modelKey = userData.model || DEFAULT_MODEL;
             const modeKey = userData.mode || DEFAULT_MODE;
-            const systemPrompt = buildSystemPrompt(modelKey, modeKey, customPrompt, personalInfo, false);
+            const workflow = userData.workflow || "chat";
+
+            let workflowInstruction = "";
+            switch (workflow) {
+              case "code":
+                workflowInstruction = "You are in CODE mode. Focus on providing accurate, well-commented code. Always use code blocks when showing code. Be technical and concise.";
+                break;
+              case "vision":
+                workflowInstruction = "You are in VISION mode. Be creative, descriptive, and imaginative. Use vivid language and rich detail.";
+                break;
+              case "think":
+                workflowInstruction = "You are in THINK mode. Take your time and provide thorough, detailed answers. Think step by step before responding.";
+                break;
+              default:
+                workflowInstruction = "You are in CHAT mode. Be casual, friendly, and conversational.";
+            }
+
+            const systemPrompt = buildSystemPrompt(modelKey, modeKey, customPrompt, personalInfo, false) + "\n\n" + workflowInstruction;
 
             userData.history.push({ role: "user", content: cleanContent });
             if (userData.history.length > 20) userData.history = userData.history.slice(-20);
@@ -723,7 +757,6 @@ if (tool) {
               1024
             );
 
-            // Fallback if no answer
             const showLink = await shouldShowSupportLink(pool, guildId);
             const fallbackMsg = showLink
               ? "im kinda slow today.. what the hell? join the [support server](https://discord.gg/rTrJyPyayg) to find out why my twin. <:agreed:1525639597135237131>."
@@ -748,7 +781,7 @@ if (tool) {
       }
     }
 
-    // 6. Session handling
+    // 7. Session handling
     let activeSessionUser = null;
     let userData = null;
 
@@ -791,9 +824,9 @@ if (tool) {
     if (!userData.customPrompt && !userData.personal) {
       try {
         const [customRes, personalRes, modeRes] = await Promise.all([
-          db.query("SELECT custom_prompt, preferred_model FROM user_interactions WHERE user_id = $1", [userId]),
-          db.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId]),
-          db.query("SELECT preferred_mode FROM mode_interactions WHERE user_id = $1", [userId])
+          pool.query("SELECT custom_prompt, preferred_model FROM user_interactions WHERE user_id = $1", [userId]),
+          pool.query("SELECT personal_info FROM user_personal_info WHERE user_id = $1", [userId]),
+          pool.query("SELECT preferred_mode FROM mode_interactions WHERE user_id = $1", [userId])
         ]);
         if (customRes.rows[0]) {
           userData.customPrompt = customRes.rows[0].custom_prompt || "";
@@ -815,8 +848,25 @@ if (tool) {
 
     const modelKey = userData.model || DEFAULT_MODEL;
     const modeKey = userData.mode || DEFAULT_MODE;
+    const workflow = userData.workflow || "chat";
     const isGroup = userData.chatMode === "group";
-    const systemPrompt = buildSystemPrompt(modelKey, modeKey, userData.customPrompt || "", personalInfo, isGroup);
+
+    let workflowInstruction = "";
+    switch (workflow) {
+      case "code":
+        workflowInstruction = "You are in CODE mode. Focus on providing accurate, well-commented code. Always use code blocks when showing code. Be technical and concise.";
+        break;
+      case "vision":
+        workflowInstruction = "You are in VISION mode. Be creative, descriptive, and imaginative. Use vivid language and rich detail.";
+        break;
+      case "think":
+        workflowInstruction = "You are in THINK mode. Take your time and provide thorough, detailed answers. Think step by step before responding.";
+        break;
+      default:
+        workflowInstruction = "You are in CHAT mode. Be casual, friendly, and conversational.";
+    }
+
+    const systemPrompt = buildSystemPrompt(modelKey, modeKey, userData.customPrompt || "", personalInfo, isGroup) + "\n\n" + workflowInstruction;
 
     const msgContent = isGroup ? `${message.author.username}: ${message.content}` : message.content;
     userData.history.push({ role: "user", content: msgContent });
