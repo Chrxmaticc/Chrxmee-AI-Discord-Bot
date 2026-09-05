@@ -14,15 +14,17 @@ module.exports = {
   name: "threadCreate",
   async execute(thread, newlyCreated) {
     if (!newlyCreated) return;
+    if (thread.type !== "GUILD_PUBLIC_THREAD" && thread.type !== "GUILD_PRIVATE_THREAD") return;
 
     try {
-      const settingsRes = await pool.query(
-        `SELECT starboard_channel_id FROM starboard_settings WHERE guild_id = $1`,
-        [thread.guildId]
+      // Check if parent forum is linked
+      const linkRes = await pool.query(
+        `SELECT starboard_channel_id FROM starboard_links WHERE guild_id = $1 AND source_id = $2`,
+        [thread.guildId, thread.parentId]
       );
-      if (!settingsRes.rows[0]?.starboard_channel_id) return;
+      if (linkRes.rows.length === 0) return; // no forum link
 
-      const starboardChannel = thread.client.channels.cache.get(settingsRes.rows[0].starboard_channel_id);
+      const starboardChannel = thread.client.channels.cache.get(linkRes.rows[0].starboard_channel_id);
       if (!starboardChannel) return;
 
       const embed = new EmbedBuilder()
@@ -36,6 +38,7 @@ module.exports = {
         .setTimestamp();
 
       await starboardChannel.send({ embeds: [embed] }).catch(() => {});
+      console.log(`[STARBOARD] Auto-posted thread ${thread.name} to ${starboardChannel.name}`);
     } catch (err) {
       console.error("starboard threadCreate error:", err.message);
     }
