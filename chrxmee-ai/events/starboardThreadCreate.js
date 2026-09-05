@@ -1,4 +1,4 @@
-const { EmbedBuilder } = require("discord.js");
+const { EmbedBuilder, ChannelType } = require("discord.js");
 const { Pool } = require("pg");
 
 const pool = new Pool({
@@ -14,10 +14,12 @@ module.exports = {
   name: "threadCreate",
   async execute(thread, newlyCreated) {
     if (!newlyCreated) return;
-    if (thread.type !== "GUILD_PUBLIC_THREAD" && thread.type !== "GUILD_PRIVATE_THREAD") return;
+
+    // Make sure it's a thread (public or private)
+    if (thread.type !== ChannelType.PublicThread && thread.type !== ChannelType.PrivateThread) return;
 
     try {
-      // Check if parent forum is linked
+      // Check if parent forum is linked to a starboard
       const linkRes = await pool.query(
         `SELECT starboard_channel_id FROM starboard_links WHERE guild_id = $1 AND source_id = $2`,
         [thread.guildId, thread.parentId]
