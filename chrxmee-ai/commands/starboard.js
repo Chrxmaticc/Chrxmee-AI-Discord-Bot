@@ -30,6 +30,10 @@ module.exports = {
       .addChannelOption(opt => opt.setName("source").setDescription("source channel/forum/thread").setRequired(true))
       .addChannelOption(opt => opt.setName("starboard").setDescription("starboard channel (optional, uses default if not set)").setRequired(false))
     )
+    .addSubcommand(sub => sub.setName("apply-forum").setDescription("link a forum channel so new threads auto-star")
+      .addChannelOption(opt => opt.setName("forum").setDescription("forum channel").setRequired(true))
+      .addChannelOption(opt => opt.setName("starboard").setDescription("starboard channel (optional, uses default if not set)").setRequired(false))
+    )
     .addSubcommand(sub => sub.setName("remove").setDescription("remove a starboard link")
       .addChannelOption(opt => opt.setName("source").setDescription("source channel/forum/thread").setRequired(true))
     )
@@ -51,13 +55,12 @@ module.exports = {
       return interaction.editReply({ embeds: [embed] }).catch(() => interaction.followUp({ embeds: [embed] }));
     };
 
-    // permission check
     if (!interaction.member.permissions.has(PermissionFlagsBits.ManageChannels)) {
       return sendEmbed(`${E.error} permission denied`, `${E.angry} you need **manage channels** permission.`, 0xff0000);
     }
 
     try {
-      // Setup default starboard
+      // SETUP
       if (sub === "setup") {
         const channel = interaction.options.getChannel("channel");
         const emoji = interaction.options.getString("emoji") || "<:Star:1545563186017607732>";
@@ -76,48 +79,67 @@ module.exports = {
             threshold = $4
         `, [guildId, channel.id, emoji, threshold]);
 
-        return sendEmbed(`${E.star} starboard setup`, `${E.success} default starboard set to <#${channel.id}> with emoji ${emoji} and threshold ${threshold}.`);
+        return sendEmbed(`${E.star} starboard setup`, `${E.success} default starboard set to <#${channel.id}>.`);
       }
 
-      // Apply link
+      // APPLY (original)
       if (sub === "apply") {
         const source = interaction.options.getChannel("source");
         const starboardChannel = interaction.options.getChannel("starboard") || null;
 
-        // If no starboard specified, use default from settings
-        if (!starboardChannel) {
-          const settings = await pool.query(
-            `SELECT starboard_channel_id FROM starboard_settings WHERE guild_id = $1`,
-            [guildId]
-          );
-          if (!settings.rows[0]?.starboard_channel_id) {
-            return sendEmbed(`${E.error} no default`, `${E.angry} set a default starboard first with /starboard setup.`, 0xff0000);
-          }
-          const defaultChannelId = settings.rows[0].starboard_channel_id;
-          await pool.query(
-            `INSERT INTO starboard_links (guild_id, source_id, starboard_channel_id)
-             VALUES ($1, $2, $3)
-             ON CONFLICT (guild_id, source_id) DO UPDATE SET starboard_channel_id = $3`,
-            [guildId, source.id, defaultChannelId]
-          );
-          return sendEmbed(`${E.star} starboard linked`, `${E.success} linked <#${source.id}> to default starboard <#${defaultChannelId}>.`);
+        const settings = await pool.query(
+          `SELECT starboard_channel_id FROM starboard_settings WHERE guild_id = $1`,
+          [guildId]
+        );
+        const defaultChannelId = settings.rows[0]?.starboard_channel_id;
+
+        if (!starboardChannel && !defaultChannelId) {
+          return sendEmbed(`${E.error} no default`, `${E.angry} set a default starboard first with /starboard setup.`, 0xff0000);
         }
 
-        if (starboardChannel.type !== ChannelType.GuildText) {
-          return sendEmbed(`${E.error} invalid starboard`, `${E.angry} starboard must be a text channel.`, 0xff0000);
-        }
+        const targetChannelId = starboardChannel ? starboardChannel.id : defaultChannelId;
 
         await pool.query(
           `INSERT INTO starboard_links (guild_id, source_id, starboard_channel_id)
            VALUES ($1, $2, $3)
            ON CONFLICT (guild_id, source_id) DO UPDATE SET starboard_channel_id = $3`,
-          [guildId, source.id, starboardChannel.id]
+          [guildId, source.id, targetChannelId]
         );
 
-        return sendEmbed(`${E.star} starboard linked`, `${E.success} linked <#${source.id}> to starboard <#${starboardChannel.id}>.`);
+        return sendEmbed(`${E.star} starboard linked`, `${E.success} linked <#${source.id}> to starboard <#${targetChannelId}>.`);
       }
 
-      // Remove link
+      // APPLY-FORUM (new)
+      if (sub === "apply-forum") {
+        const forum = interaction.options.getChannel("forum");
+        if (forum.type !== ChannelType.GuildForum) {
+          return sendEmbed(`${E.error} invalid forum`, `${E.angry} source must be a forum channel.`, 0xff0000);
+        }
+
+        const starboardChannel = interaction.options.getChannel("starboard") || null;
+        const settings = await pool.query(
+          `SELECT starboard_channel_id FROM starboard_settings WHERE guild_id = $1`,
+          [guildId]
+        );
+        const defaultChannelId = settings.rows[0]?.starboard_channel_id;
+
+        if (!starboardChannel && !defaultChannelId) {
+          return sendEmbed(`${E.error} no default`, `${E.angry} set a default starboard first with /starboard setup.`, 0xff0000);
+        }
+
+        const targetChannelId = starboardChannel ? starboardChannel.id : defaultChannelId;
+
+        await pool.query(
+          `INSERT INTO starboard_links (guild_id, source_id, starboard_channel_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (guild_id, source_id) DO UPDATE SET starboard_channel_id = $3`,
+          [guildId, forum.id, targetChannelId]
+        );
+
+        return sendEmbed(`${E.forum} forum linked`, `${E.success} new threads in ${forum} will auto-star to <#${targetChannelId}>.`);
+      }
+
+      // REMOVE
       if (sub === "remove") {
         const source = interaction.options.getChannel("source");
         const result = await pool.query(
@@ -125,12 +147,12 @@ module.exports = {
           [guildId, source.id]
         );
         if (result.rows.length === 0) {
-          return sendEmbed(`${E.error} not linked`, `${E.angry} that source isn't linked to any starboard.`, 0xff0000);
+          return sendEmbed(`${E.error} not linked`, `${E.angry} that source isn't linked.`, 0xff0000);
         }
-        return sendEmbed(`${E.star} starboard removed`, `${E.success} removed starboard link for <#${source.id}>.`);
+        return sendEmbed(`${E.star} starboard removed`, `${E.success} removed link for <#${source.id}>.`);
       }
 
-      // List
+      // LIST (fixed threshold string)
       if (sub === "list") {
         const [settings, links] = await Promise.all([
           pool.query(`SELECT * FROM starboard_settings WHERE guild_id = $1`, [guildId]),
@@ -143,7 +165,7 @@ module.exports = {
           .addFields(
             { name: "default starboard", value: settings.rows[0]?.starboard_channel_id ? `<#${settings.rows[0].starboard_channel_id}>` : "not set", inline: true },
             { name: "emoji", value: settings.rows[0]?.emoji || "<:Star:1545563186017607732>", inline: true },
-            { name: "threshold", value: settings.rows[0]?.threshold || 3, inline: true },
+            { name: "threshold", value: String(settings.rows[0]?.threshold ?? 3), inline: true },
             { name: "linked sources", value: links.rows.length ? links.rows.map(r => `<#${r.source_id}> → <#${r.starboard_channel_id}>`).join("\n") : "none", inline: false }
           );
         return interaction.editReply({ embeds: [embed] });
