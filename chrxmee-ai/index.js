@@ -99,8 +99,9 @@ const client = new Client({
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildMessageReactions,
   ],
-  partials: [1, 3],
+  partials: [1, 2, 3],
 });
 
 client.commands = new Collection();
