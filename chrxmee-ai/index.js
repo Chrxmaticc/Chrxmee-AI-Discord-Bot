@@ -112,6 +112,9 @@ client.memory = new Map();
 client.snipes = new Map();
 client.msToTime = msToTime;
 
+
+client.setMaxListeners(0);
+
 // ==================== POSTGRES POOL ====================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
