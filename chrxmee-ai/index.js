@@ -633,6 +633,38 @@ console.log("guild_settings.prefix column ready");
     await pgClient.query(`CREATE TABLE IF NOT EXISTS mode_interactions (user_id TEXT PRIMARY KEY, preferred_mode TEXT DEFAULT 'unfiltered')`);
     console.log("mode_interactions table ready");
 
+    await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS giveaways (
+    id SERIAL PRIMARY KEY,
+    guild_id TEXT,
+    channel_id TEXT,
+    message_id TEXT,
+    prize TEXT,
+    description TEXT,
+    duration_ms BIGINT,
+    end_time BIGINT,
+    winners INTEGER,
+    role_requirement_id TEXT,
+    created_by TEXT,
+    ended BOOLEAN DEFAULT FALSE,
+    embed_color TEXT DEFAULT '7c7ce0',
+    thumbnail_url TEXT,
+    footer_text TEXT,
+    button_label TEXT DEFAULT 'enter giveaway',
+    entries JSONB DEFAULT '[]'
+  )
+`);
+console.log("✅ giveaways table ready");
+
+await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS giveaway_entries (
+    giveaway_id INTEGER,
+    user_id TEXT,
+    PRIMARY KEY (giveaway_id, user_id)
+  )
+`);
+console.log("✅ giveaway_entries table ready");
+
     
 await pgClient.query(`
   CREATE TABLE IF NOT EXISTS afk_users (
