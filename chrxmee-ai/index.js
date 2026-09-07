@@ -642,17 +642,18 @@ await pgClient.query(`
 `);
 console.log("✅ afk_users table ready");
 
-    await pgClient.query(`
+ await pgClient.query(`
   CREATE TABLE IF NOT EXISTS afk_prefs (
     user_id TEXT,
     guild_id TEXT,
     away_message TEXT,
     return_message TEXT,
+    away_type TEXT DEFAULT 'embed',
+    return_type TEXT DEFAULT 'embed',
     PRIMARY KEY (user_id, guild_id)
   )
 `);
 console.log("✅ afk_prefs table ready");
-
 
     await pgClient.query(`
   CREATE TABLE IF NOT EXISTS ticket_settings (
