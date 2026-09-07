@@ -659,6 +659,9 @@ await pgClient.query(`
 `);
 console.log("✅ confessions table ready"); 
 
+    await pgClient.query(`ALTER TABLE confessions ADD COLUMN IF NOT EXISTS is_anonymous BOOLEAN DEFAULT TRUE`);
+console.log("✅ confessions.is_anonymous column ensured");
+
     await pgClient.query(`
   CREATE TABLE IF NOT EXISTS giveaways (
     id SERIAL PRIMARY KEY,
