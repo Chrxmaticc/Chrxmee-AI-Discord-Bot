@@ -634,6 +634,49 @@ console.log("guild_settings.prefix column ready");
 console.log("user_fonts table ready");
 
     await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS welcome_settings (
+    guild_id TEXT PRIMARY KEY,
+    enabled BOOLEAN DEFAULT TRUE,
+    channel_id TEXT,
+    message_template TEXT DEFAULT 'welcome to {server}, {mention}! you are member #{membercount}',
+    random_messages_enabled BOOLEAN DEFAULT FALSE,
+    image_enabled BOOLEAN DEFAULT TRUE,
+    background_url TEXT,
+    auto_role_id TEXT,
+    embed_enabled BOOLEAN DEFAULT TRUE,
+    embed_color TEXT DEFAULT '7c7ce0',
+    embed_title TEXT,
+    embed_footer TEXT,
+    button_enabled BOOLEAN DEFAULT FALSE,
+    button_label TEXT DEFAULT 'click here',
+    button_url TEXT,
+    goodbye_channel_id TEXT,
+    goodbye_message TEXT
+  )
+`);
+console.log("✅ welcome_settings table ready");
+
+await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS welcome_random_messages (
+    id SERIAL PRIMARY KEY,
+    guild_id TEXT,
+    message TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+  )
+`);
+console.log("✅ welcome_random_messages table ready");
+
+await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS welcome_attachments (
+    id SERIAL PRIMARY KEY,
+    guild_id TEXT,
+    url TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+  )
+`);
+console.log("✅ welcome_attachments table ready");
+
+    await pgClient.query(`
   CREATE TABLE IF NOT EXISTS drunklock_active (
     guild_id TEXT,
     user_id TEXT,
