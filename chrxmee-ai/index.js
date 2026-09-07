@@ -634,26 +634,50 @@ console.log("guild_settings.prefix column ready");
   CREATE TABLE IF NOT EXISTS ticket_settings (
     guild_id TEXT PRIMARY KEY,
     enabled BOOLEAN DEFAULT TRUE,
-    category_id TEXT,
-    support_role_id TEXT,
     log_channel_id TEXT,
-    welcome_message TEXT DEFAULT 'welcome to your ticket, {mention}. support will be with you shortly.'
+    auto_close_hours INTEGER DEFAULT 24,
+    rating_enabled BOOLEAN DEFAULT TRUE,
+    transcript_enabled BOOLEAN DEFAULT TRUE
   )
 `);
 console.log("✅ ticket_settings table ready");
+
+await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS ticket_categories (
+    guild_id TEXT,
+    category_id TEXT,
+    name TEXT,
+    support_role_id TEXT,
+    parent_id TEXT,
+    welcome_message TEXT,
+    welcome_type TEXT DEFAULT 'embed',
+    ping_message TEXT,
+    ping_type TEXT DEFAULT 'text',
+    questions JSONB DEFAULT '[]',
+    PRIMARY KEY (guild_id, category_id)
+  )
+`);
+console.log("✅ ticket_categories table ready");
 
 await pgClient.query(`
   CREATE TABLE IF NOT EXISTS ticket_channels (
     guild_id TEXT,
     channel_id TEXT,
     user_id TEXT,
+    category_id TEXT,
     status TEXT DEFAULT 'open',
+    priority TEXT DEFAULT 'medium',
+    claimed_by TEXT,
+    tags TEXT[] DEFAULT '{}',
+    rating INTEGER,
+    last_activity TIMESTAMP DEFAULT NOW(),
+    transcript_url TEXT,
     created_at TIMESTAMP DEFAULT NOW(),
     PRIMARY KEY (channel_id)
   )
 `);
 console.log("✅ ticket_channels table ready");
-    
+
         await pgClient.query(`CREATE TABLE IF NOT EXISTS user_fonts (user_id BIGINT PRIMARY KEY, style TEXT DEFAULT 'normal')`);
 console.log("user_fonts table ready");
 
