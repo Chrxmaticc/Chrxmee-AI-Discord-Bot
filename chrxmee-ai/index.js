@@ -630,6 +630,30 @@ console.log("guild_settings.prefix column ready");
     await pgClient.query(`CREATE TABLE IF NOT EXISTS mode_interactions (user_id TEXT PRIMARY KEY, preferred_mode TEXT DEFAULT 'unfiltered')`);
     console.log("mode_interactions table ready");
 
+    
+await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS afk_users (
+    user_id TEXT,
+    guild_id TEXT,
+    reason TEXT,
+    since TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (user_id, guild_id)
+  )
+`);
+console.log("✅ afk_users table ready");
+
+    await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS afk_prefs (
+    user_id TEXT,
+    guild_id TEXT,
+    away_message TEXT,
+    return_message TEXT,
+    PRIMARY KEY (user_id, guild_id)
+  )
+`);
+console.log("✅ afk_prefs table ready");
+
+
     await pgClient.query(`
   CREATE TABLE IF NOT EXISTS ticket_settings (
     guild_id TEXT PRIMARY KEY,
