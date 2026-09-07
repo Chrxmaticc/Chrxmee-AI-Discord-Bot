@@ -6,6 +6,8 @@ const {
   TextInputBuilder,
   TextInputStyle,
   ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } = require("discord.js");
 
 const E = {
@@ -33,9 +35,14 @@ module.exports = {
       .addStringOption(opt => opt.setName("color").setDescription("embed hex color (default 7c7ce0)").setRequired(false))
       .addBooleanOption(opt => opt.setName("show_timestamp").setDescription("show timestamp").setRequired(false))
       .addBooleanOption(opt => opt.setName("show_number").setDescription("show confession number").setRequired(false))
+      .addStringOption(opt => opt.setName("output_type").setDescription("embed or text").setRequired(false)
+        .addChoices({ name: "embed", value: "embed" }, { name: "text", value: "text" }))
     )
     .addSubcommand(sub => sub.setName("enable").setDescription("(admin) enable confessions"))
     .addSubcommand(sub => sub.setName("disable").setDescription("(admin) disable confessions"))
+    .addSubcommand(sub => sub.setName("button").setDescription("(admin) send confession button panel to a channel")
+      .addChannelOption(opt => opt.setName("channel").setDescription("channel for button panel").setRequired(true))
+    )
     .addSubcommand(sub => sub.setName("public").setDescription("submit a public confession"))
     .addSubcommand(sub => sub.setName("anonymous").setDescription("submit an anonymous confession"))
     .addSubcommand(sub => sub.setName("reveal").setDescription("(admin) reveal confessor by confession number")
@@ -58,7 +65,7 @@ module.exports = {
       return interaction.editReply({ embeds: [embed], ephemeral }).catch(() => interaction.followUp({ embeds: [embed], ephemeral }));
     };
 
-    // ── SETUP (admin) ─────────────────────────────────────
+    // ── SETUP ─────────────────────────────────────────────
     if (sub === "setup") {
       if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
         return sendEmbed(`${E.error} admin only`, `${E.angry} you need administrator permission.`, 0xff0000);
@@ -69,20 +76,22 @@ module.exports = {
       const color = interaction.options.getString("color") || "7c7ce0";
       const showTimestamp = interaction.options.getBoolean("show_timestamp") ?? true;
       const showNumber = interaction.options.getBoolean("show_number") ?? true;
+      const outputType = interaction.options.getString("output_type") || "embed";
 
       await pool.query(
-        `INSERT INTO confession_settings (guild_id, channel_id, embed_title, embed_footer, embed_color, show_timestamp, show_number)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
+        `INSERT INTO confession_settings (guild_id, channel_id, embed_title, embed_footer, embed_color, show_timestamp, show_number, output_type)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
          ON CONFLICT (guild_id) DO UPDATE SET
            channel_id = $2,
            embed_title = $3,
            embed_footer = $4,
            embed_color = $5,
            show_timestamp = $6,
-           show_number = $7`,
-        [guild.id, channel.id, title, footer, color, showTimestamp, showNumber]
+           show_number = $7,
+           output_type = $8`,
+        [guild.id, channel.id, title, footer, color, showTimestamp, showNumber, outputType]
       );
-      return sendEmbed(`${E.settings} confession setup`, `${E.success} confessions will be posted in ${channel}.`);
+      return sendEmbed(`${E.settings} confession setup`, `${E.success} confessions will be posted in ${channel} as ${outputType}.`);
     }
 
     // ── ENABLE / DISABLE ──────────────────────────────────
@@ -95,14 +104,41 @@ module.exports = {
       return sendEmbed(`${enabled ? E.unlock : E.lock} confessions ${enabled ? "enabled" : "disabled"}`, `${enabled ? E.success : E.error} confessions are now ${enabled ? "open" : "closed"}.`);
     }
 
-    // ── PUBLIC / ANONYMOUS SUBMISSION ─────────────────────
+    // ── BUTTON PANEL ─────────────────────────────────────
+    if (sub === "button") {
+      if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+        return sendEmbed(`${E.error} admin only`, `${E.angry} you need administrator permission.`, 0xff0000);
+      }
+      const channel = interaction.options.getChannel("channel");
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("confess_public_button")
+          .setLabel("public confession")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId("confess_anonymous_button")
+          .setLabel("anonymous confession")
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+      const panelEmbed = new EmbedBuilder()
+        .setColor(0x7c7ce0)
+        .setTitle(`${E.sneaky} confess`)
+        .setDescription("click a button below to submit your confession. public shows your name, anonymous hides it.");
+
+      await channel.send({ embeds: [panelEmbed], components: [row] });
+      return sendEmbed(`${E.success} button panel sent`, `${E.agree} sent to ${channel}.`);
+    }
+
+    // ── PUBLIC / ANONYMOUS (slash) ──────────────────────
     if (sub === "public" || sub === "anonymous") {
       const settings = await pool.query(`SELECT * FROM confession_settings WHERE guild_id = $1`, [guild.id]);
       if (!settings.rows[0] || !settings.rows[0].enabled) {
         return sendEmbed(`${E.error} closed`, `${E.angry} confessions are currently closed.`, 0xff0000);
       }
 
-      const mode = sub; // "public" or "anonymous"
+      const mode = sub;
       const modal = new ModalBuilder()
         .setCustomId(`confess_modal_${mode}`)
         .setTitle(`${mode} confession`);
@@ -122,16 +158,14 @@ module.exports = {
       return;
     }
 
-    // ── REVEAL (admin) ────────────────────────────────────
+    // ── REVEAL ────────────────────────────────────────────
     if (sub === "reveal") {
       if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
         return sendEmbed(`${E.error} admin only`, `${E.angry} you need administrator permission.`, 0xff0000);
       }
       const number = interaction.options.getInteger("number");
       const res = await pool.query(`SELECT * FROM confessions WHERE guild_id = $1 AND confession_number = $2`, [guild.id, number]);
-      if (!res.rows[0]) {
-        return sendEmbed(`${E.error} not found`, `${E.angry} confession #${number} not found.`, 0xff0000);
-      }
+      if (!res.rows[0]) return sendEmbed(`${E.error} not found`, `${E.angry} confession #${number} not found.`, 0xff0000);
       const confession = res.rows[0];
       const embed = new EmbedBuilder()
         .setColor(0x7c7ce0)
@@ -143,11 +177,10 @@ module.exports = {
           { name: "submitted", value: `<t:${Math.floor(new Date(confession.created_at).getTime() / 1000)}:R>`, inline: true }
         )
         .setTimestamp();
-
       return interaction.editReply({ embeds: [embed], ephemeral: true }).catch(() => interaction.followUp({ embeds: [embed], ephemeral: true }));
     }
 
-    // ── LIST (admin) ──────────────────────────────────────
+    // ── LIST ─────────────────────────────────────────────
     if (sub === "list") {
       if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
         return sendEmbed(`${E.error} admin only`, `${E.angry} you need administrator permission.`, 0xff0000);
