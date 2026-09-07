@@ -633,6 +633,32 @@ console.log("guild_settings.prefix column ready");
     await pgClient.query(`CREATE TABLE IF NOT EXISTS mode_interactions (user_id TEXT PRIMARY KEY, preferred_mode TEXT DEFAULT 'unfiltered')`);
     console.log("mode_interactions table ready");
 
+   await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS confession_settings (
+    guild_id TEXT PRIMARY KEY,
+    enabled BOOLEAN DEFAULT TRUE,
+    channel_id TEXT,
+    embed_title TEXT DEFAULT 'anonymous confession',
+    embed_footer TEXT DEFAULT 'chromed confessions',
+    embed_color TEXT DEFAULT '7c7ce0',
+    show_timestamp BOOLEAN DEFAULT TRUE,
+    show_number BOOLEAN DEFAULT TRUE
+  )
+`);
+console.log("✅ confession_settings table ready");
+
+await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS confessions (
+    id SERIAL PRIMARY KEY,
+    guild_id TEXT,
+    confession_number INTEGER,
+    content TEXT,
+    user_id TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+  )
+`);
+console.log("✅ confessions table ready"); 
+
     await pgClient.query(`
   CREATE TABLE IF NOT EXISTS giveaways (
     id SERIAL PRIMARY KEY,
