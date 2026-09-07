@@ -629,6 +629,30 @@ console.log("guild_settings.prefix column ready");
 
     await pgClient.query(`CREATE TABLE IF NOT EXISTS mode_interactions (user_id TEXT PRIMARY KEY, preferred_mode TEXT DEFAULT 'unfiltered')`);
     console.log("mode_interactions table ready");
+
+    await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS ticket_settings (
+    guild_id TEXT PRIMARY KEY,
+    enabled BOOLEAN DEFAULT TRUE,
+    category_id TEXT,
+    support_role_id TEXT,
+    log_channel_id TEXT,
+    welcome_message TEXT DEFAULT 'welcome to your ticket, {mention}. support will be with you shortly.'
+  )
+`);
+console.log("✅ ticket_settings table ready");
+
+await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS ticket_channels (
+    guild_id TEXT,
+    channel_id TEXT,
+    user_id TEXT,
+    status TEXT DEFAULT 'open',
+    created_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (channel_id)
+  )
+`);
+console.log("✅ ticket_channels table ready");
     
         await pgClient.query(`CREATE TABLE IF NOT EXISTS user_fonts (user_id BIGINT PRIMARY KEY, style TEXT DEFAULT 'normal')`);
 console.log("user_fonts table ready");
