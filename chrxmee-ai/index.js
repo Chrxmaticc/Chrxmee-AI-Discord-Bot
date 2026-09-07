@@ -633,6 +633,8 @@ console.log("guild_settings.prefix column ready");
     await pgClient.query(`CREATE TABLE IF NOT EXISTS mode_interactions (user_id TEXT PRIMARY KEY, preferred_mode TEXT DEFAULT 'unfiltered')`);
     console.log("mode_interactions table ready");
 
+  
+
    await pgClient.query(`
   CREATE TABLE IF NOT EXISTS confession_settings (
     guild_id TEXT PRIMARY KEY,
@@ -661,6 +663,9 @@ console.log("✅ confessions table ready");
 
     await pgClient.query(`ALTER TABLE confessions ADD COLUMN IF NOT EXISTS is_anonymous BOOLEAN DEFAULT TRUE`);
 console.log("✅ confessions.is_anonymous column ensured");
+
+    await pgClient.query(`ALTER TABLE confession_settings ADD COLUMN IF NOT EXISTS output_type TEXT DEFAULT 'embed'`);
+console.log("✅ output_type column ensured");
 
     await pgClient.query(`
   CREATE TABLE IF NOT EXISTS giveaways (
