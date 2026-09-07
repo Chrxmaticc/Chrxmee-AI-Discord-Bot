@@ -92,7 +92,9 @@ server.on("error", (err) => {
   setTimeout(() => server.listen(PORT, "0.0.0.0"), 5000);
 });
 
-// ==================== CLIENT CREATION ====================
+// ==================== CLIENT CREATION ===================
+console.log("🚀 [2] client created");
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
