@@ -1,3 +1,5 @@
+console.log(" index.js started");
+
 require("dotenv").config();
 const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require("discord.js");
 const fs = require("fs");
@@ -96,9 +98,11 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.GuildVoiceStates
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildVoiceStates,
   ],
-  partials: [1, 3],
+  partials: [1, 2, 3],
 });
 
 client.commands = new Collection();
