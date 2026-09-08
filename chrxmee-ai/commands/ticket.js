@@ -260,8 +260,9 @@ module.exports = {
 
       const priorityCollector = priorityMsg.createMessageComponentCollector({ time: 60000, max: 1 });
       priorityCollector.on("collect", async (pInteraction) => {
-        const priority = pInteraction.values[0];
-
+  await pInteraction.deferUpdate().catch(() => {});
+  const priority = pInteraction.values[0];
+        
         // Create channel
         const channelName = `${priority}-${member.user.username.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20)}`;
         const ticketChannel = await guild.channels.create({
