@@ -37,7 +37,6 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName("ticket")
     .setDescription("manage support tickets")
-    // Admin setup
     .addSubcommand(sub => sub.setName("setup").setDescription("(admin) initial ticket system setup")
       .addChannelOption(opt => opt.setName("log_channel").setDescription("channel for ticket logs").setRequired(true))
       .addBooleanOption(opt => opt.setName("enabled").setDescription("enable tickets").setRequired(false))
@@ -45,7 +44,6 @@ module.exports = {
       .addBooleanOption(opt => opt.setName("rating_enabled").setDescription("enable rating after close").setRequired(false))
       .addBooleanOption(opt => opt.setName("transcript_enabled").setDescription("save transcripts").setRequired(false))
     )
-    // Category management
     .addSubcommandGroup(group => group.setName("category").setDescription("manage ticket categories")
       .addSubcommand(sub => sub.setName("add").setDescription("add a category")
         .addStringOption(opt => opt.setName("name").setDescription("category name").setRequired(true))
@@ -62,7 +60,6 @@ module.exports = {
       )
       .addSubcommand(sub => sub.setName("list").setDescription("list all categories"))
     )
-    // User commands
     .addSubcommand(sub => sub.setName("open").setDescription("open a ticket"))
     .addSubcommand(sub => sub.setName("close").setDescription("close a ticket (in ticket channel)"))
     .addSubcommand(sub => sub.setName("claim").setDescription("(support) claim this ticket"))
@@ -97,13 +94,11 @@ module.exports = {
       return interaction.editReply({ embeds: [embed], ephemeral }).catch(() => interaction.followUp({ embeds: [embed], ephemeral }));
     };
 
-    // Helper: get settings
     const getSettings = async () => {
       const res = await pool.query(`SELECT * FROM ticket_settings WHERE guild_id = $1`, [guild.id]);
       return res.rows[0] || null;
     };
 
-    // Helper: get category
     const getCategory = async (categoryId) => {
       const res = await pool.query(`SELECT * FROM ticket_categories WHERE guild_id = $1 AND category_id = $2`, [guild.id, categoryId]);
       return res.rows[0] || null;
@@ -178,40 +173,38 @@ module.exports = {
       const settings = await getSettings();
       if (!settings || !settings.enabled) return sendEmbed(`${E.error} disabled`, `${E.angry} tickets disabled.`, 0xff0000);
 
-      // Get categories
       const categoriesRes = await pool.query(`SELECT * FROM ticket_categories WHERE guild_id = $1`, [guild.id]);
       if (!categoriesRes.rows.length) return sendEmbed(`${E.error} no categories`, `${E.angry} ask admin to add categories.`, 0xff0000);
 
-      // Build select menu for category
       const select = new StringSelectMenuBuilder()
         .setCustomId("ticket_open_cat")
         .setPlaceholder("select a category")
         .addOptions(categoriesRes.rows.map(c => ({ label: c.name, value: c.category_id })));
 
       const row = new ActionRowBuilder().addComponents(select);
-
       const catMsg = await interaction.editReply({ content: `${E.ticket} select a category to open a ticket:`, components: [row] }).catch(() => null);
       if (!catMsg) return;
 
       const collector = catMsg.createMessageComponentCollector({ time: 60000, max: 1 });
       collector.on("collect", async (selectInteraction) => {
+        // Defer the select interaction before any async work
+        await selectInteraction.deferUpdate().catch(() => {});
+
         if (selectInteraction.user.id !== interaction.user.id) {
-          return selectInteraction.reply({ content: `${E.error} not yours!`, ephemeral: true });
+          return selectInteraction.followUp({ content: `${E.error} not yours!`, ephemeral: true });
         }
         const categoryId = selectInteraction.values[0];
         const category = await getCategory(categoryId);
-        if (!category) return selectInteraction.reply({ content: `${E.error} category invalid`, ephemeral: true });
+        if (!category) return selectInteraction.followUp({ content: `${E.error} category invalid`, ephemeral: true });
 
-        // Check if user has open ticket in this category
         const existing = await pool.query(
           `SELECT channel_id FROM ticket_channels WHERE guild_id=$1 AND user_id=$2 AND category_id=$3 AND status='open'`,
           [guild.id, member.id, categoryId]
         );
         if (existing.rows.length > 0) {
-          return selectInteraction.reply({ content: `${E.error} already open`, ephemeral: true });
+          return selectInteraction.followUp({ content: `${E.error} already open`, ephemeral: true });
         }
 
-        // If category has questions, show modal
         const questions = Array.isArray(category.questions) ? category.questions : (JSON.parse(category.questions || '[]'));
         if (questions.length > 0) {
           const modal = new ModalBuilder()
@@ -227,7 +220,6 @@ module.exports = {
               .setMaxLength(500)
           );
 
-          // Add max 5 inputs per modal
           const rows = textInputs.slice(0, 5).map(input => new ActionRowBuilder().addComponents(input));
           modal.addComponents(...rows);
           await selectInteraction.showModal(modal);
@@ -242,7 +234,6 @@ module.exports = {
       return;
     }
 
-    // Function to create ticket after modal/select
     async function createTicket(interaction, category, settings, client) {
       const pool = client.pool;
       const guild = interaction.guild;
@@ -255,15 +246,15 @@ module.exports = {
         .addOptions(Object.entries(PRIORITIES).map(([value, label]) => ({ label, value })));
 
       const priorityRow = new ActionRowBuilder().addComponents(prioritySelect);
-      const priorityMsg = await interaction.reply({ content: `${E.ticket} select priority:`, components: [priorityRow], ephemeral: true }).catch(() => null);
+      // Use followUp because interaction was deferred with deferUpdate
+      const priorityMsg = await interaction.followUp({ content: `${E.ticket} select priority:`, components: [priorityRow], ephemeral: true }).catch(() => null);
       if (!priorityMsg) return;
 
       const priorityCollector = priorityMsg.createMessageComponentCollector({ time: 60000, max: 1 });
       priorityCollector.on("collect", async (pInteraction) => {
-  await pInteraction.deferUpdate().catch(() => {});
-  const priority = pInteraction.values[0];
+        await pInteraction.deferUpdate().catch(() => {});
+        const priority = pInteraction.values[0];
         
-        // Create channel
         const channelName = `${priority}-${member.user.username.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20)}`;
         const ticketChannel = await guild.channels.create({
           name: channelName,
@@ -277,13 +268,11 @@ module.exports = {
           reason: "chromed ticket",
         });
 
-        // Save ticket
         await pool.query(
           `INSERT INTO ticket_channels (guild_id, channel_id, user_id, category_id, priority) VALUES ($1,$2,$3,$4,$5)`,
           [guild.id, ticketChannel.id, member.id, category.category_id, priority]
         );
 
-        // Welcome message
         let welcomeContent;
         if (category.welcome_type) {
           const embed = new EmbedBuilder()
@@ -302,9 +291,8 @@ module.exports = {
           new ButtonBuilder().setCustomId("ticket_claim").setLabel("claim").setStyle(ButtonStyle.Primary)
         );
 
-        const welcomeMsg = await ticketChannel.send({ ...welcomeContent, components: [closeButtonRow] });
+        await ticketChannel.send({ ...welcomeContent, components: [closeButtonRow] });
 
-        // Ping message
         let pingContent;
         if (category.ping_type) {
           const pingEmbed = new EmbedBuilder()
@@ -316,7 +304,6 @@ module.exports = {
         }
         await ticketChannel.send(pingContent).catch(() => {});
 
-        // Log to channel
         const logChannel = guild.channels.cache.get(settings.log_channel_id);
         if (logChannel) {
           const logEmbed = new EmbedBuilder()
@@ -331,9 +318,6 @@ module.exports = {
             .setTimestamp();
           await logChannel.send({ embeds: [logEmbed] }).catch(() => {});
         }
-
-        // Set up auto-close timer in memory (or later via event)
-        // We'll store in client.ticketTimers if needed; for now manual close.
       });
 
       priorityCollector.on("end", () => { priorityMsg.edit({ components: [] }).catch(() => {}); });
@@ -346,7 +330,6 @@ module.exports = {
       if (!ticket.rows[0]) return sendEmbed(`${E.error} not a ticket`, `${E.angry} this isn't an open ticket.`, 0xff0000);
 
       const settings = await getSettings();
-      // Log
       const logChannel = guild.channels.cache.get(settings?.log_channel_id);
       if (logChannel) {
         const logEmbed = new EmbedBuilder()
@@ -361,7 +344,6 @@ module.exports = {
         await logChannel.send({ embeds: [logEmbed] }).catch(() => {});
       }
 
-      // Rating if enabled
       if (settings?.rating_enabled) {
         const ratingMsg = await interaction.channel.send({
           content: `${E.ai} please rate your experience:`,
@@ -438,11 +420,8 @@ module.exports = {
         AVG(rating) as avg_rating
         FROM ticket_channels WHERE guild_id=$1 GROUP BY category_id`, [guild.id]);
       if (!res.rows.length) return sendEmbed(`${E.error} no data`, `${E.angry} no tickets yet.`, 0xff0000);
-      const lines = res.rows.map(r => {
-        const cat = r.category_id;
-        return `**${cat}**: total ${r.total}, open ${r.open}, closed ${r.closed}, avg rating ${r.avg_rating ? r.avg_rating.toFixed(1) : 'n/a'}`;
-      }).join('\n');
-      return sendEmbed(`${E.ticket} ticket stats`, lines, 0x7c7ce0, false);
+      const lines = res.rows.map(r => `**${r.category_id}**: total ${r.total}, open ${r.open}, closed ${r.closed}, avg rating ${r.avg_rating ? r.avg_rating.toFixed(1) : 'n/a'}`);
+      return sendEmbed(`${E.ticket} ticket stats`, lines.join('\n'), 0x7c7ce0, false);
     }
 
     // ── DELETE (admin) ───────────────────────────────────
