@@ -633,6 +633,35 @@ console.log("guild_settings.prefix column ready");
     await pgClient.query(`CREATE TABLE IF NOT EXISTS mode_interactions (user_id TEXT PRIMARY KEY, preferred_mode TEXT DEFAULT 'unfiltered')`);
     console.log("mode_interactions table ready");
 
+    await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS user_stats (
+    user_id BIGINT,
+    guild_id BIGINT,
+    messages_sent BIGINT DEFAULT 0,
+    vc_seconds BIGINT DEFAULT 0,
+    voice_sessions BIGINT DEFAULT 0,
+    commands_used BIGINT DEFAULT 0,
+    first_seen TIMESTAMP DEFAULT NOW(),
+    last_seen TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (user_id, guild_id)
+  )
+`);
+console.log("✅ user_stats table ready");
+
+await pgClient.query(`
+  CREATE TABLE IF NOT EXISTS guild_stats (
+    guild_id BIGINT PRIMARY KEY,
+    total_messages BIGINT DEFAULT 0,
+    total_vc_seconds BIGINT DEFAULT 0,
+    total_commands BIGINT DEFAULT 0,
+    total_members BIGINT DEFAULT 0,
+    total_joins BIGINT DEFAULT 0,
+    total_leaves BIGINT DEFAULT 0,
+    last_updated TIMESTAMP DEFAULT NOW()
+  )
+`);
+console.log("✅ guild_stats table ready");
+
   
 
    await pgClient.query(`
