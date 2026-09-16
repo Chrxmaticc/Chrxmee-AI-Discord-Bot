@@ -1,6 +1,5 @@
 const {
   SlashCommandBuilder,
-  EmbedBuilder,
   PermissionsBitField,
   ActionRowBuilder,
   ButtonBuilder,
@@ -9,16 +8,76 @@ const {
   TextInputBuilder,
   TextInputStyle,
   StringSelectMenuBuilder,
-  StringSelectMenuOptionBuilder
+  StringSelectMenuOptionBuilder,
+  ContainerBuilder,
+  TextDisplayBuilder,
+  SectionBuilder,
+  ThumbnailBuilder,
+  MediaGalleryBuilder,
+  MediaGalleryItemBuilder,
+  SeparatorBuilder,
+  SeparatorSpacingSize,
+  MessageFlags,
 } = require('discord.js');
 
-const COLORS = {
-  blue: 0x7289da, red: 0xff0000, green: 0x00ff00,
-  purple: 0x9b59b6, gold: 0xf1c40f, default: 0x2f3136,
-  orange: 0xe67e22, pink: 0xff69b4, cyan: 0x00ffff,
-  white: 0xffffff, black: 0x000000, yellow: 0xffff00
+/* ═══════════════ emoji map ═══════════════ */
+const E = {
+  success:   "<:Verified_Icon:1527194184841167010>",
+  golden:    "<:Golden_Verified:1531893351920697484>",
+  error:     "<:no:1530373946795364362>",
+  ai:        "<:Chrxmaticc_AI:1480094799292928132>",
+  settings:  "<:Settings:1525601248278216725>",
+  dev:       "<:Developer:1525492198035161192>",
+  bot:       "<:Bot:1525492838727548999>",
+  link:      "<:Link:1525603398341103806>",
+  agree:     "<:agreed:1525639597135237131>",
+  angry:     "<:angry_cry:1526029511882440744>",
+  announce:  "<:Discord_Announcements:1526028541270167593>",
+  owner:     "<:Owner:1525494515169759253>",
+  crown:     "<:Holographic_owner_crown:1527401510487461969>",
+  file:      "<:File_Icon:1526542046213570681>",
+  folder:    "<:Folder_Icon:1526542112806539274>",
+  cursor:    "<:Cursor_Code:1526703109345116310>",
+  pc:        "<:Computer_PC:1526541989376688318>",
+  compass:   "<:Compass_Discover_Icon:1526542192494248067>",
+  admin:     "<:Admin_Badge:1527194281234665622>",
+  rename:    "<:Pencil:1530377899251601408>",
+  member:    "<:member:1530383558710005960>",
+  lock:      "<:lock:1530377198324945056>",
+  unlock:    "<:unlock:1530377714995826831>",
+  hide:      "<:hellokitty_hide:1530376139854577735>",
+  show:      "<:nobara_SIDEEYE:1525658447045988382>",
+  kick:      "<:Personkick:1530376715698704574>",
+  ban:       "<:hammer:1530375976381448303>",
+  money:     "<:Money_Cry_Son:1526538340264841257>",
+  sneaky:    "<:sneaky:1527401423690792970>",
+  qsob:      "<:qsob:1526706054396645487>",
+  happy_cry: "<:happy_cry:1526029243333611530>",
+  laugh:     "<:Cringe_Laughing_Son:1526539082564374710>",
+  point:     "<:PointAndLaughingEmoji:1525657154567016469>",
+  son:       "<:Son:1526536930693484575>",
+  son3:      "<:Son_3:1529441775461339196>",
+  off:       "<:off:1545571608897265726>",
+  on:        "<:on:1545571641684135946>",
+  channel:   "<:Channel:1531901854361849929>",
+  forum:     "<:Forum:1531902590315397190>",
+  threads:   "<:Threads:1531902029113327678>",
+  bugs:      "<:Bugs_Blurple:1531909906129490091>",
+  gold:      "<:GoldDiscord:1531896474529431668>",
+  reply:     "<:Reply_Continued:1531902914824638584>",
+  skull:     "<a:skulllmao:1544845693762535477>",
 };
 
+/* ═══════════════ color map ═══════════════ */
+const COLORS = {
+  blue: 0x7289da, red: 0xff3b3b, green: 0x57f287,
+  purple: 0x9b59b6, gold: 0xf1c40f, default: 0x5b7fd4,
+  orange: 0xe67e22, pink: 0xff69b4, cyan: 0x00ffff,
+  white: 0xffffff, black: 0x000000, yellow: 0xffff00,
+  blurple: 0x5865f2, teal: 0x1abc9c,
+};
+
+/* ═══════════════ helpers ═══════════════ */
 function generateEmbedId() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let id = 'EM-';
@@ -27,135 +86,200 @@ function generateEmbedId() {
 }
 
 function parseColor(val) {
-  const lower = val.toLowerCase().trim();
+  const lower = String(val).toLowerCase().trim();
   if (COLORS[lower]) return COLORS[lower];
   const hex = lower.replace('#', '');
   const parsed = parseInt(hex, 16);
   return isNaN(parsed) ? COLORS.default : parsed;
 }
 
-function buildLiveEmbed(state) {
-  const embed = new EmbedBuilder().setColor(state.color || COLORS.default);
-  if (state.title) embed.setTitle(state.title);
-  if (state.description) embed.setDescription(state.description);
-  if (state.footer) embed.setFooter({ text: state.footer });
-  if (state.image) { try { embed.setImage(state.image); } catch {} }
-  if (state.thumbnail) { try { embed.setThumbnail(state.thumbnail); } catch {} }
-  if (state.author) embed.setAuthor({ name: state.author });
-  if (state.timestamp) embed.setTimestamp();
-  if (state.fields && state.fields.length > 0) {
-    embed.addFields(state.fields.slice(0, 25));
+/* ═══════════════ components v2: display container ═══════════════ */
+function buildDisplayContainer(state) {
+  const c = new ContainerBuilder();
+  c.setAccentColor(state.color || COLORS.default);
+
+  if (state.author) {
+    c.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`-# ${E.owner} ${state.author}`)
+    );
   }
-  return embed;
+
+  if (state.title) {
+    c.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`## ${state.title}`)
+    );
+  }
+
+  if (state.description && state.thumbnail) {
+    c.addSectionComponents(
+      new SectionBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(state.description))
+        .setThumbnailAccessory(new ThumbnailBuilder().setURL(state.thumbnail))
+    );
+  } else if (state.description) {
+    c.addTextDisplayComponents(new TextDisplayBuilder().setContent(state.description));
+  } else if (state.thumbnail) {
+    c.addMediaGalleryComponents(
+      new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(state.thumbnail))
+    );
+  }
+
+  if (state.fields && state.fields.length) {
+    c.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+    for (const f of state.fields) {
+      c.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(`**${f.name}**\n${f.value}`)
+      );
+    }
+  }
+
+  if (state.image) {
+    c.addMediaGalleryComponents(
+      new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(state.image))
+    );
+  }
+
+  if (state.footer || state.timestamp) {
+    c.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+    const parts = [];
+    if (state.footer) parts.push(`${E.ai} ${state.footer}`);
+    if (state.timestamp) parts.push(`<t:${Math.floor(Date.now() / 1000)}:R>`);
+    c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${parts.join(' · ')}`));
+  }
+
+  return c;
 }
 
-function buildStatusText(state) {
-  const lines = [
-    `**✏️ Title:** ${state.title || '*not set*'}`,
-    `**📝 Description:** ${state.description ? state.description.slice(0, 50) + (state.description.length > 50 ? '...' : '') : '*not set*'}`,
-    `**🎨 Color:** ${state.colorName || 'default'}`,
-    `**👤 Author:** ${state.author || '*not set*'}`,
-    `**🖼️ Image:** ${state.image ? '✅ set' : '*not set*'}`,
-    `**🖼️ Thumbnail:** ${state.thumbnail ? '✅ set' : '*not set*'}`,
-    `**📋 Footer:** ${state.footer || '*not set*'}`,
-    `**🕐 Timestamp:** ${state.timestamp ? '✅ on' : '❌ off'}`,
-    `**➕ Fields:** ${state.fields ? state.fields.length : 0}`,
-  ];
-  return lines.join('\n');
+/* ═══════════════ components v2: builder status container ═══════════════ */
+function buildStatusContainer(state) {
+  const c = new ContainerBuilder();
+  c.setAccentColor(state.color || COLORS.default);
+
+  c.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(`## ${E.settings} embed builder`)
+  );
+
+  c.addSeparatorComponents(
+    new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+  );
+
+  const row = (label, value, ok = true) =>
+    `${ok ? E.success : E.error} **${label}:** ${value}`;
+
+  c.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent([
+      row('title', state.title || '*not set*', !!state.title),
+      row('description', state.description
+        ? (state.description.length > 60 ? state.description.slice(0, 60) + '...' : state.description)
+        : '*not set*', !!state.description),
+      row('color', state.colorName || 'default', true),
+      row('author', state.author || '*not set*', !!state.author),
+      row('image', state.image ? 'set' : '*not set*', !!state.image),
+      row('thumbnail', state.thumbnail ? 'set' : '*not set*', !!state.thumbnail),
+      row('footer', state.footer || '*not set*', !!state.footer),
+      `${state.timestamp ? E.on : E.off} **timestamp:** ${state.timestamp ? 'on' : 'off'}`,
+      `${E.folder} **fields:** ${state.fields ? state.fields.length : 0}/25`,
+    ].join('\n'))
+  );
+
+  return c;
 }
 
+/* ═══════════════ components v2: builder buttons ═══════════════ */
 function buildBuilderRows(state) {
   const row1 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('eb_title').setLabel('✏️ Title').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('eb_desc').setLabel('📝 Description').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('eb_color').setLabel('🎨 Color').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('eb_author').setLabel('👤 Author').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('eb_footer').setLabel('📋 Footer').setStyle(ButtonStyle.Secondary)
+    new ButtonBuilder().setCustomId('eb_title').setLabel('title').setEmoji({ id: '1530377899251601408', name: 'Pencil' }).setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('eb_desc').setLabel('description').setEmoji({ id: '1526542046213570681', name: 'File_Icon' }).setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('eb_color').setLabel('color').setEmoji({ id: '1526537780229046342', name: 'Adaption_Wheel' }).setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('eb_author').setLabel('author').setEmoji({ id: '1525494515169759253', name: 'Owner' }).setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('eb_footer').setLabel('footer').setEmoji({ id: '1525492198035161192', name: 'Developer' }).setStyle(ButtonStyle.Secondary),
   );
   const row2 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('eb_image').setLabel('🖼️ Image').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('eb_thumbnail').setLabel('🖼️ Thumb').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('eb_field').setLabel('➕ Add Field').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('eb_timestamp').setLabel(`🕐 Timestamp: ${state.timestamp ? 'ON' : 'OFF'}`).setStyle(state.timestamp ? ButtonStyle.Success : ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('eb_clear').setLabel('🗑️ Clear All').setStyle(ButtonStyle.Danger)
+    new ButtonBuilder().setCustomId('eb_image').setLabel('image').setEmoji({ id: '1526541989376688318', name: 'Computer_PC' }).setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('eb_thumbnail').setLabel('thumbnail').setEmoji({ id: '1526542046213570681', name: 'File_Icon' }).setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('eb_field').setLabel('add field').setEmoji({ id: '1526542112806539274', name: 'Folder_Icon' }).setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('eb_timestamp')
+      .setLabel(state.timestamp ? 'timestamp on' : 'timestamp off')
+      .setEmoji({ id: state.timestamp ? '1545571641684135946' : '1545571608897265726', name: state.timestamp ? 'on' : 'off' })
+      .setStyle(state.timestamp ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('eb_clear').setLabel('clear all').setEmoji({ id: '1530373946795364362', name: 'no' }).setStyle(ButtonStyle.Danger),
   );
   const row3 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('eb_preview').setLabel('👁️ Preview').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('eb_send').setLabel('📤 Send').setStyle(ButtonStyle.Success)
+    new ButtonBuilder().setCustomId('eb_preview').setLabel('preview').setEmoji({ id: '1525658447045988382', name: 'nobara_SIDEEYE' }).setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('eb_send').setLabel('send').setEmoji({ id: '1527194184841167010', name: 'Verified_Icon' }).setStyle(ButtonStyle.Success),
   );
   return [row1, row2, row3];
 }
 
-async function sendSavePrompt(interaction, embedData, embedId) {
-  const saveRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`eb_save_${embedId}`).setLabel('Save Embed').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`eb_nosave_${embedId}`).setLabel('No thanks').setStyle(ButtonStyle.Secondary)
-  );
-  await interaction.followUp({
-    content: `Embed sent! **ID: \`${embedId}\`**\nWanna save this embed for later?`,
-    components: [saveRow],
-    ephemeral: true
-  }).catch(() => {});
-}
+/* ═══════════════ flags helper ═══════════════ */
+const V2 = MessageFlags.IsComponentsV2;
+const V2_E = MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral;
 
+/* ═══════════════ command ═══════════════ */
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('embed')
-    .setDescription('Create and manage embeds (mod only)')
-    .addSubcommand(sub => sub.setName('builder').setDescription('Interactive embed builder with live preview'))
+    .setDescription('create and manage embeds (mod only)')
+    .addSubcommand(sub => sub.setName('builder').setDescription('interactive embed builder with live preview'))
     .addSubcommand(sub =>
       sub.setName('template')
-        .setDescription('Use a pre-made template')
-        .addStringOption(opt => opt.setName('type').setDescription('Template type').setRequired(true)
+        .setDescription('use a pre-made template')
+        .addStringOption(opt => opt.setName('type').setDescription('template type').setRequired(true)
           .addChoices(
-            { name: 'Welcome', value: 'welcome' },
-            { name: 'Goodbye', value: 'goodbye' },
-            { name: 'Announcement', value: 'announcement' }
+            { name: 'welcome', value: 'welcome' },
+            { name: 'goodbye', value: 'goodbye' },
+            { name: 'announcement', value: 'announcement' },
           ))
-        .addStringOption(opt => opt.setName('title').setDescription('Title').setRequired(true))
-        .addStringOption(opt => opt.setName('description').setDescription('Description').setRequired(true))
-        .addStringOption(opt => opt.setName('color').setDescription('Color name or hex').setRequired(false))
+        .addStringOption(opt => opt.setName('title').setDescription('title').setRequired(true))
+        .addStringOption(opt => opt.setName('description').setDescription('description').setRequired(true))
+        .addStringOption(opt => opt.setName('color').setDescription('color name or hex').setRequired(false))
     )
     .addSubcommand(sub =>
       sub.setName('advanced')
-        .setDescription('Send custom embed via key:value lines')
-        .addStringOption(opt => opt.setName('code').setDescription('Paste key:value lines').setRequired(true))
+        .setDescription('send custom embed via key:value lines')
+        .addStringOption(opt => opt.setName('code').setDescription('paste key:value lines').setRequired(true))
     )
-    .addSubcommand(sub => sub.setName('advanced-paste').setDescription('Get copyable template'))
+    .addSubcommand(sub => sub.setName('advanced-paste').setDescription('get copyable template'))
     .addSubcommand(sub =>
       sub.setName('system')
-        .setDescription('Use pre-made system embeds')
-        .addStringOption(opt => opt.setName('type').setDescription('Choose system embed').setRequired(true)
+        .setDescription('use pre-made system embeds')
+        .addStringOption(opt => opt.setName('type').setDescription('choose system embed').setRequired(true)
           .addChoices(
-            { name: 'Welcome Message', value: 'welcome' },
-            { name: 'Goodbye Message', value: 'goodbye' },
-            { name: 'Log Join', value: 'log-join' },
-            { name: 'Log Leave', value: 'log-leave' },
-            { name: 'Announcement', value: 'announcement' },
-            { name: 'Rule Reminder', value: 'rule' },
-            { name: 'Event Announcement', value: 'event' },
-            { name: 'Mod Alert', value: 'mod-alert' },
-            { name: 'Status Update', value: 'status' },
-            { name: 'Fun Message', value: 'fun' }
+            { name: 'welcome message', value: 'welcome' },
+            { name: 'goodbye message', value: 'goodbye' },
+            { name: 'log join', value: 'log-join' },
+            { name: 'log leave', value: 'log-leave' },
+            { name: 'announcement', value: 'announcement' },
+            { name: 'rule reminder', value: 'rule' },
+            { name: 'event announcement', value: 'event' },
+            { name: 'mod alert', value: 'mod-alert' },
+            { name: 'status update', value: 'status' },
+            { name: 'fun message', value: 'fun' },
           ))
     )
     .addSubcommand(sub =>
       sub.setName('save')
-        .setDescription('Save a custom embed by name')
-        .addStringOption(opt => opt.setName('name').setDescription('Name for this embed').setRequired(true))
-        .addStringOption(opt => opt.setName('code').setDescription('Paste key:value lines').setRequired(true))
+        .setDescription('save a custom embed by name')
+        .addStringOption(opt => opt.setName('name').setDescription('name for this embed').setRequired(true))
+        .addStringOption(opt => opt.setName('code').setDescription('paste key:value lines').setRequired(true))
     )
-    .addSubcommand(sub => sub.setName('view').setDescription('View your saved embeds'))
-    .addSubcommand(sub => sub.setName('send').setDescription('Send a saved embed'))
+    .addSubcommand(sub => sub.setName('view').setDescription('view your saved embeds'))
+    .addSubcommand(sub => sub.setName('send').setDescription('send a saved embed'))
     .addSubcommand(sub =>
       sub.setName('delete')
-        .setDescription('Delete a saved embed by name or ID')
-        .addStringOption(opt => opt.setName('query').setDescription('Embed name or ID (e.g. EM-AB12)').setRequired(true))
+        .setDescription('delete a saved embed by name or id')
+        .addStringOption(opt => opt.setName('query').setDescription('embed name or id (e.g. EM-AB12)').setRequired(true))
     ),
 
   async execute(interaction, client) {
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
-      return interaction.reply({ content: '❌ Mods only.', ephemeral: true });
+      return interaction.reply({
+        components: [new ContainerBuilder()
+          .setAccentColor(COLORS.red)
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.error} mods only.`))],
+        flags: V2_E,
+      });
     }
 
     const sub = interaction.options.getSubcommand();
@@ -164,130 +288,148 @@ module.exports = {
     const storageKey = `embeds_${guildId}_${userId}`;
     let savedEmbeds = client.memory.get(storageKey) || {};
 
-    // ── BUILDER ────────────────────────────────────────────
+    /* ─────────────── builder ─────────────── */
     if (sub === 'builder') {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: V2_E });
 
       let state = {
         title: null, description: null, color: COLORS.default,
         colorName: 'default', footer: null, image: null,
-        thumbnail: null, author: null, timestamp: false, fields: []
+        thumbnail: null, author: null, timestamp: false, fields: [],
       };
 
-      const controlEmbed = new EmbedBuilder()
-        .setColor(0x2f3136)
-        .setTitle('🛠️ Embed Builder')
-        .setDescription(buildStatusText(state))
-        .setFooter({ text: 'Use the buttons below to build your embed' });
+      await interaction.editReply({
+        components: [buildStatusContainer(state), ...buildBuilderRows(state).map(r => r)],
+        flags: V2_E,
+      });
 
-      await interaction.editReply({ embeds: [controlEmbed], components: buildBuilderRows(state) });
+      // need to attach action rows to container properly
+      const wrapContainer = () => {
+        const c = buildStatusContainer(state);
+        const rows = buildBuilderRows(state);
+        for (const r of rows) c.addActionRowComponents(r);
+        return c;
+      };
+
+      await interaction.editReply({
+        components: [wrapContainer()],
+        flags: V2_E,
+      });
+
       const builderMsg = await interaction.fetchReply();
-
       const collector = builderMsg.createMessageComponentCollector({ time: 300000 });
 
       collector.on('collect', async btn => {
-        if (btn.user.id !== userId) return btn.reply({ content: '❌ Not your builder!', ephemeral: true }).catch(() => {});
+        if (btn.user.id !== userId) {
+          return btn.reply({
+            components: [new ContainerBuilder()
+              .setAccentColor(COLORS.red)
+              .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.error} not your builder.`))],
+            flags: V2_E,
+          }).catch(() => {});
+        }
 
-        // ── TIMESTAMP TOGGLE ──────────────────────────────
         if (btn.customId === 'eb_timestamp') {
-          try { await btn.deferUpdate(); } catch (e) { return; }
+          try { await btn.deferUpdate(); } catch { return; }
           state.timestamp = !state.timestamp;
-          const updated = new EmbedBuilder().setColor(0x2f3136).setTitle('🛠️ Embed Builder').setDescription(buildStatusText(state)).setFooter({ text: 'Use the buttons below to build your embed' });
-          await builderMsg.edit({ embeds: [updated], components: buildBuilderRows(state) }).catch(() => {});
+          await builderMsg.edit({ components: [wrapContainer()] }).catch(() => {});
           return;
         }
 
-        // ── CLEAR ─────────────────────────────────────────
         if (btn.customId === 'eb_clear') {
-          try { await btn.deferUpdate(); } catch (e) { return; }
-          state = { title: null, description: null, color: COLORS.default, colorName: 'default', footer: null, image: null, thumbnail: null, author: null, timestamp: false, fields: [] };
-          const updated = new EmbedBuilder().setColor(0x2f3136).setTitle('🛠️ Embed Builder').setDescription(buildStatusText(state)).setFooter({ text: 'Cleared! Start fresh.' });
-          await builderMsg.edit({ embeds: [updated], components: buildBuilderRows(state) }).catch(() => {});
+          try { await btn.deferUpdate(); } catch { return; }
+          state = {
+            title: null, description: null, color: COLORS.default,
+            colorName: 'default', footer: null, image: null,
+            thumbnail: null, author: null, timestamp: false, fields: [],
+          };
+          await builderMsg.edit({ components: [wrapContainer()] }).catch(() => {});
           return;
         }
 
-        // ── PREVIEW ───────────────────────────────────────
         if (btn.customId === 'eb_preview') {
-          try { await btn.deferUpdate(); } catch (e) { return; }
-          const preview = buildLiveEmbed(state);
-          await btn.followUp({ content: '👁️ **Preview** (only you can see this):', embeds: [preview], ephemeral: true }).catch(() => {});
+          try { await btn.deferUpdate(); } catch { return; }
+          await btn.followUp({
+            components: [buildDisplayContainer(state)],
+            flags: V2_E,
+          }).catch(() => {});
           return;
         }
 
-        // ── SEND ──────────────────────────────────────────
         if (btn.customId === 'eb_send') {
-          try { await btn.deferUpdate(); } catch (e) { return; }
-          const finalEmbed = buildLiveEmbed(state);
+          try { await btn.deferUpdate(); } catch { return; }
           const embedId = generateEmbedId();
           try {
-            await interaction.channel.send({ embeds: [finalEmbed] });
-            await sendSavePrompt(btn, { state, embedId }, embedId);
+            await interaction.channel.send({
+              components: [buildDisplayContainer(state)],
+              flags: V2,
+            });
 
-            // Handle save button
-            const saveCollector = builderMsg.createMessageComponentCollector({ time: 60000, max: 1, filter: b => b.customId.startsWith(`eb_save_${embedId}`) || b.customId === `eb_nosave_${embedId}` });
+            const saveRow = new ActionRowBuilder().addComponents(
+              new ButtonBuilder().setCustomId(`eb_save_${embedId}`).setLabel('save embed').setEmoji({ id: '1527194184841167010', name: 'Verified_Icon' }).setStyle(ButtonStyle.Primary),
+              new ButtonBuilder().setCustomId(`eb_nosave_${embedId}`).setLabel('no thanks').setEmoji({ id: '1530373946795364362', name: 'no' }).setStyle(ButtonStyle.Secondary),
+            );
+
+            const promptC = new ContainerBuilder()
+              .setAccentColor(COLORS.green)
+              .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.success} embed sent! **id: \`${embedId}\`**\n-# wanna save this for later?`))
+              .addActionRowComponents(saveRow);
+
+            await btn.followUp({ components: [promptC], flags: V2_E }).catch(() => {});
+
+            const saveCollector = builderMsg.createMessageComponentCollector({
+              time: 60000,
+              max: 1,
+              filter: b => b.customId.startsWith(`eb_save_${embedId}`) || b.customId === `eb_nosave_${embedId}`,
+            });
+
             saveCollector.on('collect', async savBtn => {
-              try { await savBtn.deferUpdate(); } catch (e) { return; }
               if (savBtn.customId === `eb_save_${embedId}`) {
-                const nameModal = new ModalBuilder().setCustomId(`eb_savename_${embedId}`).setTitle('Save Embed');
-                const nameInput = new TextInputBuilder().setCustomId('embed_save_name').setLabel('Name for this embed').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(50);
+                const nameModal = new ModalBuilder().setCustomId(`eb_savename_${embedId}`).setTitle('save embed');
+                const nameInput = new TextInputBuilder().setCustomId('embed_save_name').setLabel('name for this embed').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(50);
                 nameModal.addComponents(new ActionRowBuilder().addComponents(nameInput));
                 await savBtn.showModal(nameModal).catch(() => {});
 
-                const modalCollector = interaction.channel.createMessageComponentCollector({ time: 30000 });
-                interaction.awaitModalSubmit({ filter: m => m.customId === `eb_savename_${embedId}` && m.user.id === userId, time: 30000 })
-                  .then(async modal => {
-                    await modal.deferReply({ ephemeral: true });
-                    const name = modal.fields.getTextInputValue('embed_save_name');
-                    savedEmbeds = client.memory.get(storageKey) || {};
-                    savedEmbeds[embedId] = { id: embedId, name, state, createdAt: Date.now() };
-                    client.memory.set(storageKey, savedEmbeds);
-                    await modal.editReply({ content: `✅ Embed saved as **${name}** (ID: \`${embedId}\`)!`, ephemeral: true });
-                  }).catch(() => {});
+                try {
+                  const modal = await savBtn.awaitModalSubmit({ filter: m => m.customId === `eb_savename_${embedId}` && m.user.id === userId, time: 30000 });
+                  const name = modal.fields.getTextInputValue('embed_save_name');
+                  savedEmbeds = client.memory.get(storageKey) || {};
+                  savedEmbeds[embedId] = { id: embedId, name, state, createdAt: Date.now() };
+                  client.memory.set(storageKey, savedEmbeds);
+                  await modal.reply({
+                    components: [new ContainerBuilder()
+                      .setAccentColor(COLORS.green)
+                      .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.success} saved as **${name}** · id \`${embedId}\``))],
+                    flags: V2_E,
+                  });
+                } catch {}
+              } else {
+                await savBtn.deferUpdate().catch(() => {});
               }
             });
           } catch (err) {
-            await btn.followUp({ content: `❌ Failed to send: ${err.message.slice(0, 100)}`, ephemeral: true }).catch(() => {});
+            await btn.followUp({
+              components: [new ContainerBuilder()
+                .setAccentColor(COLORS.red)
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.error} failed to send: ${String(err.message).slice(0, 100)}`))],
+              flags: V2_E,
+            }).catch(() => {});
           }
           return;
         }
 
-        // ── MODALS ────────────────────────────────────────
         const modalMap = {
-          eb_title: {
-            id: 'ebm_title', title: 'Set Title',
-            fields: [{ id: 'val', label: 'Title', style: TextInputStyle.Short, max: 256 }]
-          },
-          eb_desc: {
-            id: 'ebm_desc', title: 'Set Description',
-            fields: [{ id: 'val', label: 'Description', style: TextInputStyle.Paragraph, max: 4096 }]
-          },
-          eb_color: {
-            id: 'ebm_color', title: 'Set Color',
-            fields: [{ id: 'val', label: 'Color (name or hex like #7289da)', style: TextInputStyle.Short, max: 20, placeholder: 'blue, red, green, purple, gold, or #hex' }]
-          },
-          eb_author: {
-            id: 'ebm_author', title: 'Set Author',
-            fields: [{ id: 'val', label: 'Author Name', style: TextInputStyle.Short, max: 256 }]
-          },
-          eb_footer: {
-            id: 'ebm_footer', title: 'Set Footer',
-            fields: [{ id: 'val', label: 'Footer Text', style: TextInputStyle.Short, max: 2048 }]
-          },
-          eb_image: {
-            id: 'ebm_image', title: 'Set Image URL',
-            fields: [{ id: 'val', label: 'Image URL (must start with https)', style: TextInputStyle.Short, max: 500 }]
-          },
-          eb_thumbnail: {
-            id: 'ebm_thumbnail', title: 'Set Thumbnail URL',
-            fields: [{ id: 'val', label: 'Thumbnail URL (must start with https)', style: TextInputStyle.Short, max: 500 }]
-          },
-          eb_field: {
-            id: 'ebm_field', title: 'Add Field',
-            fields: [
-              { id: 'fname', label: 'Field Name', style: TextInputStyle.Short, max: 256 },
-              { id: 'fvalue', label: 'Field Value', style: TextInputStyle.Paragraph, max: 1024 }
-            ]
-          },
+          eb_title: { id: 'ebm_title', title: 'set title', fields: [{ id: 'val', label: 'title', style: TextInputStyle.Short, max: 256 }] },
+          eb_desc: { id: 'ebm_desc', title: 'set description', fields: [{ id: 'val', label: 'description', style: TextInputStyle.Paragraph, max: 4096 }] },
+          eb_color: { id: 'ebm_color', title: 'set color', fields: [{ id: 'val', label: 'color (name or hex like #7289da)', style: TextInputStyle.Short, max: 20, placeholder: 'blue, red, green, purple, gold, or #hex' }] },
+          eb_author: { id: 'ebm_author', title: 'set author', fields: [{ id: 'val', label: 'author name', style: TextInputStyle.Short, max: 256 }] },
+          eb_footer: { id: 'ebm_footer', title: 'set footer', fields: [{ id: 'val', label: 'footer text', style: TextInputStyle.Short, max: 2048 }] },
+          eb_image: { id: 'ebm_image', title: 'set image url', fields: [{ id: 'val', label: 'image url (must start with https)', style: TextInputStyle.Short, max: 500 }] },
+          eb_thumbnail: { id: 'ebm_thumbnail', title: 'set thumbnail url', fields: [{ id: 'val', label: 'thumbnail url (must start with https)', style: TextInputStyle.Short, max: 500 }] },
+          eb_field: { id: 'ebm_field', title: 'add field', fields: [
+            { id: 'fname', label: 'field name', style: TextInputStyle.Short, max: 256 },
+            { id: 'fvalue', label: 'field value', style: TextInputStyle.Paragraph, max: 1024 },
+          ] },
         };
 
         const modalDef = modalMap[btn.customId];
@@ -301,7 +443,6 @@ module.exports = {
         }));
 
         await btn.showModal(modal).catch(() => {});
-
         const modalSubmit = await btn.awaitModalSubmit({ time: 120000 }).catch(() => null);
         if (!modalSubmit) return;
         await modalSubmit.deferUpdate().catch(() => {});
@@ -330,17 +471,18 @@ module.exports = {
           if (state.fields.length < 25) state.fields.push({ name: fname, value: fvalue });
         }
 
-        const updated = new EmbedBuilder().setColor(state.color || COLORS.default).setTitle('🛠️ Embed Builder').setDescription(buildStatusText(state)).setFooter({ text: 'Use the buttons below to build your embed' });
-        await builderMsg.edit({ embeds: [updated], components: buildBuilderRows(state) }).catch(() => {});
+        await builderMsg.edit({ components: [wrapContainer()] }).catch(() => {});
       });
 
-      collector.on('end', () => { builderMsg.edit({ components: [] }).catch(() => {}); });
+      collector.on('end', () => {
+        builderMsg.edit({ components: [] }).catch(() => {});
+      });
       return;
     }
 
-    // ── TEMPLATE ───────────────────────────────────────────
+    /* ─────────────── template ─────────────── */
     if (sub === 'template') {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: V2_E });
       const type = interaction.options.getString('type');
       const title = interaction.options.getString('title');
       const desc = interaction.options.getString('description');
@@ -348,45 +490,61 @@ module.exports = {
       const color = parseColor(colorVal);
       const embedId = generateEmbedId();
 
-      const embed = new EmbedBuilder().setColor(color).setTitle(title).setDescription(desc).setFooter({ text: 'Chrxmee AI' }).setTimestamp();
-      if (type === 'welcome') embed.setAuthor({ name: 'Welcome!', iconURL: interaction.guild?.iconURL() || interaction.client.user.displayAvatarURL() });
-      if (type === 'goodbye') embed.setAuthor({ name: 'Goodbye :(', iconURL: interaction.guild?.iconURL() || interaction.client.user.displayAvatarURL() });
-      if (type === 'announcement') embed.setAuthor({ name: 'Announcement!', iconURL: interaction.client.user.displayAvatarURL() });
+      const state = {
+        title, description: desc, color, colorName: colorVal,
+        footer: 'chromed', timestamp: true,
+        author: type === 'welcome' ? 'welcome!' : type === 'goodbye' ? 'goodbye :(' : 'announcement!',
+        fields: [],
+      };
 
-      await interaction.channel.send({ embeds: [embed] });
+      await interaction.channel.send({ components: [buildDisplayContainer(state)], flags: V2 });
 
-      const state = { title, description: desc, color, colorName: colorVal, footer: 'Chrxmee AI', timestamp: true, author: type, fields: [] };
       savedEmbeds[embedId] = { id: embedId, name: `${type}-${embedId}`, state, createdAt: Date.now() };
       client.memory.set(storageKey, savedEmbeds);
 
       const saveRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`eb_save_${embedId}`).setLabel('💾 Save Embed').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId(`eb_nosave_${embedId}`).setLabel('No thanks').setStyle(ButtonStyle.Secondary)
+        new ButtonBuilder().setCustomId(`eb_save_${embedId}`).setLabel('save embed').setEmoji({ id: '1527194184841167010', name: 'Verified_Icon' }).setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`eb_nosave_${embedId}`).setLabel('no thanks').setEmoji({ id: '1530373946795364362', name: 'no' }).setStyle(ButtonStyle.Secondary),
       );
-      await interaction.editReply({ content: `✅ Template sent! **ID: \`${embedId}\`**\nWant to save this embed?`, components: [saveRow] });
+
+      const confirmC = new ContainerBuilder()
+        .setAccentColor(COLORS.green)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.success} template sent · **id \`${embedId}\`**\n-# wanna save this embed?`))
+        .addActionRowComponents(saveRow);
+
+      await interaction.editReply({ components: [confirmC], flags: V2_E });
 
       const msg = await interaction.fetchReply();
       const saveCollector = msg.createMessageComponentCollector({ time: 30000, max: 1 });
       saveCollector.on('collect', async btn => {
-        try { await btn.deferUpdate(); } catch (e) { return; }
+        try { await btn.deferUpdate(); } catch { return; }
         if (btn.customId === `eb_save_${embedId}`) {
-          await interaction.editReply({ content: `✅ Embed saved! Name: **${type}-${embedId}** | ID: \`${embedId}\`\nUse \`/embed send\` to use it later.`, components: [] });
+          await interaction.editReply({
+            components: [new ContainerBuilder()
+              .setAccentColor(COLORS.green)
+              .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.success} saved · name **${type}-${embedId}** · id \`${embedId}\`\n-# use \`/embed send\` to use it later.`))],
+            flags: V2_E,
+          });
         } else {
           delete savedEmbeds[embedId];
           client.memory.set(storageKey, savedEmbeds);
-          await interaction.editReply({ content: `✅ Template sent! ID: \`${embedId}\``, components: [] });
+          await interaction.editReply({
+            components: [new ContainerBuilder()
+              .setAccentColor(COLORS.default)
+              .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.success} template sent · id \`${embedId}\``))],
+            flags: V2_E,
+          });
         }
       });
       saveCollector.on('end', () => { interaction.editReply({ components: [] }).catch(() => {}); });
       return;
     }
 
-    // ── ADVANCED ───────────────────────────────────────────
+    /* ─────────────── advanced ─────────────── */
     if (sub === 'advanced') {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: V2_E });
       const code = interaction.options.getString('code').trim();
       const embedId = generateEmbedId();
-      const embed = new EmbedBuilder();
       const state = { fields: [], timestamp: false };
 
       const lines = code.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('//'));
@@ -395,78 +553,104 @@ module.exports = {
         const [keyRaw, ...valueParts] = line.split(':');
         const key = keyRaw.trim().toLowerCase();
         const value = valueParts.join(':').trim();
-        if (key === 'title') { embed.setTitle(value); state.title = value; }
-        if (key === 'desc' || key === 'description') { embed.setDescription(value); state.description = value; }
-        if (key === 'color') { const c = parseColor(value); embed.setColor(c); state.color = c; state.colorName = value; }
-        if (key === 'footer') { embed.setFooter({ text: value }); state.footer = value; }
-        if (key === 'image' && value.startsWith('http')) { embed.setImage(value); state.image = value; }
-        if (key === 'thumbnail' && value.startsWith('http')) { embed.setThumbnail(value); state.thumbnail = value; }
-        if (key === 'author') { embed.setAuthor({ name: value }); state.author = value; }
+        if (key === 'title') state.title = value;
+        if (key === 'desc' || key === 'description') state.description = value;
+        if (key === 'color') { state.color = parseColor(value); state.colorName = value; }
+        if (key === 'footer') state.footer = value;
+        if (key === 'image' && value.startsWith('http')) state.image = value;
+        if (key === 'thumbnail' && value.startsWith('http')) state.thumbnail = value;
+        if (key === 'author') state.author = value;
       }
 
       try {
-        await interaction.channel.send({ embeds: [embed] });
+        await interaction.channel.send({ components: [buildDisplayContainer(state)], flags: V2 });
         savedEmbeds[embedId] = { id: embedId, name: `advanced-${embedId}`, state, createdAt: Date.now() };
         client.memory.set(storageKey, savedEmbeds);
 
-        const saveRow = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`eb_save_${embedId}`).setLabel('💾 Save Embed').setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId(`eb_nosave_${embedId}`).setLabel('No thanks').setStyle(ButtonStyle.Secondary)
-        );
-        await interaction.editReply({ content: `✅ Advanced embed sent! **ID: \`${embedId}\`**\nWant to save it?`, components: [saveRow] });
-
-        const msg = await interaction.fetchReply();
-        const saveCollector = msg.createMessageComponentCollector({ time: 30000, max: 1 });
-        saveCollector.on('collect', async btn => {
-          try { await btn.deferUpdate(); } catch (e) { return; }
-          if (btn.customId === `eb_nosave_${embedId}`) {
-            delete savedEmbeds[embedId];
-            client.memory.set(storageKey, savedEmbeds);
-            await interaction.editReply({ content: `✅ Embed sent! ID: \`${embedId}\``, components: [] });
-          } else {
-            await interaction.editReply({ content: `✅ Saved as **advanced-${embedId}** | ID: \`${embedId}\``, components: [] });
-          }
+        await interaction.editReply({
+          components: [new ContainerBuilder()
+            .setAccentColor(COLORS.green)
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.success} advanced embed sent · id \`${embedId}\``))],
+          flags: V2_E,
         });
-        saveCollector.on('end', () => { interaction.editReply({ components: [] }).catch(() => {}); });
       } catch (err) {
-        await interaction.editReply({ content: `❌ Send failed: ${err.message.slice(0, 100)}` });
+        await interaction.editReply({
+          components: [new ContainerBuilder()
+            .setAccentColor(COLORS.red)
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.error} send failed: ${String(err.message).slice(0, 100)}`))],
+          flags: V2_E,
+        });
       }
       return;
     }
 
-    // ── ADVANCED-PASTE ─────────────────────────────────────
+    /* ─────────────── advanced-paste ─────────────── */
     if (sub === 'advanced-paste') {
-      await interaction.deferReply({ ephemeral: true });
-      const template = `title: Welcome!\ndesc: Hey everyone! Glad you're here.\ncolor: #7289da\nfooter: Chrxmee AI\nauthor: Server Name\nimage: https://example.com/image.png\nthumbnail: https://example.com/thumb.png\n// Paste into /embed advanced code:\n// Remove lines you don't need`.trim();
-      return interaction.editReply({ content: `\`\`\`\n${template}\n\`\`\``, ephemeral: true });
+      await interaction.deferReply({ flags: V2_E });
+      const template = [
+        'title: welcome!',
+        "desc: hey everyone! glad you're here.",
+        'color: #5b7fd4',
+        'footer: chromed',
+        'author: server name',
+        'image: https://example.com/image.png',
+        'thumbnail: https://example.com/thumb.png',
+        '// paste into /embed advanced code:',
+        '// remove lines you don\'t need',
+      ].join('\n');
+
+      await interaction.editReply({
+        components: [new ContainerBuilder()
+          .setAccentColor(COLORS.default)
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.file} template\n\`\`\`\n${template}\n\`\`\``))],
+        flags: V2_E,
+      });
+      return;
     }
 
-    // ── SYSTEM ─────────────────────────────────────────────
+    /* ─────────────── system ─────────────── */
     if (sub === 'system') {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: V2_E });
       const type = interaction.options.getString('type');
       const embedId = generateEmbedId();
+
       const systems = {
-        'welcome': new EmbedBuilder().setColor(0x00ff00).setTitle('👋 Welcome!').setDescription('Welcome to the server! Please read the rules and enjoy your stay.').setTimestamp(),
-        'goodbye': new EmbedBuilder().setColor(0xff0000).setTitle('👋 Goodbye!').setDescription('A member has left the server. We\'ll miss you!').setTimestamp(),
-        'log-join': new EmbedBuilder().setColor(0x00ff00).setTitle('📥 Member Joined').setDescription('A new member has joined the server.').setTimestamp(),
-        'log-leave': new EmbedBuilder().setColor(0xff0000).setTitle('📤 Member Left').setDescription('A member has left the server.').setTimestamp(),
-        'announcement': new EmbedBuilder().setColor(0xf1c40f).setTitle('📢 Announcement').setDescription('Important announcement from the staff team.').setTimestamp(),
-        'rule': new EmbedBuilder().setColor(0x7289da).setTitle('📋 Rule Reminder').setDescription('Please remember to follow the server rules at all times.').setTimestamp(),
-        'event': new EmbedBuilder().setColor(0xe67e22).setTitle('🎉 Event Announcement').setDescription('An exciting event is coming up! Stay tuned for more details.').setTimestamp(),
-        'mod-alert': new EmbedBuilder().setColor(0xff0000).setTitle('🚨 Mod Alert').setDescription('Attention moderators — please check the mod channel.').setTimestamp(),
-        'status': new EmbedBuilder().setColor(0x9b59b6).setTitle('📊 Status Update').setDescription('Here is a status update from the team.').setTimestamp(),
-        'fun': new EmbedBuilder().setColor(0xff69b4).setTitle('🎊 Fun Time!').setDescription('Let\'s have some fun! Check out what\'s going on.').setTimestamp(),
+        'welcome': { color: 0x57f287, title: 'welcome!', description: 'welcome to the server! please read the rules and enjoy your stay.' },
+        'goodbye': { color: 0xff3b3b, title: 'goodbye!', description: "a member has left the server. we'll miss you!" },
+        'log-join': { color: 0x57f287, title: 'member joined', description: 'a new member has joined the server.' },
+        'log-leave': { color: 0xff3b3b, title: 'member left', description: 'a member has left the server.' },
+        'announcement': { color: 0xf1c40f, title: 'announcement', description: 'important announcement from the staff team.' },
+        'rule': { color: 0x7289da, title: 'rule reminder', description: 'please remember to follow the server rules at all times.' },
+        'event': { color: 0xe67e22, title: 'event announcement', description: 'an exciting event is coming up! stay tuned for more details.' },
+        'mod-alert': { color: 0xff3b3b, title: 'mod alert', description: 'attention moderators — please check the mod channel.' },
+        'status': { color: 0x9b59b6, title: 'status update', description: 'here is a status update from the team.' },
+        'fun': { color: 0xff69b4, title: 'fun time!', description: "let's have some fun! check out what's going on." },
       };
-      const embed = systems[type];
-      if (!embed) return interaction.editReply({ content: '❌ Unknown system embed type.' });
-      await interaction.channel.send({ embeds: [embed] });
-      return interaction.editReply({ content: `✅ System embed sent! **ID: \`${embedId}\`**` });
+
+      const sys = systems[type];
+      if (!sys) {
+        return interaction.editReply({
+          components: [new ContainerBuilder()
+            .setAccentColor(COLORS.red)
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.error} unknown system embed type.`))],
+          flags: V2_E,
+        });
+      }
+
+      const state = { ...sys, colorName: 'system', timestamp: true, fields: [] };
+      await interaction.channel.send({ components: [buildDisplayContainer(state)], flags: V2 });
+
+      return interaction.editReply({
+        components: [new ContainerBuilder()
+          .setAccentColor(COLORS.green)
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.success} system embed sent · id \`${embedId}\``))],
+        flags: V2_E,
+      });
     }
 
-    // ── SAVE ───────────────────────────────────────────────
+    /* ─────────────── save ─────────────── */
     if (sub === 'save') {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: V2_E });
       const name = interaction.options.getString('name');
       const code = interaction.options.getString('code').trim();
       const embedId = generateEmbedId();
@@ -489,56 +673,126 @@ module.exports = {
 
       savedEmbeds[embedId] = { id: embedId, name, state, createdAt: Date.now() };
       client.memory.set(storageKey, savedEmbeds);
-      return interaction.editReply({ content: `✅ Embed **${name}** saved! ID: \`${embedId}\`\nUse \`/embed send\` to send it.` });
+
+      return interaction.editReply({
+        components: [new ContainerBuilder()
+          .setAccentColor(COLORS.green)
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.success} embed **${name}** saved · id \`${embedId}\`\n-# use \`/embed send\` to send it.`))],
+        flags: V2_E,
+      });
     }
 
-    // ── VIEW ───────────────────────────────────────────────
+    /* ─────────────── view ─────────────── */
     if (sub === 'view') {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: V2_E });
       const embeds = Object.values(savedEmbeds);
-      if (embeds.length === 0) return interaction.editReply({ content: '📋 No saved embeds. Use `/embed save` or `/embed builder` to create some!' });
-      const lines = embeds.map(e => `**${e.name}** — ID: \`${e.id}\` — *saved ${new Date(e.createdAt).toLocaleDateString()}*`);
-      return interaction.editReply({ content: `📋 **Your Saved Embeds (${embeds.length}):**\n${lines.join('\n')}\n\nUse \`/embed send\` to send one, or \`/embed delete\` to remove one.` });
+
+      if (embeds.length === 0) {
+        return interaction.editReply({
+          components: [new ContainerBuilder()
+            .setAccentColor(COLORS.default)
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.folder} no saved embeds. use \`/embed save\` or \`/embed builder\` to create some!`))],
+          flags: V2_E,
+        });
+      }
+
+      const lines = embeds.map(e => `${E.file} **${e.name}** · id \`${e.id}\` · *${new Date(e.createdAt).toLocaleDateString()}*`);
+
+      return interaction.editReply({
+        components: [new ContainerBuilder()
+          .setAccentColor(COLORS.default)
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.folder} your saved embeds (${embeds.length})`))
+          .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')))
+          .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# use \`/embed send\` to send one, or \`/embed delete\` to remove one.`))],
+        flags: V2_E,
+      });
     }
 
-    // ── SEND ───────────────────────────────────────────────
+    /* ─────────────── send ─────────────── */
     if (sub === 'send') {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: V2_E });
       const embeds = Object.values(savedEmbeds);
-      if (embeds.length === 0) return interaction.editReply({ content: 'No saved embeds! Use `/embed builder` or `/embed save` first.' });
+
+      if (embeds.length === 0) {
+        return interaction.editReply({
+          components: [new ContainerBuilder()
+            .setAccentColor(COLORS.red)
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.error} no saved embeds! use \`/embed builder\` or \`/embed save\` first.`))],
+          flags: V2_E,
+        });
+      }
 
       const options = embeds.slice(0, 25).map(e =>
-        new StringSelectMenuOptionBuilder().setLabel(e.name).setValue(e.id).setDescription(`ID: ${e.id}`)
+        new StringSelectMenuOptionBuilder().setLabel(e.name).setValue(e.id).setDescription(`id: ${e.id}`)
       );
-      const menu = new StringSelectMenuBuilder().setCustomId('eb_send_select').setPlaceholder('Choose an embed to send...').addOptions(options);
+      const menu = new StringSelectMenuBuilder().setCustomId('eb_send_select').setPlaceholder('choose an embed to send...').addOptions(options);
       const row = new ActionRowBuilder().addComponents(menu);
 
-      await interaction.editReply({ content: 'Select an embed to send:', components: [row] });
+      const selectC = new ContainerBuilder()
+        .setAccentColor(COLORS.default)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.compass} select an embed`))
+        .addActionRowComponents(row);
+
+      await interaction.editReply({ components: [selectC], flags: V2_E });
       const msg = await interaction.fetchReply();
       const collector = msg.createMessageComponentCollector({ time: 30000, max: 1 });
 
       collector.on('collect', async sel => {
-        try { await sel.deferUpdate(); } catch (e) { return; }
+        try { await sel.deferUpdate(); } catch { return; }
         const chosen = savedEmbeds[sel.values[0]];
-        if (!chosen) return sel.followUp({ content: '❌ Embed not found!', ephemeral: true }).catch(() => {});
-        const embed = buildLiveEmbed(chosen.state);
-        await interaction.channel.send({ embeds: [embed] });
-        await interaction.editReply({ content: `✅ Embed **${chosen.name}** sent! ID: \`${chosen.id}\``, components: [] });
+        if (!chosen) {
+          return sel.followUp({
+            components: [new ContainerBuilder()
+              .setAccentColor(COLORS.red)
+              .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.error} embed not found.`))],
+            flags: V2_E,
+          }).catch(() => {});
+        }
+
+        await interaction.channel.send({ components: [buildDisplayContainer(chosen.state)], flags: V2 });
+
+        await interaction.editReply({
+          components: [new ContainerBuilder()
+            .setAccentColor(COLORS.green)
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.success} embed **${chosen.name}** sent · id \`${chosen.id}\``))],
+          flags: V2_E,
+        });
       });
 
-      collector.on('end', () => { interaction.editReply({ components: [] }).catch(() => {}); });
+      collector.on('end', () => {
+        interaction.editReply({ components: [] }).catch(() => {});
+      });
       return;
     }
 
-    // ── DELETE ─────────────────────────────────────────────
+    /* ─────────────── delete ─────────────── */
     if (sub === 'delete') {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: V2_E });
       const query = interaction.options.getString('query').trim();
-      const found = Object.values(savedEmbeds).find(e => e.id === query.toUpperCase() || e.name.toLowerCase() === query.toLowerCase());
-      if (!found) return interaction.editReply({ content: `❌ No embed found with name or ID **${query}**.` });
+      const found = Object.values(savedEmbeds).find(e =>
+        e.id === query.toUpperCase() || e.name.toLowerCase() === query.toLowerCase()
+      );
+
+      if (!found) {
+        return interaction.editReply({
+          components: [new ContainerBuilder()
+            .setAccentColor(COLORS.red)
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.error} no embed found with name or id **${query}**.`))],
+          flags: V2_E,
+        });
+      }
+
       delete savedEmbeds[found.id];
       client.memory.set(storageKey, savedEmbeds);
-      return interaction.editReply({ content: `✅ Embed **${found.name}** (ID: \`${found.id}\`) deleted!` });
+
+      return interaction.editReply({
+        components: [new ContainerBuilder()
+          .setAccentColor(COLORS.green)
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.success} embed **${found.name}** · id \`${found.id}\` deleted.`))],
+        flags: V2_E,
+      });
     }
-  }
+  },
 };
