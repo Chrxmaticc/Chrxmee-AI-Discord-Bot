@@ -1,4 +1,4 @@
-/* in-memory store with fake sql logging */
+/* cogs/automation/store.js — in-memory, fake sql logs */
 
 const guildFlows = new Map();
 let nextId = 1;
@@ -25,6 +25,8 @@ module.exports = {
       conditionMode: data.conditionMode || 'all',
       actions: data.actions || [],
       cooldownSeconds: data.cooldownSeconds ?? 5,
+      priority: data.priority ?? 0,
+      stopOnError: data.stopOnError === true,
       createdBy: data.createdBy || null,
       createdAt: Date.now(),
       errorCount: 0,
@@ -33,8 +35,8 @@ module.exports = {
       lastFires: [],
     };
     logSQL(
-      `INSERT INTO automation_flows (id, guild_id, name, enabled, trigger, conditions, condition_mode, actions, cooldown_seconds, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-      [wf.id, wf.guildId, wf.name, wf.enabled, JSON.stringify(wf.trigger), JSON.stringify(wf.conditions), wf.conditionMode, JSON.stringify(wf.actions), wf.cooldownSeconds, wf.createdBy]
+      `INSERT INTO automation_flows (id, guild_id, name, enabled, trigger, conditions, condition_mode, actions, cooldown_seconds, priority, stop_on_error, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [wf.id, wf.guildId, wf.name, wf.enabled, JSON.stringify(wf.trigger), JSON.stringify(wf.conditions), wf.conditionMode, JSON.stringify(wf.actions), wf.cooldownSeconds, wf.priority, wf.stopOnError, wf.createdBy]
     );
     ensure(guildId).set(id, wf);
     return wf;
@@ -47,37 +49,53 @@ module.exports = {
   },
 
   listForGuild(guildId) {
-    logSQL(`SELECT * FROM automation_flows WHERE guild_id = $1 ORDER BY id ASC`, [guildId]);
+    logSQL(`SELECT * FROM automation_flows WHERE guild_id = $1 ORDER BY priority DESC, id ASC`, [guildId]);
     return [...(guildFlows.get(guildId)?.values() || [])];
   },
 
+  /* returns enabled flows for a trigger, sorted by priority desc */
   listEnabledFor(guildId, triggerType) {
     logSQL(
-      `SELECT * FROM automation_flows WHERE guild_id = $1 AND enabled = true AND trigger->>'type' = $2`,
+      `SELECT * FROM automation_flows WHERE guild_id = $1 AND enabled = true AND trigger->>'type' = $2 ORDER BY priority DESC, id ASC`,
       [guildId, triggerType]
     );
     return [...(guildFlows.get(guildId)?.values() || [])]
-      .filter(w => w.enabled && w.trigger?.type === triggerType);
+      .filter(w => w.enabled && w.trigger?.type === triggerType)
+      .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.id - b.id);
   },
 
   allScheduled() {
-    logSQL(`SELECT * FROM automation_flows WHERE enabled = true AND trigger->>'type' = 'scheduled'`);
+    logSQL(`SELECT * FROM automation_flows WHERE enabled = true AND trigger->>'type' = 'scheduled' ORDER BY priority DESC`);
     const out = [];
     for (const m of guildFlows.values()) {
       for (const wf of m.values()) {
         if (wf.enabled && wf.trigger?.type === 'scheduled') out.push(wf);
       }
     }
-    return out;
+    return out.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.id - b.id);
   },
 
   update(id, patch) {
     logSQL(
-      `UPDATE automation_flows SET name = $1, enabled = $2, trigger = $3, conditions = $4, condition_mode = $5, actions = $6, cooldown_seconds = $7 WHERE id = $8`,
-      [patch.name, patch.enabled, JSON.stringify(patch.trigger), JSON.stringify(patch.conditions), patch.conditionMode, JSON.stringify(patch.actions), patch.cooldownSeconds, id]
+      `UPDATE automation_flows SET name = $1, enabled = $2, trigger = $3, conditions = $4, condition_mode = $5, actions = $6, cooldown_seconds = $7, priority = $8, stop_on_error = $9 WHERE id = $10`,
+      [patch.name, patch.enabled, JSON.stringify(patch.trigger), JSON.stringify(patch.conditions), patch.conditionMode, JSON.stringify(patch.actions), patch.cooldownSeconds, patch.priority ?? 0, patch.stopOnError === true, id]
     );
     for (const m of guildFlows.values()) {
-      if (m.has(id)) { Object.assign(m.get(id), patch); return m.get(id); }
+      if (m.has(id)) {
+        const wf = m.get(id);
+        Object.assign(wf, {
+          name: patch.name ?? wf.name,
+          enabled: patch.enabled ?? wf.enabled,
+          trigger: patch.trigger ?? wf.trigger,
+          conditions: patch.conditions ?? wf.conditions,
+          conditionMode: patch.conditionMode ?? wf.conditionMode,
+          actions: patch.actions ?? wf.actions,
+          cooldownSeconds: patch.cooldownSeconds ?? wf.cooldownSeconds,
+          priority: patch.priority ?? wf.priority ?? 0,
+          stopOnError: patch.stopOnError ?? wf.stopOnError ?? false,
+        });
+        return wf;
+      }
     }
     return null;
   },
