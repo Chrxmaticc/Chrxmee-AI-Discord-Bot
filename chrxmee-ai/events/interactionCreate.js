@@ -1,5 +1,37 @@
 const { EmbedBuilder } = require("discord.js");
 
+const { engine } = require('../cogs/verification');
+
+// button handlers
+if (interaction.isButton()) {
+  if (interaction.customId === 'verify_start') {
+    return engine.startVerify(interaction).catch(() => {});
+  }
+  if (interaction.customId.startsWith('verify_captcha_open_')) {
+    const token = interaction.customId.slice('verify_captcha_open_'.length);
+    const modal = new (require('discord.js').ModalBuilder)()
+      .setCustomId(`verify_captcha_modal_${token}`)
+      .setTitle('enter code');
+    modal.addComponents(new (require('discord.js').ActionRowBuilder)().addComponents(
+      new (require('discord.js').TextInputBuilder)()
+        .setCustomId('code').setLabel('code').setStyle(require('discord.js').TextInputStyle.Short)
+        .setRequired(true).setMaxLength(10)
+    ));
+    return interaction.showModal(modal).catch(() => {});
+  }
+}
+
+// modal handlers
+if (interaction.isModalSubmit()) {
+  if (interaction.customId.startsWith('verify_captcha_modal_')) {
+    const token = interaction.customId.slice('verify_captcha_modal_'.length);
+    return engine.handleCaptchaModal(interaction, token).catch(() => {});
+  }
+  if (interaction.customId === 'verify_dmcode_modal') {
+    return engine.handleDmCodeModal(interaction).catch(() => {});
+  }
+}
+
 module.exports = {
   name: "interactionCreate",
   async execute(interaction) {
