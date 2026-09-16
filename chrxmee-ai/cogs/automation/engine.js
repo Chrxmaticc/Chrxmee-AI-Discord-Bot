@@ -1,14 +1,16 @@
-/* engine — matches triggers, filters conditions, runs actions */
+/* cogs/automation/engine.js — matches triggers, filters conditions, runs actions */
 
 const store = require('./store');
 
 const recentFires = new Map();
-const guildRate = new Map();      // guildId -> { count, resetAt }
+const guildRate = new Map();
 const GUILD_RATE_PER_MIN = 200;
 const MAX_CHAIN_DEPTH = 3;
 const MAX_ACTIONS = 12;
 const MAX_WAIT_TOTAL = 60000;
 const AUTO_DISABLE_AFTER = 5;
+const DM_ROLE_CAP = 50;
+const DM_ROLE_DELAY = 150;
 
 /* ───── vars ───── */
 function resolveVars(str, ctx) {
@@ -73,7 +75,6 @@ function matchesTrigger(trigger, ctx) {
   if (t === 'voice_join')      return ctx.eventType === 'voice_join';
   if (t === 'voice_leave')     return ctx.eventType === 'voice_leave';
   if (t === 'button_click')    return ctx.eventType === 'button_click' && (!trigger.customId || trigger.customId === ctx.customId);
-
   if (t === 'role_added')      return ctx.eventType === 'role_added'   && (!trigger.roleId || trigger.roleId === ctx.role?.id);
   if (t === 'role_removed')    return ctx.eventType === 'role_removed' && (!trigger.roleId || trigger.roleId === ctx.role?.id);
 
@@ -84,8 +85,7 @@ function matchesTrigger(trigger, ctx) {
     return !want || want === got;
   }
 
-  if (t === 'scheduled') return false; // handled by scheduler, not events
-
+  if (t === 'scheduled') return false;
   return false;
 }
 
@@ -93,7 +93,6 @@ function matchesTrigger(trigger, ctx) {
 function evaluate(cond, ctx) {
   if (!cond?.type) return true;
   const is = cond.op !== 'is not';
-
   switch (cond.type) {
     case 'channel':
       return is ? ctx.channel?.id === cond.value : ctx.channel?.id !== cond.value;
@@ -177,159 +176,162 @@ function passes(flow, ctx) {
   return flow.conditionMode === 'any' ? results.some(Boolean) : results.every(Boolean);
 }
 
-/* ───── actions ───── */
+/* ───── action executors ───── */
 async function execAction(a, ctx, depth) {
   const guild = ctx.guild;
-  try {
-    switch (a.type) {
-      case 'send_message': {
-        const ch = guild.channels.cache.get(a.channelId);
-        if (ch) await ch.send({ content: resolveVars(a.content, ctx) });
-        break;
-      }
-      case 'reply_to_message': {
-        if (ctx.message) await ctx.message.reply({ content: resolveVars(a.content, ctx) }).catch(() => {});
-        break;
-      }
-      case 'send_dm': {
-        if (ctx.user) await ctx.user.send({ content: resolveVars(a.content, ctx) }).catch(() => {});
-        break;
-      }
-      case 'dm_user': {
-        const u = await guild.client.users.fetch(a.userId).catch(() => null);
-        if (u) await u.send({ content: resolveVars(a.content, ctx) }).catch(() => {});
-        break;
-      }
-      case 'dm_role_holders': {
-        const role = guild.roles.cache.get(a.roleId);
-        if (!role) break;
-        for (const [, m] of role.members) {
-          if (m.user.bot) continue;
-          await m.send({ content: resolveVars(a.content, ctx) }).catch(() => {});
-        }
-        break;
-      }
-      case 'add_role': {
-        if (ctx.member && !ctx.member.roles.cache.has(a.roleId)) {
-          await ctx.member.roles.add(a.roleId).catch(() => {});
-        }
-        break;
-      }
-      case 'remove_role': {
-        if (ctx.member && ctx.member.roles.cache.has(a.roleId)) {
-          await ctx.member.roles.remove(a.roleId).catch(() => {});
-        }
-        break;
-      }
-      case 'toggle_role': {
-        if (!ctx.member) break;
-        if (ctx.member.roles.cache.has(a.roleId)) await ctx.member.roles.remove(a.roleId).catch(() => {});
-        else await ctx.member.roles.add(a.roleId).catch(() => {});
-        break;
-      }
-      case 'delete_message': {
-        if (ctx.message) await ctx.message.delete().catch(() => {});
-        break;
-      }
-      case 'add_reaction': {
-        if (ctx.message) await ctx.message.react(a.emoji || '⭐').catch(() => {});
-        break;
-      }
-      case 'log_to_channel': {
-        const ch = guild.channels.cache.get(a.channelId);
-        if (ch) await ch.send({ content: resolveVars(a.content, ctx) });
-        break;
-      }
-      case 'send_container': {
-        const ch = guild.channels.cache.get(a.channelId);
-        if (!ch) break;
-        const { ContainerBuilder, TextDisplayBuilder, MessageFlags } = require('discord.js');
-        const c = new ContainerBuilder().setAccentColor(a.color || 0x5b7fd4);
-        if (a.title) c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${resolveVars(a.title, ctx)}`));
-        if (a.description) c.addTextDisplayComponents(new TextDisplayBuilder().setContent(resolveVars(a.description, ctx)));
-        await ch.send({ components: [c], flags: MessageFlags.IsComponentsV2 }).catch(() => {});
-        break;
-      }
-      case 'send_embed': {
-        const ch = guild.channels.cache.get(a.channelId);
-        if (!ch) break;
-        const { EmbedBuilder } = require('discord.js');
-        const e = new EmbedBuilder().setColor(a.color || 0x5b7fd4);
-        if (a.title) e.setTitle(resolveVars(a.title, ctx));
-        if (a.description) e.setDescription(resolveVars(a.description, ctx));
-        await ch.send({ embeds: [e] }).catch(() => {});
-        break;
-      }
-      case 'webhook_post': {
-        const url = a.url;
-        if (!url || !url.startsWith('https')) break;
-        await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: resolveVars(a.content, ctx) }),
-        }).catch(() => {});
-        break;
-      }
-      case 'timeout_user': {
-        if (ctx.member && ctx.member.moderatable) {
-          await ctx.member.timeout((a.minutes || 10) * 60000, a.reason || 'automation').catch(() => {});
-        }
-        break;
-      }
-      case 'kick_user': {
-        if (ctx.member && ctx.member.kickable) {
-          await ctx.member.kick(a.reason || 'automation').catch(() => {});
-        }
-        break;
-      }
-      case 'ban_user': {
-        if (ctx.member && ctx.member.bannable) {
-          await ctx.member.ban({ reason: a.reason || 'automation' }).catch(() => {});
-        }
-        break;
-      }
-      case 'pin_message': {
-        if (ctx.message) await ctx.message.pin().catch(() => {});
-        break;
-      }
-      case 'unpin_message': {
-        if (ctx.message) await ctx.message.unpin().catch(() => {});
-        break;
-      }
-      case 'set_nickname': {
-        if (ctx.member && ctx.member.manageable) {
-          await ctx.member.setNickname(resolveVars(a.nickname || '', ctx).slice(0, 32)).catch(() => {});
-        }
-        break;
-      }
-      case 'create_thread': {
-        if (ctx.message) {
-          await ctx.message.startThread({
-            name: resolveVars(a.name || 'thread', ctx).slice(0, 90),
-            autoArchiveDuration: 1440,
-          }).catch(() => {});
-        }
-        break;
-      }
-      case 'run_automation': {
-        if (depth >= MAX_CHAIN_DEPTH) break;
-        const target = store.listForGuild(guild.id)
-          .find(w => w.name.toLowerCase() === (a.name || '').toLowerCase() && w.enabled);
-        if (!target) break;
-        console.log(`[automation] chain → "${target.name}" (depth ${depth + 1})`);
-        await runActions(target, ctx, depth + 1);
-        break;
-      }
-      case 'wait': {
-        const s = Math.max(1, Math.min(60, a.seconds || 3));
-        await new Promise(r => setTimeout(r, s * 1000));
-        break;
-      }
-      default:
-        console.log(`[automation] unknown action: ${a.type}`);
+  switch (a.type) {
+    case 'send_message': {
+      const ch = guild.channels.cache.get(a.channelId);
+      if (ch) await ch.send({ content: resolveVars(a.content, ctx) });
+      return;
     }
-  } catch (err) {
-    console.log(`[automation] action ${a.type} errored:`, err.message);
+    case 'reply_to_message': {
+      if (ctx.message) await ctx.message.reply({ content: resolveVars(a.content, ctx) }).catch(() => {});
+      return;
+    }
+    case 'send_dm': {
+      if (ctx.user) await ctx.user.send({ content: resolveVars(a.content, ctx) }).catch(() => {});
+      return;
+    }
+    case 'dm_user': {
+      const u = await guild.client.users.fetch(a.userId).catch(() => null);
+      if (u) await u.send({ content: resolveVars(a.content, ctx) }).catch(() => {});
+      return;
+    }
+    case 'dm_role_holders': {
+      const role = guild.roles.cache.get(a.roleId);
+      if (!role) return;
+      let sent = 0;
+      for (const [, m] of role.members) {
+        if (m.user.bot) continue;
+        if (sent >= DM_ROLE_CAP) {
+          console.log(`[automation] dm_role_holders capped at ${DM_ROLE_CAP}`);
+          break;
+        }
+        await m.send({ content: resolveVars(a.content, ctx) }).catch(() => {});
+        sent++;
+        await new Promise(r => setTimeout(r, DM_ROLE_DELAY));
+      }
+      return;
+    }
+    case 'add_role': {
+      if (ctx.member && !ctx.member.roles.cache.has(a.roleId)) {
+        await ctx.member.roles.add(a.roleId).catch(() => {});
+      }
+      return;
+    }
+    case 'remove_role': {
+      if (ctx.member && ctx.member.roles.cache.has(a.roleId)) {
+        await ctx.member.roles.remove(a.roleId).catch(() => {});
+      }
+      return;
+    }
+    case 'toggle_role': {
+      if (!ctx.member) return;
+      if (ctx.member.roles.cache.has(a.roleId)) await ctx.member.roles.remove(a.roleId).catch(() => {});
+      else await ctx.member.roles.add(a.roleId).catch(() => {});
+      return;
+    }
+    case 'delete_message': {
+      if (ctx.message) await ctx.message.delete().catch(() => {});
+      return;
+    }
+    case 'add_reaction': {
+      if (ctx.message) await ctx.message.react(a.emoji || '⭐').catch(() => {});
+      return;
+    }
+    case 'log_to_channel': {
+      const ch = guild.channels.cache.get(a.channelId);
+      if (ch) await ch.send({ content: resolveVars(a.content, ctx) });
+      return;
+    }
+    case 'send_container': {
+      const ch = guild.channels.cache.get(a.channelId);
+      if (!ch) return;
+      const { ContainerBuilder, TextDisplayBuilder, MessageFlags } = require('discord.js');
+      const c = new ContainerBuilder().setAccentColor(a.color || 0x5b7fd4);
+      if (a.title) c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${resolveVars(a.title, ctx)}`));
+      if (a.description) c.addTextDisplayComponents(new TextDisplayBuilder().setContent(resolveVars(a.description, ctx)));
+      await ch.send({ components: [c], flags: MessageFlags.IsComponentsV2 }).catch(() => {});
+      return;
+    }
+    case 'send_embed': {
+      const ch = guild.channels.cache.get(a.channelId);
+      if (!ch) return;
+      const { EmbedBuilder } = require('discord.js');
+      const e = new EmbedBuilder().setColor(a.color || 0x5b7fd4);
+      if (a.title) e.setTitle(resolveVars(a.title, ctx));
+      if (a.description) e.setDescription(resolveVars(a.description, ctx));
+      await ch.send({ embeds: [e] }).catch(() => {});
+      return;
+    }
+    case 'webhook_post': {
+      const url = a.url;
+      if (!url || !url.startsWith('https')) return;
+      await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: resolveVars(a.content, ctx) }),
+      }).catch(() => {});
+      return;
+    }
+    case 'timeout_user': {
+      if (ctx.member && ctx.member.moderatable) {
+        await ctx.member.timeout((a.minutes || 10) * 60000, a.reason || 'automation').catch(() => {});
+      }
+      return;
+    }
+    case 'kick_user': {
+      if (ctx.member && ctx.member.kickable) {
+        await ctx.member.kick(a.reason || 'automation').catch(() => {});
+      }
+      return;
+    }
+    case 'ban_user': {
+      if (ctx.member && ctx.member.bannable) {
+        await ctx.member.ban({ reason: a.reason || 'automation' }).catch(() => {});
+      }
+      return;
+    }
+    case 'pin_message': {
+      if (ctx.message) await ctx.message.pin().catch(() => {});
+      return;
+    }
+    case 'unpin_message': {
+      if (ctx.message) await ctx.message.unpin().catch(() => {});
+      return;
+    }
+    case 'set_nickname': {
+      if (ctx.member && ctx.member.manageable) {
+        await ctx.member.setNickname(resolveVars(a.nickname || '', ctx).slice(0, 32)).catch(() => {});
+      }
+      return;
+    }
+    case 'create_thread': {
+      if (ctx.message) {
+        await ctx.message.startThread({
+          name: resolveVars(a.name || 'thread', ctx).slice(0, 90),
+          autoArchiveDuration: 1440,
+        }).catch(() => {});
+      }
+      return;
+    }
+    case 'run_automation': {
+      if (depth >= MAX_CHAIN_DEPTH) return;
+      const target = store.listForGuild(guild.id)
+        .find(w => w.name.toLowerCase() === (a.name || '').toLowerCase() && w.enabled);
+      if (!target) return;
+      console.log(`[automation] chain → "${target.name}" (depth ${depth + 1})`);
+      await runActions(target, ctx, depth + 1);
+      return;
+    }
+    case 'wait': {
+      const s = Math.max(1, Math.min(60, a.seconds || 3));
+      await new Promise(r => setTimeout(r, s * 1000));
+      return;
+    }
+    default:
+      console.log(`[automation] unknown action: ${a.type}`);
   }
 }
 
@@ -342,7 +344,7 @@ function onCooldown(flow, userId) {
   return false;
 }
 
-/* ───── entry point ───── */
+/* ───── main ───── */
 async function run(triggerType, ctx) {
   if (!ctx.guild) return;
   if (!checkGuildRate(ctx.guild.id)) {
@@ -372,13 +374,26 @@ async function run(triggerType, ctx) {
   }
 }
 
+/* runs actions in order, respecting stopOnError */
 async function runActions(flow, ctx, depth) {
   if (depth > MAX_CHAIN_DEPTH) return;
   const actions = (flow.actions || []).slice(0, MAX_ACTIONS);
   const start = Date.now();
+
   for (const a of actions) {
-    if (Date.now() - start > MAX_WAIT_TOTAL) return;
-    await execAction(a, ctx, depth);
+    if (Date.now() - start > MAX_WAIT_TOTAL) {
+      console.log(`[automation] #${flow.id} runtime cap hit`);
+      return;
+    }
+    try {
+      await execAction(a, ctx, depth);
+    } catch (err) {
+      console.log(`[automation] #${flow.id} action ${a.type} failed:`, err.message);
+      if (flow.stopOnError) {
+        console.log(`[automation] #${flow.id} stopping due to stop-on-error`);
+        return;
+      }
+    }
   }
 }
 
