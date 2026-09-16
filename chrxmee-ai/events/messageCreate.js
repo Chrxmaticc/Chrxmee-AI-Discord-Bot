@@ -5,6 +5,16 @@ const { handleKeywords } = require("../commands/keyword-responder");
 const { handleMessage: handleUwuify } = require("../commands/uwuify");
 const { detectTool, executeTool } = require("../tools");
 
+const { engine } = require('../cogs/automation');
+// inside the handler:
+if (message.guild && !message.author.bot && message.member) {
+  engine.run('message', {
+    eventType: 'message', client: message.client,
+    message, member: message.member, user: message.author,
+    guild: message.guild, channel: message.channel,
+  }).catch(() => {});
+}
+
 // ─── CUSTOM EMOJIS (Chromed Server) ──────────────────────────
 const E = {
   success: "<:Verified_Icon:1527194184841167010>",
