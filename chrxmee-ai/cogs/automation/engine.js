@@ -1,5 +1,4 @@
-/* cogs/automation/engine.js — matches triggers, filters conditions, runs actions */
-
+/* cogs/automation/engine.js */
 const store = require('./store');
 
 const recentFires = new Map();
@@ -8,11 +7,7 @@ const GUILD_RATE_PER_MIN = 200;
 const MAX_CHAIN_DEPTH = 3;
 const MAX_ACTIONS = 12;
 const MAX_WAIT_TOTAL = 60000;
-const AUTO_DISABLE_AFTER = 5;
-const DM_ROLE_CAP = 50;
-const DM_ROLE_DELAY = 150;
 
-/* ───── vars ───── */
 function resolveVars(str, ctx) {
   if (!str) return '';
   return String(str).replace(/\{([^}]+)\}/g, (_, raw) => {
@@ -30,32 +25,23 @@ function resolveVars(str, ctx) {
     if (k === 'emoji')        return ctx.reaction?.emoji?.toString() ?? '';
     if (k === 'role')         return ctx.role ? `<@&${ctx.role.id}>` : '';
     const rnd = k.match(/^random\.(\d+)-(\d+)$/);
-    if (rnd) {
-      const min = +rnd[1], max = +rnd[2];
-      return String(Math.floor(Math.random() * (max - min + 1)) + min);
-    }
+    if (rnd) return String(Math.floor(Math.random() * (parseInt(rnd[2], 10) - parseInt(rnd[1], 10) + 1)) + parseInt(rnd[1], 10));
     return raw;
   });
 }
 
-/* ───── rate limiting ───── */
 function checkGuildRate(guildId) {
   const now = Date.now();
   let bucket = guildRate.get(guildId);
-  if (!bucket || now > bucket.resetAt) {
-    bucket = { count: 0, resetAt: now + 60000 };
-    guildRate.set(guildId, bucket);
-  }
+  if (!bucket || now > bucket.resetAt) { bucket = { count: 0, resetAt: now + 60000 }; guildRate.set(guildId, bucket); }
   if (bucket.count >= GUILD_RATE_PER_MIN) return false;
   bucket.count++;
   return true;
 }
 
-/* ───── trigger matching ───── */
 function matchesTrigger(trigger, ctx) {
   if (!trigger?.type) return false;
   const t = trigger.type;
-
   if (t === 'message') {
     if (!ctx.message) return false;
     const content = (ctx.message.content || '').toLowerCase();
@@ -69,7 +55,6 @@ function matchesTrigger(trigger, ctx) {
       default:       return content.includes(kw);
     }
   }
-
   if (t === 'member_join')     return ctx.eventType === 'member_join';
   if (t === 'member_leave')    return ctx.eventType === 'member_leave';
   if (t === 'voice_join')      return ctx.eventType === 'voice_join';
@@ -77,95 +62,36 @@ function matchesTrigger(trigger, ctx) {
   if (t === 'button_click')    return ctx.eventType === 'button_click' && (!trigger.customId || trigger.customId === ctx.customId);
   if (t === 'role_added')      return ctx.eventType === 'role_added'   && (!trigger.roleId || trigger.roleId === ctx.role?.id);
   if (t === 'role_removed')    return ctx.eventType === 'role_removed' && (!trigger.roleId || trigger.roleId === ctx.role?.id);
-
   if (t === 'reaction_add' || t === 'reaction_remove') {
     if (ctx.eventType !== t) return false;
     const want = trigger.emoji || '';
     const got = ctx.reaction?.emoji?.toString() || '';
     return !want || want === got;
   }
-
-  if (t === 'scheduled') return false;
   return false;
 }
 
-/* ───── conditions ───── */
 function evaluate(cond, ctx) {
   if (!cond?.type) return true;
   const is = cond.op !== 'is not';
   switch (cond.type) {
-    case 'channel':
-      return is ? ctx.channel?.id === cond.value : ctx.channel?.id !== cond.value;
-    case 'category':
-      return is ? ctx.channel?.parentId === cond.value : ctx.channel?.parentId !== cond.value;
-    case 'has_role': {
-      const has = ctx.member?.roles?.cache?.has(cond.value) === true;
-      return is ? has : !has;
-    }
-    case 'has_any_role': {
-      const list = Array.isArray(cond.value) ? cond.value : [cond.value];
-      const has = list.some(id => ctx.member?.roles?.cache?.has(id));
-      return is ? has : !has;
-    }
-    case 'message_contains': {
-      const c = (ctx.message?.content || '').toLowerCase();
-      const n = String(cond.value || '').toLowerCase();
-      return is ? c.includes(n) : !c.includes(n);
-    }
-    case 'message_length': {
-      const len = (ctx.message?.content || '').length;
-      const target = Number(cond.value) || 0;
-      return is ? len >= target : len < target;
-    }
-    case 'username_contains': {
-      const c = (ctx.user?.username || '').toLowerCase();
-      const n = String(cond.value || '').toLowerCase();
-      return is ? c.includes(n) : !c.includes(n);
-    }
-    case 'nickname_contains': {
-      const c = (ctx.member?.nickname || '').toLowerCase();
-      const n = String(cond.value || '').toLowerCase();
-      return is ? c.includes(n) : !c.includes(n);
-    }
-    case 'is_bot': {
-      const b = ctx.user?.bot === true;
-      return is ? b : !b;
-    }
-    case 'is_booster': {
-      const b = ctx.member?.premiumSinceTimestamp != null;
-      return is ? b : !b;
-    }
-    case 'has_attachment': {
-      const has = (ctx.message?.attachments?.size || 0) > 0;
-      return is ? has : !has;
-    }
-    case 'account_age': {
-      const days = Math.floor((Date.now() - (ctx.user?.createdTimestamp || 0)) / 86400000);
-      const target = Number(cond.value) || 0;
-      return is ? days >= target : days < target;
-    }
-    case 'member_count': {
-      const n = ctx.guild?.memberCount || 0;
-      const target = Number(cond.value) || 0;
-      return is ? n >= target : n < target;
-    }
-    case 'user_id':
-      return is ? ctx.user?.id === cond.value : ctx.user?.id !== cond.value;
-    case 'time_of_day': {
-      const [a, b] = String(cond.value || '').split('-').map(x => parseInt(x, 10));
-      if (!Number.isFinite(a) || !Number.isFinite(b)) return true;
-      const hour = new Date().getHours();
-      const between = hour >= a && hour < b;
-      return is ? between : !between;
-    }
-    case 'day_of_week': {
-      const days = Array.isArray(cond.value) ? cond.value : [cond.value];
-      const today = new Date().getDay();
-      const match = days.some(d => Number(d) === today);
-      return is ? match : !match;
-    }
-    default:
-      return true;
+    case 'channel':          return is ? ctx.channel?.id === cond.value : ctx.channel?.id !== cond.value;
+    case 'category':         return is ? ctx.channel?.parentId === cond.value : ctx.channel?.parentId !== cond.value;
+    case 'has_role':         { const h = ctx.member?.roles?.cache?.has(cond.value) === true; return is ? h : !h; }
+    case 'has_any_role':     { const l = Array.isArray(cond.value) ? cond.value : [cond.value]; const h = l.some(id => ctx.member?.roles?.cache?.has(id)); return is ? h : !h; }
+    case 'message_contains': { const c = (ctx.message?.content || '').toLowerCase(); const n = String(cond.value || '').toLowerCase(); return is ? c.includes(n) : !c.includes(n); }
+    case 'message_length':   { const len = (ctx.message?.content || '').length; const t = Number(cond.value) || 0; return is ? len >= t : len < t; }
+    case 'username_contains':{ const c = (ctx.user?.username || '').toLowerCase(); const n = String(cond.value || '').toLowerCase(); return is ? c.includes(n) : !c.includes(n); }
+    case 'nickname_contains':{ const c = (ctx.member?.nickname || '').toLowerCase(); const n = String(cond.value || '').toLowerCase(); return is ? c.includes(n) : !c.includes(n); }
+    case 'is_bot':           { const b = ctx.user?.bot === true; return is ? b : !b; }
+    case 'is_booster':       { const b = ctx.member?.premiumSinceTimestamp != null; return is ? b : !b; }
+    case 'has_attachment':   { const h = (ctx.message?.attachments?.size || 0) > 0; return is ? h : !h; }
+    case 'account_age':      { const d = Math.floor((Date.now() - (ctx.user?.createdTimestamp || 0)) / 86400000); const t = Number(cond.value) || 0; return is ? d >= t : d < t; }
+    case 'member_count':     { const n = ctx.guild?.memberCount || 0; const t = Number(cond.value) || 0; return is ? n >= t : n < t; }
+    case 'user_id':          return is ? ctx.user?.id === cond.value : ctx.user?.id !== cond.value;
+    case 'time_of_day':      { const [a, b] = String(cond.value || '').split('-').map(x => parseInt(x, 10)); if (!Number.isFinite(a) || !Number.isFinite(b)) return true; const h = new Date().getHours(); const bt = h >= a && h < b; return is ? bt : !bt; }
+    case 'day_of_week':      { const days = Array.isArray(cond.value) ? cond.value : [cond.value]; const today = new Date().getDay(); const m = days.some(d => Number(d) === today); return is ? m : !m; }
+    default: return true;
   }
 }
 
@@ -176,7 +102,6 @@ function passes(flow, ctx) {
   return flow.conditionMode === 'any' ? results.some(Boolean) : results.every(Boolean);
 }
 
-/* ───── action executors ───── */
 async function execAction(a, ctx, depth) {
   const guild = ctx.guild;
   switch (a.type) {
@@ -190,7 +115,7 @@ async function execAction(a, ctx, depth) {
       return;
     }
     case 'send_dm': {
-      if (ctx.user) await ctx.user.send({ content: resolveVars(a.content, ctx) }).catch(() => {});
+      if (ctx.user && ctx.user.id !== 'system') await ctx.user.send({ content: resolveVars(a.content, ctx) }).catch(() => {});
       return;
     }
     case 'dm_user': {
@@ -204,26 +129,19 @@ async function execAction(a, ctx, depth) {
       let sent = 0;
       for (const [, m] of role.members) {
         if (m.user.bot) continue;
-        if (sent >= DM_ROLE_CAP) {
-          console.log(`[automation] dm_role_holders capped at ${DM_ROLE_CAP}`);
-          break;
-        }
+        if (sent >= 50) break;
         await m.send({ content: resolveVars(a.content, ctx) }).catch(() => {});
         sent++;
-        await new Promise(r => setTimeout(r, DM_ROLE_DELAY));
+        await new Promise(r => setTimeout(r, 150));
       }
       return;
     }
     case 'add_role': {
-      if (ctx.member && !ctx.member.roles.cache.has(a.roleId)) {
-        await ctx.member.roles.add(a.roleId).catch(() => {});
-      }
+      if (ctx.member && !ctx.member.roles.cache.has(a.roleId)) await ctx.member.roles.add(a.roleId).catch(() => {});
       return;
     }
     case 'remove_role': {
-      if (ctx.member && ctx.member.roles.cache.has(a.roleId)) {
-        await ctx.member.roles.remove(a.roleId).catch(() => {});
-      }
+      if (ctx.member && ctx.member.roles.cache.has(a.roleId)) await ctx.member.roles.remove(a.roleId).catch(() => {});
       return;
     }
     case 'toggle_role': {
@@ -266,31 +184,22 @@ async function execAction(a, ctx, depth) {
       return;
     }
     case 'webhook_post': {
-      const url = a.url;
-      if (!url || !url.startsWith('https')) return;
-      await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: resolveVars(a.content, ctx) }),
-      }).catch(() => {});
+      if (!a.url || !a.url.startsWith('https')) return;
+      try {
+        await fetch(a.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: resolveVars(a.content, ctx) }) });
+      } catch {}
       return;
     }
     case 'timeout_user': {
-      if (ctx.member && ctx.member.moderatable) {
-        await ctx.member.timeout((a.minutes || 10) * 60000, a.reason || 'automation').catch(() => {});
-      }
+      if (ctx.member && ctx.member.moderatable) await ctx.member.timeout((a.minutes || 10) * 60000, a.reason || 'automation').catch(() => {});
       return;
     }
     case 'kick_user': {
-      if (ctx.member && ctx.member.kickable) {
-        await ctx.member.kick(a.reason || 'automation').catch(() => {});
-      }
+      if (ctx.member && ctx.member.kickable) await ctx.member.kick(a.reason || 'automation').catch(() => {});
       return;
     }
     case 'ban_user': {
-      if (ctx.member && ctx.member.bannable) {
-        await ctx.member.ban({ reason: a.reason || 'automation' }).catch(() => {});
-      }
+      if (ctx.member && ctx.member.bannable) await ctx.member.ban({ reason: a.reason || 'automation' }).catch(() => {});
       return;
     }
     case 'pin_message': {
@@ -302,26 +211,18 @@ async function execAction(a, ctx, depth) {
       return;
     }
     case 'set_nickname': {
-      if (ctx.member && ctx.member.manageable) {
-        await ctx.member.setNickname(resolveVars(a.nickname || '', ctx).slice(0, 32)).catch(() => {});
-      }
+      if (ctx.member && ctx.member.manageable) await ctx.member.setNickname(resolveVars(a.nickname || '', ctx).slice(0, 32)).catch(() => {});
       return;
     }
     case 'create_thread': {
-      if (ctx.message) {
-        await ctx.message.startThread({
-          name: resolveVars(a.name || 'thread', ctx).slice(0, 90),
-          autoArchiveDuration: 1440,
-        }).catch(() => {});
-      }
+      if (ctx.message) await ctx.message.startThread({ name: resolveVars(a.name || 'thread', ctx).slice(0, 90), autoArchiveDuration: 1440 }).catch(() => {});
       return;
     }
     case 'run_automation': {
       if (depth >= MAX_CHAIN_DEPTH) return;
-      const target = store.listForGuild(guild.id)
-        .find(w => w.name.toLowerCase() === (a.name || '').toLowerCase() && w.enabled);
+      const all = await store.listForGuild(guild.id);
+      const target = all.find(w => w.name.toLowerCase() === (a.name || '').toLowerCase() && w.enabled);
       if (!target) return;
-      console.log(`[automation] chain → "${target.name}" (depth ${depth + 1})`);
       await runActions(target, ctx, depth + 1);
       return;
     }
@@ -330,12 +231,9 @@ async function execAction(a, ctx, depth) {
       await new Promise(r => setTimeout(r, s * 1000));
       return;
     }
-    default:
-      console.log(`[automation] unknown action: ${a.type}`);
   }
 }
 
-/* ───── cooldown ───── */
 function onCooldown(flow, userId) {
   const key = `${flow.id}:${userId}`;
   const last = recentFires.get(key) || 0;
@@ -344,56 +242,38 @@ function onCooldown(flow, userId) {
   return false;
 }
 
-/* ───── main ───── */
 async function run(triggerType, ctx) {
   if (!ctx.guild) return;
-  if (!checkGuildRate(ctx.guild.id)) {
-    console.log(`[automation] guild ${ctx.guild.id} rate limit hit`);
-    return;
-  }
-  const flows = store.listEnabledFor(ctx.guild.id, triggerType);
+  if (!checkGuildRate(ctx.guild.id)) return;
+  let flows;
+  try { flows = await store.listEnabledFor(ctx.guild.id, triggerType); }
+  catch (e) { console.error('[automation] store.listEnabledFor err:', e.message); return; }
+
   for (const flow of flows) {
     const userId = ctx.user?.id || 'system';
     try {
       if (!matchesTrigger(flow.trigger, ctx)) continue;
       if (!passes(flow, ctx)) continue;
       if (onCooldown(flow, userId)) continue;
-
       console.log(`[automation] firing #${flow.id} "${flow.name}" (${triggerType})`);
       await runActions(flow, ctx, 0);
-      store.recordFire(flow.id, { userId, ok: true });
+      await store.recordFire(flow.id, { userId, ok: true });
     } catch (err) {
       console.error(`[automation] #${flow.id} errored:`, err.message);
-      store.bumpError(flow.id);
-      store.recordFire(flow.id, { userId, ok: false, error: err.message });
-      if ((flow.errorCount || 0) >= AUTO_DISABLE_AFTER) {
-        console.log(`[automation] auto-disabling #${flow.id}`);
-        store.update(flow.id, { ...flow, enabled: false });
-      }
+      try { await store.bumpError(flow.id); } catch {}
+      try { await store.recordFire(flow.id, { userId, ok: false, error: err.message }); } catch {}
     }
   }
 }
 
-/* runs actions in order, respecting stopOnError */
 async function runActions(flow, ctx, depth) {
   if (depth > MAX_CHAIN_DEPTH) return;
   const actions = (flow.actions || []).slice(0, MAX_ACTIONS);
   const start = Date.now();
-
   for (const a of actions) {
-    if (Date.now() - start > MAX_WAIT_TOTAL) {
-      console.log(`[automation] #${flow.id} runtime cap hit`);
-      return;
-    }
-    try {
-      await execAction(a, ctx, depth);
-    } catch (err) {
-      console.log(`[automation] #${flow.id} action ${a.type} failed:`, err.message);
-      if (flow.stopOnError) {
-        console.log(`[automation] #${flow.id} stopping due to stop-on-error`);
-        return;
-      }
-    }
+    if (Date.now() - start > MAX_WAIT_TOTAL) return;
+    try { await execAction(a, ctx, depth); }
+    catch (e) { console.error(`[automation] action ${a.type} err:`, e.message); }
   }
 }
 
