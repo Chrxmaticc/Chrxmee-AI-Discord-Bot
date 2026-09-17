@@ -53,10 +53,11 @@ function clearToken(token) {
   cache.delete(token);
 }
 
-/* sweep expired tokens every 5 min */
-setInterval(() => {
+/* sweep expired tokens every 5 min — unref so it doesn't block deploy-commands */
+const sweep = setInterval(() => {
   const now = Date.now();
   for (const [k, v] of cache) if (v.expiresAt < now) cache.delete(k);
 }, 5 * 60000);
+sweep.unref();
 
 module.exports = { createCaptcha, checkCaptcha, clearToken };
