@@ -35,22 +35,13 @@ const errBox = (m) => new ContainerBuilder().setAccentColor(0xff3b3b)
 const okBox = (m) => new ContainerBuilder().setAccentColor(0x57f287)
   .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.success} ${m}`));
 
-/* ── ack modal WITHOUT touching the builder message ── */
 async function ackModal(sub) {
-  try {
-    await sub.deferReply({ flags: 64 });
-    await sub.deleteReply();
-  } catch {}
+  try { await sub.deferReply({ flags: 64 }); await sub.deleteReply(); } catch {}
 }
 
-/* ── one-shot collector scoped to the interaction — works for ephemerals ── */
 function awaitNext(interaction, userId, time = 60000) {
   return new Promise(resolve => {
-    const col = interaction.createMessageComponentCollector({
-      time,
-      max: 1,
-      filter: i => i.user.id === userId,
-    });
+    const col = interaction.createMessageComponentCollector({ time, max: 1, filter: i => i.user.id === userId });
     col.on('collect', i => resolve(i));
     col.on('end', (_, reason) => { if (reason === 'time') resolve(null); });
   });
@@ -104,14 +95,14 @@ function buildMain(draft, hint) {
   return c;
 }
 
-/* ── pickers — take `interaction`, use awaitNext ── */
+/* ── pickers ── */
 async function pickMenu(interaction, userId, title, options, multi = false, min = 1, max = 5) {
   const menu = new StringSelectMenuBuilder().setCustomId('pick').setPlaceholder('pick one').addOptions(options);
   if (multi) menu.setMinValues(min).setMaxValues(max);
   const c = new ContainerBuilder().setAccentColor(0x5b7fd4)
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${title}`))
     .addActionRowComponents(new ActionRowBuilder().addComponents(menu));
-  await interaction.editReply({ components: [c] }).catch(() => {});
+  await interaction.editReply({ components: [c], flags: V2_E }).catch(() => {});
   const p = await awaitNext(interaction, userId, 60000);
   if (!p) return null;
   await p.deferUpdate().catch(() => {});
@@ -123,7 +114,7 @@ async function pickChannel(interaction, userId, title, types = [ChannelType.Guil
   const c = new ContainerBuilder().setAccentColor(0x5b7fd4)
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.channel} ${title}`))
     .addActionRowComponents(new ActionRowBuilder().addComponents(menu));
-  await interaction.editReply({ components: [c] }).catch(() => {});
+  await interaction.editReply({ components: [c], flags: V2_E }).catch(() => {});
   const p = await awaitNext(interaction, userId, 60000);
   if (!p) return null;
   await p.deferUpdate().catch(() => {});
@@ -135,7 +126,7 @@ async function pickRole(interaction, userId, title) {
   const c = new ContainerBuilder().setAccentColor(0x5b7fd4)
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.member} ${title}`))
     .addActionRowComponents(new ActionRowBuilder().addComponents(menu));
-  await interaction.editReply({ components: [c] }).catch(() => {});
+  await interaction.editReply({ components: [c], flags: V2_E }).catch(() => {});
   const p = await awaitNext(interaction, userId, 60000);
   if (!p) return null;
   await p.deferUpdate().catch(() => {});
@@ -150,14 +141,13 @@ async function pickOp(interaction, userId, a = 'is', b = 'is not') {
   const c = new ContainerBuilder().setAccentColor(0x5b7fd4)
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.settings} operator`))
     .addActionRowComponents(new ActionRowBuilder().addComponents(m));
-  await interaction.editReply({ components: [c] }).catch(() => {});
+  await interaction.editReply({ components: [c], flags: V2_E }).catch(() => {});
   const p = await awaitNext(interaction, userId, 60000);
   if (!p) return null;
   await p.deferUpdate().catch(() => {});
   return p.values[0];
 }
 
-/* ── openModal — same as pickers, returns the raw (acked) modal submit ── */
 async function openModal(interaction, userId, modal, label = 'open modal') {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('open_modal').setLabel(label).setStyle(ButtonStyle.Primary)
@@ -165,7 +155,7 @@ async function openModal(interaction, userId, modal, label = 'open modal') {
   const c = new ContainerBuilder().setAccentColor(0x5b7fd4)
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.rename} ${modal.data.title}`))
     .addActionRowComponents(row);
-  await interaction.editReply({ components: [c] }).catch(() => {});
+  await interaction.editReply({ components: [c], flags: V2_E }).catch(() => {});
   const open = await awaitNext(interaction, userId, 60000);
   if (!open) return null;
   await open.showModal(modal).catch(() => {});
@@ -175,7 +165,7 @@ async function openModal(interaction, userId, modal, label = 'open modal') {
   return sub;
 }
 
-/* ── prompt: trigger ── */
+/* ── trigger prompt ── */
 async function promptTrigger(interaction, userId) {
   const p = await pickMenu(interaction, userId, `${E.compass} pick a trigger`,
     TRIGGERS.map(t => new StringSelectMenuOptionBuilder().setLabel(t.label).setValue(t.value).setDescription(t.desc)));
@@ -266,7 +256,7 @@ async function promptTrigger(interaction, userId) {
   return { type };
 }
 
-/* ── prompt: condition ── */
+/* ── condition prompt ── */
 async function promptCondition(interaction, userId) {
   const p = await pickMenu(interaction, userId, `${E.folder} pick a condition`,
     CONDITIONS.map(c => new StringSelectMenuOptionBuilder().setLabel(c.label).setValue(c.value).setDescription(c.desc)));
@@ -355,7 +345,7 @@ async function promptCondition(interaction, userId) {
   return null;
 }
 
-/* ── prompt: action ── */
+/* ── action prompt ── */
 async function promptAction(interaction, userId, draft) {
   const p = await pickMenu(interaction, userId, `${E.cursor} pick an action`,
     ACTIONS.map(a => new StringSelectMenuOptionBuilder().setLabel(a.label).setValue(a.value).setDescription(a.desc)));
@@ -498,7 +488,7 @@ async function manage(interaction, userId, draft) {
     ...draft.actions.map((a, i) => ({ k: 'a', i, label: `act ${i + 1}: ${a.type} · ${a.summary || ''}` })),
   ];
   if (!items.length) {
-    await interaction.editReply({ components: [errBox('nothing to manage.')] }).catch(() => {});
+    await interaction.editReply({ components: [errBox('nothing to manage.')], flags: V2_E }).catch(() => {});
     return false;
   }
   const opts = items.map(x => new StringSelectMenuOptionBuilder().setLabel(x.label.slice(0, 100)).setValue(`${x.k}:${x.i}`));
@@ -518,7 +508,7 @@ async function manage(interaction, userId, draft) {
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.folder} editing — ${k === 'c' ? 'condition' : 'action'} ${idx + 1}`))
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${items.find(x => x.k === k && x.i === idx)?.label || ''}`))
     .addActionRowComponents(row);
-  await interaction.editReply({ components: [c] }).catch(() => {});
+  await interaction.editReply({ components: [c], flags: V2_E }).catch(() => {});
   const action = await awaitNext(interaction, userId, 30000);
   if (!action) return false;
   await action.deferUpdate().catch(() => {});
@@ -529,7 +519,7 @@ async function manage(interaction, userId, draft) {
   return true;
 }
 
-/* ── shared builder runner — collector pattern, no races ── */
+/* ── shared builder runner ── */
 async function runBuilder(interaction, userId, guildId, initialDraft, hint, editingId) {
   const draft = initialDraft;
   const undo = [];
@@ -538,49 +528,36 @@ async function runBuilder(interaction, userId, guildId, initialDraft, hint, edit
     if (undo.length > 10) undo.shift();
   };
 
-  await interaction.editReply({ components: [buildMain(draft, hint)] }).catch(() => {});
-  const builder = await interaction.fetchReply();
-  const redraw = (msg) => interaction.editReply({ components: [buildMain(draft, msg)] }).catch(() => {});
+  await interaction.editReply({ components: [buildMain(draft, hint)], flags: V2_E }).catch(() => {});
+  const redraw = (msg) => interaction.editReply({ components: [buildMain(draft, msg)], flags: V2_E }).catch(() => {});
 
-  const col = interaction.createMessageComponentCollector({
-    time: 900000,
-    filter: i => i.user.id === userId,
-  });
+  const col = interaction.createMessageComponentCollector({ time: 900000, filter: i => i.user.id === userId });
 
   col.on('collect', async btn => {
     try {
-      /* ── set trigger ── */
       if (btn.customId === 'auto_set_trigger') {
         await btn.deferUpdate().catch(() => {});
         const t = await promptTrigger(interaction, userId);
         if (t) { push(); draft.trigger = t; }
         return redraw();
       }
-
-      /* ── add condition ── */
       if (btn.customId === 'auto_add_cond') {
         await btn.deferUpdate().catch(() => {});
         const c = await promptCondition(interaction, userId);
         if (c) { push(); draft.conditions.push(c); }
         return redraw();
       }
-
-      /* ── add action ── */
       if (btn.customId === 'auto_add_action') {
         await btn.deferUpdate().catch(() => {});
         const a = await promptAction(interaction, userId, draft);
         if (a) { push(); draft.actions.push(a); }
         return redraw();
       }
-
-      /* ── mode ── */
       if (btn.customId === 'auto_mode') {
         await btn.deferUpdate().catch(() => {});
         draft.conditionMode = draft.conditionMode === 'all' ? 'any' : 'all';
         return redraw();
       }
-
-      /* ── cooldown ── */
       if (btn.customId === 'auto_cooldown') {
         const modal = new ModalBuilder().setCustomId('auto_cd').setTitle('cooldown');
         modal.addComponents(new ActionRowBuilder().addComponents(
@@ -595,8 +572,6 @@ async function runBuilder(interaction, userId, guildId, initialDraft, hint, edit
         }
         return redraw();
       }
-
-      /* ── undo ── */
       if (btn.customId === 'auto_undo') {
         await btn.deferUpdate().catch(() => {});
         if (!undo.length) return redraw('nothing to undo');
@@ -604,24 +579,18 @@ async function runBuilder(interaction, userId, guildId, initialDraft, hint, edit
         Object.assign(draft, prev);
         return redraw();
       }
-
-      /* ── manage ── */
       if (btn.customId === 'auto_manage') {
         await btn.deferUpdate().catch(() => {});
         push();
         await manage(interaction, userId, draft);
         return redraw();
       }
-
-      /* ── clear ── */
       if (btn.customId === 'auto_clear') {
         await btn.deferUpdate().catch(() => {});
         push();
         draft.trigger = null; draft.conditions = []; draft.actions = [];
         return redraw('cleared');
       }
-
-      /* ── test ── */
       if (btn.customId === 'auto_test') {
         await btn.deferUpdate().catch(() => {});
         const summary = [
@@ -637,15 +606,11 @@ async function runBuilder(interaction, userId, guildId, initialDraft, hint, edit
           .addTextDisplayComponents(new TextDisplayBuilder().setContent(summary))], flags: V2_E }).catch(() => {});
         return redraw();
       }
-
-      /* ── cancel ── */
       if (btn.customId === 'auto_cancel') {
         await btn.update({ components: [okBox('cancelled.')], flags: V2_E }).catch(() => {});
         col.stop('cancel');
         return;
       }
-
-      /* ── save ── */
       if (btn.customId === 'auto_save') {
         await btn.deferUpdate().catch(() => {});
         if (!draft.trigger) return redraw('set a trigger first');
@@ -653,16 +618,15 @@ async function runBuilder(interaction, userId, guildId, initialDraft, hint, edit
 
         if (editingId) {
           const updated = store.update(editingId, draft);
-          await interaction.editReply({ components: [okBox(`updated **${updated.name}** · id \`${updated.id}\`\n-# ${updated.trigger.type} · ${updated.conditions.length}c / ${updated.actions.length}a`)] }).catch(() => {});
+          await interaction.editReply({ components: [okBox(`updated **${updated.name}** · id \`${updated.id}\`\n-# ${updated.trigger.type} · ${updated.conditions.length}c / ${updated.actions.length}a`)], flags: V2_E }).catch(() => {});
           col.stop('saved');
           return;
         }
-
         if (store.listForGuild(guildId).some(w => w.name.toLowerCase() === draft.name.toLowerCase())) {
           return redraw('name already taken');
         }
         const wf = store.create(guildId, draft);
-        await interaction.editReply({ components: [okBox(`saved **${wf.name}** · id \`${wf.id}\`\n-# ${wf.trigger.type} · ${wf.conditions.length}c / ${wf.actions.length}a`)] }).catch(() => {});
+        await interaction.editReply({ components: [okBox(`saved **${wf.name}** · id \`${wf.id}\`\n-# ${wf.trigger.type} · ${wf.conditions.length}c / ${wf.actions.length}a`)], flags: V2_E }).catch(() => {});
         col.stop('saved');
         return;
       }
@@ -672,9 +636,7 @@ async function runBuilder(interaction, userId, guildId, initialDraft, hint, edit
     }
   });
 
-  col.on('end', () => {
-    /* nothing — timeouts just leave the last view up */
-  });
+  col.on('end', () => {});
 }
 
 /* ── command ── */
@@ -738,6 +700,7 @@ module.exports = {
         components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
           .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.wheel} new automation\n-# click to name it`))
           .addActionRowComponents(startRow)],
+        flags: V2_E,
       });
       const pick = await awaitNext(interaction, userId, 60000);
       if (!pick) return;
