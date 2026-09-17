@@ -47,11 +47,10 @@ function awaitOne(msg, userId, time, filterFn) {
   });
 }
 
-/* ── main view ── */
 function buildMain(draft, hint) {
   const c = new ContainerBuilder().setAccentColor(0x5b7fd4);
   c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.wheel} automation · **${draft.name}**`));
-  c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# id \`${draft.id}\` · auto-saving ${hint ? '· ' + hint : ''}`));
+  c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# id \`${draft.id}\` · ${draft.enabled ? 'enabled' : 'disabled'} · auto-save${hint ? ' · ' + hint : ''}`));
   c.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
   const t = draft.trigger;
@@ -84,10 +83,12 @@ function buildMain(draft, hint) {
   const r2 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('auto_cooldown').setLabel(`cooldown: ${draft.cooldownSeconds}s`).setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('auto_manage').setLabel('manage').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('auto_undo').setLabel('undo').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('auto_toggle').setLabel(draft.enabled ? 'disable' : 'enable').setStyle(draft.enabled ? ButtonStyle.Danger : ButtonStyle.Success),
     new ButtonBuilder().setCustomId('auto_clear').setLabel('clear').setStyle(ButtonStyle.Danger),
   );
   const r3 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('auto_export').setLabel('export').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('auto_cancel').setLabel('close').setStyle(ButtonStyle.Secondary),
   );
   c.addActionRowComponents(r1, r2, r3);
@@ -128,7 +129,6 @@ async function modalFlow(trigger, modal, filterFn) {
   return sub;
 }
 
-/* ── prompt: trigger ── */
 async function promptTrigger(interaction, msg, userId, btn) {
   const menu = new StringSelectMenuBuilder().setCustomId('picker').setPlaceholder('pick a trigger')
     .addOptions(TRIGGERS.map(t => new StringSelectMenuOptionBuilder().setLabel(t.label).setValue(t.value).setDescription(t.desc)));
@@ -162,7 +162,7 @@ async function promptTrigger(interaction, msg, userId, btn) {
   if (type === 'role_added' || type === 'role_removed') {
     await pick.deferUpdate().catch(() => {});
     const role = await showRolePicker(btn, msg, userId, 'pick a role (blank = any)');
-    if (!role) { await pick.deferUpdate().catch(() => {}); return { type }; }
+    if (!role) return { type };
     await role.deferUpdate().catch(() => {});
     return { type, roleId: role.values[0] };
   }
@@ -217,7 +217,6 @@ async function promptTrigger(interaction, msg, userId, btn) {
   return { type };
 }
 
-/* ── prompt: condition ── */
 async function promptCondition(interaction, msg, userId, btn) {
   const menu = new StringSelectMenuBuilder().setCustomId('picker').setPlaceholder('pick a condition')
     .addOptions(CONDITIONS.map(c => new StringSelectMenuOptionBuilder().setLabel(c.label).setValue(c.value).setDescription(c.desc)));
@@ -273,7 +272,6 @@ async function promptCondition(interaction, msg, userId, btn) {
   return null;
 }
 
-/* ── prompt: action ── */
 async function promptAction(interaction, msg, userId, btn, draft) {
   const menu = new StringSelectMenuBuilder().setCustomId('picker').setPlaceholder('pick an action')
     .addOptions(ACTIONS.map(a => new StringSelectMenuOptionBuilder().setLabel(a.label).setValue(a.value).setDescription(a.desc)));
@@ -393,41 +391,69 @@ async function promptAction(interaction, msg, userId, btn, draft) {
   return null;
 }
 
-/* ── manage ── */
+/* ── manage with reorder ── */
 async function manage(interaction, msg, userId, btn, draft) {
   const items = [
     ...draft.conditions.map((c, i) => ({ k: 'c', i, label: `cond ${i + 1}: ${c.type} ${c.op} ${Array.isArray(c.value) ? c.value.join(',') : c.value ?? ''}` })),
     ...draft.actions.map((a, i) => ({ k: 'a', i, label: `act ${i + 1}: ${a.type} · ${a.summary || ''}` })),
   ];
-  if (!items.length) return false;
+  if (!items.length) {
+    await btn.update({ components: [errBox('nothing to manage.')], flags: V2_E }).catch(() => {});
+    return false;
+  }
 
-  const menu = new StringSelectMenuBuilder().setCustomId('picker').setPlaceholder('pick to remove')
+  const menu = new StringSelectMenuBuilder().setCustomId('picker').setPlaceholder('pick to edit')
     .addOptions(items.map(x => new StringSelectMenuOptionBuilder().setLabel(x.label.slice(0, 100)).setValue(`${x.k}:${x.i}`)));
-  const pick = await showMenu(btn, msg, userId, `${E.folder} remove an item`, menu);
+  const pick = await showMenu(btn, msg, userId, `${E.folder} manage items`, menu);
   if (!pick) return false;
   await pick.deferUpdate().catch(() => {});
+
   const [k, i] = pick.values[0].split(':');
   const idx = parseInt(i, 10);
-  if (k === 'c') draft.conditions.splice(idx, 1);
-  if (k === 'a') draft.actions.splice(idx, 1);
+  const arr = k === 'c' ? draft.conditions : draft.actions;
+  const label = k === 'c' ? 'condition' : 'action';
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('mg_up').setLabel('move up').setStyle(ButtonStyle.Secondary).setDisabled(idx === 0),
+    new ButtonBuilder().setCustomId('mg_down').setLabel('move down').setStyle(ButtonStyle.Secondary).setDisabled(idx === arr.length - 1),
+    new ButtonBuilder().setCustomId('mg_del').setLabel('remove').setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId('mg_back').setLabel('back').setStyle(ButtonStyle.Secondary),
+  );
+  const view = new ContainerBuilder().setAccentColor(0x5b7fd4)
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.folder} editing — ${label} ${idx + 1}`))
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${items.find(x => x.k === k && x.i === idx)?.label || ''}`))
+    .addActionRowComponents(row);
+  await pick.update({ components: [view], flags: V2_E }).catch(() => {});
+
+  const action = await awaitOne(msg, userId, 30000);
+  if (!action) return true;
+  await action.deferUpdate().catch(() => {});
+
+  if (action.customId === 'mg_del') arr.splice(idx, 1);
+  else if (action.customId === 'mg_up' && idx > 0) [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
+  else if (action.customId === 'mg_down' && idx < arr.length - 1) [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
   return true;
 }
 
-/* ── main loop, auto-saves every change to the store ── */
-async function runBuilder(interaction, userId, guildId, draft) {
-  await interaction.editReply({ components: [buildMain(draft)], flags: V2_E }).catch(() => {});
+/* ── main builder loop ── */
+async function runBuilder(interaction, userId, guildId, draft, hint) {
+  const history = [];
+  const pushHistory = () => {
+    history.push(JSON.stringify({ trigger: draft.trigger, conditions: draft.conditions, actions: draft.actions, conditionMode: draft.conditionMode, cooldownSeconds: draft.cooldownSeconds }));
+    if (history.length > 15) history.shift();
+  };
+
+  await interaction.editReply({ components: [buildMain(draft, hint)], flags: V2_E }).catch(() => {});
   const msg = await interaction.fetchReply().catch(() => null);
   if (!msg) return;
 
-  /* every change calls this — writes draft to store */
   const save = () => {
     try { store.update(draft.id, draft); } catch (e) { console.error('[automation] save error:', e); }
   };
 
-  /* redraw via msg.edit — this is what fixes "doesn't go back" */
-  const redraw = async (hint) => {
+  const redraw = async (h) => {
     save();
-    await msg.edit({ components: [buildMain(draft, hint)] }).catch(() => {});
+    await msg.edit({ components: [buildMain(draft, h)] }).catch(() => {});
   };
 
   while (true) {
@@ -449,34 +475,56 @@ async function runBuilder(interaction, userId, guildId, draft) {
 
       if (btn.customId === 'auto_clear') {
         await btn.deferUpdate().catch(() => {});
+        pushHistory();
         draft.trigger = null; draft.conditions = []; draft.actions = [];
         await redraw('cleared');
         continue;
       }
 
+      if (btn.customId === 'auto_undo') {
+        await btn.deferUpdate().catch(() => {});
+        if (!history.length) { await redraw('nothing to undo'); continue; }
+        const prev = JSON.parse(history.pop());
+        Object.assign(draft, prev);
+        await redraw('undone');
+        continue;
+      }
+
+      if (btn.customId === 'auto_export') {
+        const json = JSON.stringify({
+          name: draft.name, trigger: draft.trigger, conditions: draft.conditions,
+          conditionMode: draft.conditionMode, actions: draft.actions,
+          cooldownSeconds: draft.cooldownSeconds,
+        }, null, 2);
+        await btn.followUp({ components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.file} export\n\`\`\`json\n${json.slice(0, 3800)}\n\`\`\``))], flags: V2_E }).catch(() => {});
+        continue;
+      }
+
       if (btn.customId === 'auto_set_trigger') {
         const t = await promptTrigger(interaction, msg, userId, btn);
-        if (t) { draft.trigger = t; }
+        if (t) { pushHistory(); draft.trigger = t; }
         await redraw();
         continue;
       }
 
       if (btn.customId === 'auto_add_cond') {
         const c = await promptCondition(interaction, msg, userId, btn);
-        if (c) { draft.conditions.push(c); }
+        if (c) { pushHistory(); draft.conditions.push(c); }
         await redraw();
         continue;
       }
 
       if (btn.customId === 'auto_add_action') {
         const a = await promptAction(interaction, msg, userId, btn, draft);
-        if (a) { draft.actions.push(a); }
+        if (a) { pushHistory(); draft.actions.push(a); }
         await redraw();
         continue;
       }
 
       if (btn.customId === 'auto_mode') {
         await btn.deferUpdate().catch(() => {});
+        pushHistory();
         draft.conditionMode = draft.conditionMode === 'all' ? 'any' : 'all';
         await redraw();
         continue;
@@ -489,6 +537,7 @@ async function runBuilder(interaction, userId, guildId, draft) {
         ));
         const sub = await modalFlow(btn, modal, m => m.customId === 'auto_cd' && m.user.id === userId);
         if (sub) {
+          pushHistory();
           const n = parseInt(sub.fields.getTextInputValue('sec'), 10);
           draft.cooldownSeconds = Number.isFinite(n) ? Math.max(0, Math.min(600, n)) : 5;
         }
@@ -497,12 +546,13 @@ async function runBuilder(interaction, userId, guildId, draft) {
       }
 
       if (btn.customId === 'auto_manage') {
+        await btn.deferUpdate().catch(() => {});
+        pushHistory();
         await manage(interaction, msg, userId, btn, draft);
         await redraw();
         continue;
       }
 
-      /* unknown — ack + redraw */
       await btn.deferUpdate().catch(() => {});
       await redraw();
     } catch (e) {
@@ -518,6 +568,8 @@ module.exports = {
     .setDescription('build server automations (mod only)')
     .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild)
     .addSubcommand(s => s.setName('create').setDescription('create a new automation'))
+    .addSubcommand(s => s.setName('edit').setDescription('edit an existing automation')
+      .addIntegerOption(o => o.setName('id').setDescription('automation id').setRequired(true)))
     .addSubcommand(s => s.setName('list').setDescription('list all automations'))
     .addSubcommand(s => s.setName('search').setDescription('search automations')
       .addStringOption(o => o.setName('query').setDescription('query').setRequired(true)))
@@ -535,6 +587,10 @@ module.exports = {
       .addIntegerOption(o => o.setName('id').setDescription('automation id').setRequired(true)))
     .addSubcommand(s => s.setName('enable-all').setDescription('enable every automation'))
     .addSubcommand(s => s.setName('disable-all').setDescription('disable every automation'))
+    .addSubcommand(s => s.setName('export').setDescription('export an automation as json')
+      .addIntegerOption(o => o.setName('id').setDescription('automation id').setRequired(true)))
+    .addSubcommand(s => s.setName('import').setDescription('import from json (single or array)')
+      .addStringOption(o => o.setName('json').setDescription('json').setRequired(true)))
     .addSubcommand(s => s.setName('templates').setDescription('browse pre-made automations'))
     .addSubcommand(s => s.setName('from-template').setDescription('create from a template')
       .addStringOption(o => o.setName('id').setDescription('template id').setRequired(true)))
@@ -563,7 +619,7 @@ module.exports = {
         );
         await interaction.editReply({
           components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.wheel} new automation\n-# click to name it. it saves automatically as you build.`))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.wheel} new automation\n-# click to name it. saves automatically as you build.`))
             .addActionRowComponents(startRow)],
           flags: V2_E,
         });
@@ -582,12 +638,31 @@ module.exports = {
           return interaction.editReply({ components: [errBox(`an automation named **${name}** already exists.`)], flags: V2_E });
         }
 
-        /* auto-create — automation exists in store from this moment */
         const draft = { name, trigger: null, conditions: [], conditionMode: 'all', actions: [], cooldownSeconds: 5, enabled: false, createdBy: userId };
         const wf = store.create(guildId, draft);
         draft.id = wf.id;
 
-        return runBuilder(interaction, userId, guildId, draft);
+        return runBuilder(interaction, userId, guildId, draft, 'created — set a trigger');
+      }
+
+      if (sub === 'edit') {
+        const id = interaction.options.getInteger('id');
+        const wf = store.get(id);
+        if (!wf || wf.guildId !== guildId) {
+          return interaction.editReply({ components: [errBox(`no automation with id \`${id}\`.`)] , flags: V2_E });
+        }
+        const draft = {
+          id: wf.id,
+          name: wf.name,
+          trigger: wf.trigger ? JSON.parse(JSON.stringify(wf.trigger)) : null,
+          conditions: JSON.parse(JSON.stringify(wf.conditions || [])),
+          conditionMode: wf.conditionMode || 'all',
+          actions: JSON.parse(JSON.stringify(wf.actions || [])),
+          cooldownSeconds: wf.cooldownSeconds ?? 5,
+          enabled: wf.enabled ?? false,
+          createdBy: wf.createdBy,
+        };
+        return runBuilder(interaction, userId, guildId, draft, `editing · ${draft.trigger ? 'has trigger' : 'no trigger yet'}`);
       }
 
       if (sub === 'list') {
@@ -677,6 +752,47 @@ module.exports = {
         const enabled = sub === 'enable-all';
         const n = store.setEnabledAll(guildId, enabled);
         return interaction.editReply({ components: [okBox(`${enabled ? 'enabled' : 'disabled'} **${n}** automation(s).`)], flags: V2_E });
+      }
+
+      if (sub === 'export') {
+        const id = interaction.options.getInteger('id');
+        const wf = store.get(id);
+        if (!wf || wf.guildId !== guildId) return interaction.editReply({ components: [errBox(`no automation with id \`${id}\`.`)], flags: V2_E });
+        const json = JSON.stringify({
+          name: wf.name, trigger: wf.trigger, conditions: wf.conditions,
+          conditionMode: wf.conditionMode, actions: wf.actions, cooldownSeconds: wf.cooldownSeconds,
+        }, null, 2);
+        return interaction.editReply({ components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.file} export — ${wf.name}`))
+          .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`\`\`\`json\n${json.slice(0, 3800)}\n\`\`\``))], flags: V2_E });
+      }
+
+      if (sub === 'import') {
+        const raw = interaction.options.getString('json');
+        let data;
+        try { data = JSON.parse(raw); } catch { return interaction.editReply({ components: [errBox('invalid json.')], flags: V2_E }); }
+        const items = Array.isArray(data) ? data : [data];
+        const imported = [], skipped = [];
+        for (const item of items) {
+          if (!item.name || !item.trigger) { skipped.push(item.name || '(unnamed)'); continue; }
+          if (store.listForGuild(guildId).some(w => w.name.toLowerCase() === String(item.name).toLowerCase())) { skipped.push(item.name); continue; }
+          const wf = store.create(guildId, {
+            name: String(item.name).slice(0, 50),
+            trigger: item.trigger,
+            conditions: Array.isArray(item.conditions) ? item.conditions : [],
+            conditionMode: item.conditionMode === 'any' ? 'any' : 'all',
+            actions: Array.isArray(item.actions) ? item.actions : [],
+            cooldownSeconds: Number(item.cooldownSeconds) || 5,
+            createdBy: userId,
+          });
+          imported.push(`${wf.name} (\`${wf.id}\`)`);
+        }
+        const lines = [];
+        if (imported.length) lines.push(`${E.success} imported ${imported.length}:\n${imported.map(x => '  · ' + x).join('\n')}`);
+        if (skipped.length) lines.push(`${E.error} skipped ${skipped.length}:\n${skipped.map(x => '  · ' + x).join('\n')}`);
+        return interaction.editReply({ components: [new ContainerBuilder().setAccentColor(imported.length ? 0x57f287 : 0xff3b3b)
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n\n') || 'nothing imported.'))], flags: V2_E });
       }
 
       if (sub === 'templates') {
