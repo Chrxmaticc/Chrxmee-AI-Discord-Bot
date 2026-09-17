@@ -47,10 +47,11 @@ function awaitOne(msg, userId, time, filterFn) {
   });
 }
 
+/* ── main view ── */
 function buildMain(draft, hint) {
   const c = new ContainerBuilder().setAccentColor(0x5b7fd4);
-  c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.wheel} automation builder`));
-  c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${hint || 'trigger -> conditions -> actions'}`));
+  c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.wheel} automation · **${draft.name}**`));
+  c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# id \`${draft.id}\` · auto-saving ${hint ? '· ' + hint : ''}`));
   c.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
   const t = draft.trigger;
@@ -83,12 +84,11 @@ function buildMain(draft, hint) {
   const r2 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('auto_cooldown').setLabel(`cooldown: ${draft.cooldownSeconds}s`).setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('auto_manage').setLabel('manage').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('auto_test').setLabel('test').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('auto_toggle').setLabel(draft.enabled ? 'disable' : 'enable').setStyle(draft.enabled ? ButtonStyle.Danger : ButtonStyle.Success),
     new ButtonBuilder().setCustomId('auto_clear').setLabel('clear').setStyle(ButtonStyle.Danger),
   );
   const r3 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('auto_save').setLabel('save').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId('auto_cancel').setLabel('cancel').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('auto_cancel').setLabel('close').setStyle(ButtonStyle.Secondary),
   );
   c.addActionRowComponents(r1, r2, r3);
   return c;
@@ -120,9 +120,9 @@ async function showRolePicker(btn, msg, userId, title) {
   return awaitOne(msg, userId, 60000);
 }
 
-async function modalFlow(triggerInteraction, modal, filterFn) {
-  await triggerInteraction.showModal(modal).catch(() => {});
-  const sub = await triggerInteraction.awaitModalSubmit({ time: 120000, filter: filterFn }).catch(() => null);
+async function modalFlow(trigger, modal, filterFn) {
+  await trigger.showModal(modal).catch(() => {});
+  const sub = await trigger.awaitModalSubmit({ time: 120000, filter: filterFn }).catch(() => null);
   if (!sub) return null;
   await ackModal(sub);
   return sub;
@@ -162,7 +162,7 @@ async function promptTrigger(interaction, msg, userId, btn) {
   if (type === 'role_added' || type === 'role_removed') {
     await pick.deferUpdate().catch(() => {});
     const role = await showRolePicker(btn, msg, userId, 'pick a role (blank = any)');
-    if (!role) return { type };
+    if (!role) { await pick.deferUpdate().catch(() => {}); return { type }; }
     await role.deferUpdate().catch(() => {});
     return { type, roleId: role.values[0] };
   }
@@ -177,8 +177,8 @@ async function promptTrigger(interaction, msg, userId, btn) {
     if (!sched) return null;
     const mode = sched.values[0];
 
-    const modal = new ModalBuilder().setCustomId('auto_sched').setTitle(`scheduled: ${mode}`);
     if (mode === 'interval') {
+      const modal = new ModalBuilder().setCustomId('auto_sched').setTitle('interval');
       modal.addComponents(new ActionRowBuilder().addComponents(
         new TextInputBuilder().setCustomId('min').setLabel('minutes').setStyle(TextInputStyle.Short).setRequired(true).setValue('60').setMaxLength(4)
       ));
@@ -186,24 +186,20 @@ async function promptTrigger(interaction, msg, userId, btn) {
       if (!sub) return null;
       return { type, mode, minutes: Math.max(1, parseInt(sub.fields.getTextInputValue('min'), 10) || 60) };
     }
-    if (mode === 'daily') {
+    if (mode === 'daily' || mode === 'weekly') {
+      const modal = new ModalBuilder().setCustomId('auto_sched').setTitle(mode);
+      if (mode === 'weekly') {
+        modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('d').setLabel('day 0=sun 6=sat').setStyle(TextInputStyle.Short).setRequired(true).setValue('1').setMaxLength(1)));
+      }
       modal.addComponents(
         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('h').setLabel('hour 0-23').setStyle(TextInputStyle.Short).setRequired(true).setValue('9').setMaxLength(2)),
         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('m').setLabel('minute 0-59').setStyle(TextInputStyle.Short).setRequired(true).setValue('0').setMaxLength(2)),
       );
       const sub = await modalFlow(sched, modal, m => m.customId === 'auto_sched' && m.user.id === userId);
       if (!sub) return null;
-      return { type, mode, hour: Math.min(23, Math.max(0, parseInt(sub.fields.getTextInputValue('h'), 10) || 0)), minute: Math.min(59, Math.max(0, parseInt(sub.fields.getTextInputValue('m'), 10) || 0)) };
-    }
-    if (mode === 'weekly') {
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('d').setLabel('day 0=sun 6=sat').setStyle(TextInputStyle.Short).setRequired(true).setValue('1').setMaxLength(1)),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('h').setLabel('hour 0-23').setStyle(TextInputStyle.Short).setRequired(true).setValue('9').setMaxLength(2)),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('m').setLabel('minute 0-59').setStyle(TextInputStyle.Short).setRequired(true).setValue('0').setMaxLength(2)),
-      );
-      const sub = await modalFlow(sched, modal, m => m.customId === 'auto_sched' && m.user.id === userId);
-      if (!sub) return null;
-      return { type, mode, day: Math.min(6, Math.max(0, parseInt(sub.fields.getTextInputValue('d'), 10) || 1)), hour: Math.min(23, Math.max(0, parseInt(sub.fields.getTextInputValue('h'), 10) || 0)), minute: Math.min(59, Math.max(0, parseInt(sub.fields.getTextInputValue('m'), 10) || 0)) };
+      const out = { type, mode, hour: Math.min(23, Math.max(0, parseInt(sub.fields.getTextInputValue('h'), 10) || 0)), minute: Math.min(59, Math.max(0, parseInt(sub.fields.getTextInputValue('m'), 10) || 0)) };
+      if (mode === 'weekly') out.day = Math.min(6, Math.max(0, parseInt(sub.fields.getTextInputValue('d'), 10) || 1));
+      return out;
     }
   }
 
@@ -286,10 +282,10 @@ async function promptAction(interaction, msg, userId, btn, draft) {
   const type = pick.values[0];
   const def = ACTIONS.find(x => x.value === type);
 
-  const askText = async (title, id) => {
+  const askText = async (title, id, style = TextInputStyle.Paragraph) => {
     const modal = new ModalBuilder().setCustomId(id).setTitle(title);
     modal.addComponents(new ActionRowBuilder().addComponents(
-      new TextInputBuilder().setCustomId('v').setLabel(title).setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(2000)
+      new TextInputBuilder().setCustomId('v').setLabel(title).setStyle(style).setRequired(true).setMaxLength(2000)
         .setPlaceholder('{user} {server} {channel} {message}')
     ));
     return await modalFlow(pick, modal, m => m.customId === id && m.user.id === userId);
@@ -319,7 +315,7 @@ async function promptAction(interaction, msg, userId, btn, draft) {
     return { type, channelId: ch.values[0], title: sub.fields.getTextInputValue('title'), description: sub.fields.getTextInputValue('desc'), color: 0x5b7fd4, summary: `-> <#${ch.values[0]}>` };
   }
   if (def.input === 'text' || def.input === 'text_reason') {
-    const sub = await askText(def.input === 'text_reason' ? 'reason' : 'content', 'auto_act_text');
+    const sub = await askText(def.input === 'text_reason' ? 'reason' : 'content', 'auto_act_text', def.input === 'text_reason' ? TextInputStyle.Short : TextInputStyle.Paragraph);
     if (!sub) return null;
     if (def.input === 'text_reason') return { type, reason: sub.fields.getTextInputValue('v'), summary: type };
     return { type, content: sub.fields.getTextInputValue('v'), summary: sub.fields.getTextInputValue('v').slice(0, 40) };
@@ -380,6 +376,15 @@ async function promptAction(interaction, msg, userId, btn, draft) {
     if (def.input === 'minutes') return { type, minutes: Math.max(1, Math.min(40320, n)), reason: 'automation', summary: `${n}m` };
     return { type, seconds: Math.max(1, Math.min(60, n)), summary: `${n}s` };
   }
+  if (def.input === 'automation') {
+    const list = store.listForGuild(interaction.guild.id).filter(w => w.id !== draft.id);
+    if (!list.length) { await pick.deferUpdate().catch(() => {}); return null; }
+    const opts = list.slice(0, 25).map(w => new StringSelectMenuOptionBuilder().setLabel(w.name.slice(0, 100)).setValue(w.name));
+    const pk = await showMenu(btn, msg, userId, `${E.link} chain into...`, new StringSelectMenuBuilder().setCustomId('picker').setPlaceholder('pick').addOptions(opts));
+    if (!pk) return null;
+    await pk.deferUpdate().catch(() => {});
+    return { type, name: pk.values[0], summary: pk.values[0] };
+  }
   if (def.input === 'none') {
     await pick.deferUpdate().catch(() => {});
     return { type, summary: 'on trigger' };
@@ -408,13 +413,22 @@ async function manage(interaction, msg, userId, btn, draft) {
   return true;
 }
 
-/* ── main loop ── */
-async function runBuilder(interaction, userId, guildId, draft, editingId, hint) {
-  await interaction.editReply({ components: [buildMain(draft, hint || 'set a trigger first')], flags: V2_E }).catch(() => {});
+/* ── main loop, auto-saves every change to the store ── */
+async function runBuilder(interaction, userId, guildId, draft) {
+  await interaction.editReply({ components: [buildMain(draft)], flags: V2_E }).catch(() => {});
   const msg = await interaction.fetchReply().catch(() => null);
   if (!msg) return;
 
-  const redraw = (hint) => interaction.editReply({ components: [buildMain(draft, hint)], flags: V2_E }).catch(() => {});
+  /* every change calls this — writes draft to store */
+  const save = () => {
+    try { store.update(draft.id, draft); } catch (e) { console.error('[automation] save error:', e); }
+  };
+
+  /* redraw via msg.edit — this is what fixes "doesn't go back" */
+  const redraw = async (hint) => {
+    save();
+    await msg.edit({ components: [buildMain(draft, hint)] }).catch(() => {});
+  };
 
   while (true) {
     const btn = await awaitOne(msg, userId, 900000);
@@ -422,45 +436,41 @@ async function runBuilder(interaction, userId, guildId, draft, editingId, hint) 
 
     try {
       if (btn.customId === 'auto_cancel') {
-        await btn.update({ components: [okBox('cancelled.')], flags: V2_E }).catch(() => {});
+        await btn.update({ components: [okBox(`closed. **${draft.name}** saved as id \`${draft.id}\`.`)], flags: V2_E }).catch(() => {});
         return;
       }
 
-      if (btn.customId === 'auto_save') {
+      if (btn.customId === 'auto_toggle') {
         await btn.deferUpdate().catch(() => {});
-        if (!draft.trigger) { await redraw('set a trigger first'); continue; }
-        if (!draft.actions.length) { await redraw('add at least one action'); continue; }
-        if (editingId) {
-          const updated = store.update(editingId, draft);
-          await interaction.editReply({ components: [okBox(`updated **${updated.name}** · id \`${updated.id}\``)], flags: V2_E }).catch(() => {});
-          return;
-        }
-        if (store.listForGuild(guildId).some(w => w.name.toLowerCase() === draft.name.toLowerCase())) {
-          await redraw('name already taken');
-          continue;
-        }
-        const wf = store.create(guildId, draft);
-        await interaction.editReply({ components: [okBox(`saved **${wf.name}** · id \`${wf.id}\``)], flags: V2_E }).catch(() => {});
-        return;
+        draft.enabled = !draft.enabled;
+        await redraw(draft.enabled ? 'enabled' : 'disabled');
+        continue;
+      }
+
+      if (btn.customId === 'auto_clear') {
+        await btn.deferUpdate().catch(() => {});
+        draft.trigger = null; draft.conditions = []; draft.actions = [];
+        await redraw('cleared');
+        continue;
       }
 
       if (btn.customId === 'auto_set_trigger') {
         const t = await promptTrigger(interaction, msg, userId, btn);
-        if (t) draft.trigger = t;
+        if (t) { draft.trigger = t; }
         await redraw();
         continue;
       }
 
       if (btn.customId === 'auto_add_cond') {
         const c = await promptCondition(interaction, msg, userId, btn);
-        if (c) draft.conditions.push(c);
+        if (c) { draft.conditions.push(c); }
         await redraw();
         continue;
       }
 
       if (btn.customId === 'auto_add_action') {
         const a = await promptAction(interaction, msg, userId, btn, draft);
-        if (a) draft.actions.push(a);
+        if (a) { draft.actions.push(a); }
         await redraw();
         continue;
       }
@@ -492,31 +502,7 @@ async function runBuilder(interaction, userId, guildId, draft, editingId, hint) 
         continue;
       }
 
-      if (btn.customId === 'auto_clear') {
-        await btn.deferUpdate().catch(() => {});
-        draft.trigger = null; draft.conditions = []; draft.actions = [];
-        await redraw('cleared');
-        continue;
-      }
-
-      if (btn.customId === 'auto_test') {
-        await btn.deferUpdate().catch(() => {});
-        const summary = [
-          `${E.compass} **trigger:** ${draft.trigger ? draft.trigger.type : '*none*'}`,
-          `${E.folder} **conditions:** ${draft.conditions.length} · \`${draft.conditionMode}\``,
-          `${E.cursor} **actions:** ${draft.actions.length} · cooldown \`${draft.cooldownSeconds}s\``,
-          '',
-          draft.trigger ? `fires on \`${draft.trigger.type}\` event` : 'no trigger — never fires',
-          draft.actions.length ? `${draft.actions.length} action(s) will run in order` : 'no actions — nothing happens',
-        ].join('\n');
-        await btn.followUp({ components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.file} dry run`))
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent(summary))], flags: V2_E }).catch(() => {});
-        await redraw();
-        continue;
-      }
-
-      /* unknown button — just ack + redraw */
+      /* unknown — ack + redraw */
       await btn.deferUpdate().catch(() => {});
       await redraw();
     } catch (e) {
@@ -532,27 +518,31 @@ module.exports = {
     .setDescription('build server automations (mod only)')
     .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild)
     .addSubcommand(s => s.setName('create').setDescription('create a new automation'))
-    .addSubcommand(s => s.setName('edit').setDescription('edit an existing automation')
-      .addIntegerOption(o => o.setName('id').setDescription('automation id').setRequired(true)))
-    .addSubcommand(s => s.setName('templates').setDescription('browse pre-made automations'))
-    .addSubcommand(s => s.setName('from-template').setDescription('create from a template')
-      .addStringOption(o => o.setName('id').setDescription('template id').setRequired(true)))
     .addSubcommand(s => s.setName('list').setDescription('list all automations'))
+    .addSubcommand(s => s.setName('search').setDescription('search automations')
+      .addStringOption(o => o.setName('query').setDescription('query').setRequired(true)))
+    .addSubcommand(s => s.setName('recent').setDescription('recent fires across all automations'))
     .addSubcommand(s => s.setName('info').setDescription('view an automation')
       .addIntegerOption(o => o.setName('id').setDescription('automation id').setRequired(true)))
     .addSubcommand(s => s.setName('delete').setDescription('delete an automation')
       .addIntegerOption(o => o.setName('id').setDescription('automation id').setRequired(true)))
+    .addSubcommand(s => s.setName('duplicate').setDescription('duplicate an automation')
+      .addIntegerOption(o => o.setName('id').setDescription('automation id').setRequired(true))
+      .addStringOption(o => o.setName('new_name').setDescription('new name').setRequired(true)))
     .addSubcommand(s => s.setName('enable').setDescription('enable an automation')
       .addIntegerOption(o => o.setName('id').setDescription('automation id').setRequired(true)))
     .addSubcommand(s => s.setName('disable').setDescription('disable an automation')
       .addIntegerOption(o => o.setName('id').setDescription('automation id').setRequired(true)))
+    .addSubcommand(s => s.setName('enable-all').setDescription('enable every automation'))
+    .addSubcommand(s => s.setName('disable-all').setDescription('disable every automation'))
+    .addSubcommand(s => s.setName('templates').setDescription('browse pre-made automations'))
+    .addSubcommand(s => s.setName('from-template').setDescription('create from a template')
+      .addStringOption(o => o.setName('id').setDescription('template id').setRequired(true)))
     .addSubcommand(s => s.setName('stats').setDescription('automation stats')),
 
   async execute(interaction) {
-    /* ack FIRST so we never time out */
     await interaction.deferReply({ flags: V2_E }).catch(() => {});
 
-    /* permission check AFTER ack */
     if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.ManageGuild)) {
       return interaction.editReply({ components: [errBox('manage server required.')], flags: V2_E }).catch(() => {});
     }
@@ -563,38 +553,130 @@ module.exports = {
 
     try {
       if (sub === 'create') {
+        const modal = new ModalBuilder().setCustomId('auto_create_name').setTitle('name your automation');
+        modal.addComponents(new ActionRowBuilder().addComponents(
+          new TextInputBuilder().setCustomId('name').setLabel('name').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(50).setPlaceholder('welcome-new-members')
+        ));
+
         const startRow = new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId('auto_start').setLabel('start building').setStyle(ButtonStyle.Primary)
         );
         await interaction.editReply({
           components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.wheel} new automation\n-# click to name it`))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.wheel} new automation\n-# click to name it. it saves automatically as you build.`))
             .addActionRowComponents(startRow)],
           flags: V2_E,
         });
-        const msg = await interaction.fetchReply();
-        const startClick = await awaitOne(msg, userId, 60000);
+
+        const startMsg = await interaction.fetchReply();
+        const startClick = await awaitOne(startMsg, userId, 60000);
         if (!startClick) return;
 
-        const modal = new ModalBuilder().setCustomId('auto_name').setTitle('name your automation');
-        modal.addComponents(new ActionRowBuilder().addComponents(
-          new TextInputBuilder().setCustomId('name').setLabel('name').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(50).setPlaceholder('welcome-new-members')
-        ));
         await startClick.showModal(modal).catch(() => {});
-        const nameSub = await startClick.awaitModalSubmit({ time: 120000, filter: m => m.customId === 'auto_name' && m.user.id === userId }).catch(() => null);
+        const nameSub = await startClick.awaitModalSubmit({ time: 120000, filter: m => m.customId === 'auto_create_name' && m.user.id === userId }).catch(() => null);
         if (!nameSub) return;
         await ackModal(nameSub);
 
-        const draft = { name: nameSub.fields.getTextInputValue('name'), trigger: null, conditions: [], conditionMode: 'all', actions: [], cooldownSeconds: 5, createdBy: userId };
-        return runBuilder(interaction, userId, guildId, draft, null);
+        const name = nameSub.fields.getTextInputValue('name');
+        if (store.listForGuild(guildId).some(w => w.name.toLowerCase() === name.toLowerCase())) {
+          return interaction.editReply({ components: [errBox(`an automation named **${name}** already exists.`)], flags: V2_E });
+        }
+
+        /* auto-create — automation exists in store from this moment */
+        const draft = { name, trigger: null, conditions: [], conditionMode: 'all', actions: [], cooldownSeconds: 5, enabled: false, createdBy: userId };
+        const wf = store.create(guildId, draft);
+        draft.id = wf.id;
+
+        return runBuilder(interaction, userId, guildId, draft);
       }
 
-      if (sub === 'edit') {
+      if (sub === 'list') {
+        const list = store.listForGuild(guildId);
+        if (!list.length) return interaction.editReply({ components: [new ContainerBuilder().setAccentColor(0x5b7fd4).addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.folder} no automations yet.`))], flags: V2_E });
+        const lines = list.map(w => `${w.enabled ? E.on : E.off} **${w.name}** · id \`${w.id}\` · \`${w.trigger?.type || 'none'}\` · ${w.conditions.length}c / ${w.actions.length}a`);
+        return interaction.editReply({ components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.folder} automations (${list.length})`))
+          .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')))], flags: V2_E });
+      }
+
+      if (sub === 'search') {
+        const q = interaction.options.getString('query').toLowerCase().trim();
+        const list = store.listForGuild(guildId).filter(w => w.name.toLowerCase().includes(q) || (w.trigger?.type || '').toLowerCase().includes(q) || w.actions.some(a => a.type.toLowerCase().includes(q)));
+        if (!list.length) return interaction.editReply({ components: [errBox(`no automations matching **${q}**.`)], flags: V2_E });
+        const lines = list.map(w => `${w.enabled ? E.on : E.off} **${w.name}** · id \`${w.id}\``);
+        return interaction.editReply({ components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.compass} search · "${q}" (${list.length})`))
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')))], flags: V2_E });
+      }
+
+      if (sub === 'recent') {
+        const all = [];
+        for (const wf of store.listForGuild(guildId)) for (const f of (wf.lastFires || [])) all.push({ ...f, name: wf.name });
+        all.sort((a, b) => b.at - a.at);
+        const top = all.slice(0, 20);
+        if (!top.length) return interaction.editReply({ components: [errBox('no recent fires.')], flags: V2_E });
+        const lines = top.map(f => `${f.ok ? E.success : E.error} <t:${Math.floor(f.at / 1000)}:R> · **${f.name}**`);
+        return interaction.editReply({ components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.cursor} recent fires`))
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')))], flags: V2_E });
+      }
+
+      if (sub === 'info') {
         const id = interaction.options.getInteger('id');
         const wf = store.get(id);
         if (!wf || wf.guildId !== guildId) return interaction.editReply({ components: [errBox(`no automation with id \`${id}\`.`)], flags: V2_E });
-        const draft = { name: wf.name, trigger: JSON.parse(JSON.stringify(wf.trigger)), conditions: JSON.parse(JSON.stringify(wf.conditions || [])), conditionMode: wf.conditionMode || 'all', actions: JSON.parse(JSON.stringify(wf.actions || [])), cooldownSeconds: wf.cooldownSeconds ?? 5, createdBy: wf.createdBy };
-        return runBuilder(interaction, userId, guildId, draft, wf.id, `editing **${wf.name}**`);
+        const c = new ContainerBuilder().setAccentColor(0x5b7fd4);
+        c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.file} ${wf.name}`));
+        c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# id \`${wf.id}\` · ${wf.enabled ? 'enabled' : 'disabled'} · ${wf.fireCount || 0} fires`));
+        c.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+        c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.compass} **trigger:** \`${wf.trigger?.type || 'none'}\``));
+        c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.folder} **conditions** (${wf.conditions.length})\n${E.cursor} **actions** (${wf.actions.length})`));
+        return interaction.editReply({ components: [c], flags: V2_E });
+      }
+
+      if (sub === 'delete') {
+        const id = interaction.options.getInteger('id');
+        const wf = store.get(id);
+        if (!wf || wf.guildId !== guildId) return interaction.editReply({ components: [errBox(`no automation with id \`${id}\`.`)], flags: V2_E });
+        const name = wf.name;
+        store.remove(id);
+        return interaction.editReply({ components: [okBox(`deleted **${name}**.`)], flags: V2_E });
+      }
+
+      if (sub === 'duplicate') {
+        const id = interaction.options.getInteger('id');
+        const newName = interaction.options.getString('new_name');
+        const wf = store.get(id);
+        if (!wf || wf.guildId !== guildId) return interaction.editReply({ components: [errBox(`no automation with id \`${id}\`.`)], flags: V2_E });
+        if (store.listForGuild(guildId).some(w => w.name.toLowerCase() === newName.toLowerCase())) {
+          return interaction.editReply({ components: [errBox(`name already taken.`)], flags: V2_E });
+        }
+        const copy = store.create(guildId, {
+          name: newName,
+          trigger: JSON.parse(JSON.stringify(wf.trigger)),
+          conditions: JSON.parse(JSON.stringify(wf.conditions)),
+          conditionMode: wf.conditionMode,
+          actions: JSON.parse(JSON.stringify(wf.actions)),
+          cooldownSeconds: wf.cooldownSeconds,
+          createdBy: userId,
+        });
+        return interaction.editReply({ components: [okBox(`duplicated → **${copy.name}** · id \`${copy.id}\``)], flags: V2_E });
+      }
+
+      if (sub === 'enable' || sub === 'disable') {
+        const id = interaction.options.getInteger('id');
+        const wf = store.get(id);
+        if (!wf || wf.guildId !== guildId) return interaction.editReply({ components: [errBox(`no automation with id \`${id}\`.`)], flags: V2_E });
+        wf.enabled = sub === 'enable';
+        store.update(id, wf);
+        return interaction.editReply({ components: [okBox(`**${wf.name}** is now ${wf.enabled ? 'enabled' : 'disabled'}.`)], flags: V2_E });
+      }
+
+      if (sub === 'enable-all' || sub === 'disable-all') {
+        const enabled = sub === 'enable-all';
+        const n = store.setEnabledAll(guildId, enabled);
+        return interaction.editReply({ components: [okBox(`${enabled ? 'enabled' : 'disabled'} **${n}** automation(s).`)], flags: V2_E });
       }
 
       if (sub === 'templates') {
@@ -613,49 +695,11 @@ module.exports = {
         return interaction.editReply({ components: [okBox(`created **${wf.name}** · id \`${wf.id}\``)], flags: V2_E });
       }
 
-      if (sub === 'list') {
-        const list = store.listForGuild(guildId);
-        if (!list.length) return interaction.editReply({ components: [new ContainerBuilder().setAccentColor(0x5b7fd4).addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.folder} no automations yet.`))], flags: V2_E });
-        const lines = list.map(w => `${w.enabled ? E.on : E.off} **${w.name}** · id \`${w.id}\` · \`${w.trigger?.type || 'none'}\``);
-        return interaction.editReply({ components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.folder} automations (${list.length})`))
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')))], flags: V2_E });
-      }
-
-      if (sub === 'info') {
-        const id = interaction.options.getInteger('id');
-        const wf = store.get(id);
-        if (!wf || wf.guildId !== guildId) return interaction.editReply({ components: [errBox(`no automation with id \`${id}\`.`)], flags: V2_E });
-        const c = new ContainerBuilder().setAccentColor(0x5b7fd4);
-        c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.file} ${wf.name}`));
-        c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# id \`${wf.id}\` · ${wf.enabled ? 'enabled' : 'disabled'}`));
-        c.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
-        c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.compass} **trigger:** \`${wf.trigger?.type || 'none'}\`\n${E.folder} **conditions:** ${wf.conditions.length}\n${E.cursor} **actions:** ${wf.actions.length}`));
-        return interaction.editReply({ components: [c], flags: V2_E });
-      }
-
-      if (sub === 'delete') {
-        const id = interaction.options.getInteger('id');
-        const wf = store.get(id);
-        if (!wf || wf.guildId !== guildId) return interaction.editReply({ components: [errBox(`no automation with id \`${id}\`.`)], flags: V2_E });
-        const name = wf.name;
-        store.remove(id);
-        return interaction.editReply({ components: [okBox(`deleted **${name}**.`)], flags: V2_E });
-      }
-
-      if (sub === 'enable' || sub === 'disable') {
-        const id = interaction.options.getInteger('id');
-        const wf = store.get(id);
-        if (!wf || wf.guildId !== guildId) return interaction.editReply({ components: [errBox(`no automation with id \`${id}\`.`)], flags: V2_E });
-        wf.enabled = sub === 'enable';
-        store.update(id, wf);
-        return interaction.editReply({ components: [okBox(`**${wf.name}** is now ${wf.enabled ? 'enabled' : 'disabled'}.`)], flags: V2_E });
-      }
-
       if (sub === 'stats') {
         const list = store.listForGuild(guildId);
         const enabled = list.filter(w => w.enabled).length;
         const totalFires = list.reduce((s, w) => s + (w.fireCount || 0), 0);
+        const totalErrors = list.reduce((s, w) => s + (w.errorCount || 0), 0);
         const c = new ContainerBuilder().setAccentColor(0x5b7fd4);
         c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.wheel} automation stats`));
         c.addTextDisplayComponents(new TextDisplayBuilder().setContent([
@@ -663,6 +707,7 @@ module.exports = {
           `${E.on} enabled: ${enabled}`,
           `${E.off} disabled: ${list.length - enabled}`,
           `${E.cursor} fires: ${totalFires}`,
+          `${E.error} errors: ${totalErrors}`,
         ].join('\n')));
         return interaction.editReply({ components: [c], flags: V2_E });
       }
