@@ -391,22 +391,17 @@ async function promptAction(interaction, msg, userId, btn, draft) {
   return null;
 }
 
-/* ── manage with reorder ── */
 async function manage(interaction, msg, userId, btn, draft) {
   const items = [
     ...draft.conditions.map((c, i) => ({ k: 'c', i, label: `cond ${i + 1}: ${c.type} ${c.op} ${Array.isArray(c.value) ? c.value.join(',') : c.value ?? ''}` })),
     ...draft.actions.map((a, i) => ({ k: 'a', i, label: `act ${i + 1}: ${a.type} · ${a.summary || ''}` })),
   ];
-  if (!items.length) {
-    await btn.update({ components: [errBox('nothing to manage.')], flags: V2_E }).catch(() => {});
-    return false;
-  }
+  if (!items.length) return false;
 
   const menu = new StringSelectMenuBuilder().setCustomId('picker').setPlaceholder('pick to edit')
     .addOptions(items.map(x => new StringSelectMenuOptionBuilder().setLabel(x.label.slice(0, 100)).setValue(`${x.k}:${x.i}`)));
   const pick = await showMenu(btn, msg, userId, `${E.folder} manage items`, menu);
   if (!pick) return false;
-  await pick.deferUpdate().catch(() => {});
 
   const [k, i] = pick.values[0].split(':');
   const idx = parseInt(i, 10);
@@ -427,15 +422,22 @@ async function manage(interaction, msg, userId, btn, draft) {
 
   const action = await awaitOne(msg, userId, 30000);
   if (!action) return true;
-  await action.deferUpdate().catch(() => {});
 
-  if (action.customId === 'mg_del') arr.splice(idx, 1);
-  else if (action.customId === 'mg_up' && idx > 0) [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
-  else if (action.customId === 'mg_down' && idx < arr.length - 1) [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
+  if (action.customId === 'mg_del') {
+    arr.splice(idx, 1);
+    await action.deferUpdate().catch(() => {});
+  } else if (action.customId === 'mg_up' && idx > 0) {
+    [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
+    await action.deferUpdate().catch(() => {});
+  } else if (action.customId === 'mg_down' && idx < arr.length - 1) {
+    [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
+    await action.deferUpdate().catch(() => {});
+  } else {
+    await action.deferUpdate().catch(() => {});
+  }
   return true;
 }
 
-/* ── main builder loop ── */
 async function runBuilder(interaction, userId, guildId, draft, hint) {
   const history = [];
   const pushHistory = () => {
@@ -448,12 +450,12 @@ async function runBuilder(interaction, userId, guildId, draft, hint) {
   if (!msg) return;
 
   const save = () => {
-    try { store.update(draft.id, draft); } catch (e) { console.error('[automation] save error:', e); }
-  };
-
-  const redraw = async (h) => {
-    save();
-    await msg.edit({ components: [buildMain(draft, h)] }).catch(() => {});
+    try {
+      store.update(draft.id, draft);
+      console.log(`[automation] saved id=${draft.id} enabled=${draft.enabled}`);
+    } catch (e) {
+      console.error('[automation] save error:', e);
+    }
   };
 
   while (true) {
@@ -461,33 +463,46 @@ async function runBuilder(interaction, userId, guildId, draft, hint) {
     if (!btn) return;
 
     try {
-      if (btn.customId === 'auto_cancel') {
-        await btn.update({ components: [okBox(`closed. **${draft.name}** saved as id \`${draft.id}\`.`)], flags: V2_E }).catch(() => {});
-        return;
+      /* ── simple changes: btn.update directly ── */
+      if (btn.customId === 'auto_toggle') {
+        draft.enabled = !draft.enabled;
+        save();
+        console.log(`[automation] toggle → ${draft.enabled}`);
+        await btn.update({ components: [buildMain(draft, draft.enabled ? 'enabled' : 'disabled')], flags: V2_E }).catch(e => console.error('[auto] toggle err:', e.message));
+        continue;
       }
 
-      if (btn.customId === 'auto_toggle') {
-        await btn.deferUpdate().catch(() => {});
-        draft.enabled = !draft.enabled;
-        await redraw(draft.enabled ? 'enabled' : 'disabled');
+      if (btn.customId === 'auto_mode') {
+        pushHistory();
+        draft.conditionMode = draft.conditionMode === 'all' ? 'any' : 'all';
+        save();
+        await btn.update({ components: [buildMain(draft)], flags: V2_E }).catch(() => {});
         continue;
       }
 
       if (btn.customId === 'auto_clear') {
-        await btn.deferUpdate().catch(() => {});
         pushHistory();
         draft.trigger = null; draft.conditions = []; draft.actions = [];
-        await redraw('cleared');
+        save();
+        await btn.update({ components: [buildMain(draft, 'cleared')], flags: V2_E }).catch(() => {});
         continue;
       }
 
       if (btn.customId === 'auto_undo') {
-        await btn.deferUpdate().catch(() => {});
-        if (!history.length) { await redraw('nothing to undo'); continue; }
+        if (!history.length) {
+          await btn.update({ components: [buildMain(draft, 'nothing to undo')], flags: V2_E }).catch(() => {});
+          continue;
+        }
         const prev = JSON.parse(history.pop());
         Object.assign(draft, prev);
-        await redraw('undone');
+        save();
+        await btn.update({ components: [buildMain(draft, 'undone')], flags: V2_E }).catch(() => {});
         continue;
+      }
+
+      if (btn.customId === 'auto_cancel') {
+        await btn.update({ components: [okBox(`closed. **${draft.name}** saved as id \`${draft.id}\`.`)], flags: V2_E }).catch(() => {});
+        return;
       }
 
       if (btn.customId === 'auto_export') {
@@ -496,37 +511,39 @@ async function runBuilder(interaction, userId, guildId, draft, hint) {
           conditionMode: draft.conditionMode, actions: draft.actions,
           cooldownSeconds: draft.cooldownSeconds,
         }, null, 2);
-        await btn.followUp({ components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.file} export\n\`\`\`json\n${json.slice(0, 3800)}\n\`\`\``))], flags: V2_E }).catch(() => {});
+        await btn.reply({
+          components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.file} export\n\`\`\`json\n${json.slice(0, 3800)}\n\`\`\``))],
+          flags: V2_E | MessageFlags.Ephemeral,
+        }).catch(() => {});
         continue;
       }
 
+      /* ── flows with pickers/modals: deferUpdate + editReply ── */
       if (btn.customId === 'auto_set_trigger') {
+        await btn.deferUpdate().catch(() => {});
         const t = await promptTrigger(interaction, msg, userId, btn);
         if (t) { pushHistory(); draft.trigger = t; }
-        await redraw();
+        save();
+        await interaction.editReply({ components: [buildMain(draft)], flags: V2_E }).catch(e => console.error('[auto] redraw err:', e.message));
         continue;
       }
 
       if (btn.customId === 'auto_add_cond') {
+        await btn.deferUpdate().catch(() => {});
         const c = await promptCondition(interaction, msg, userId, btn);
         if (c) { pushHistory(); draft.conditions.push(c); }
-        await redraw();
+        save();
+        await interaction.editReply({ components: [buildMain(draft)], flags: V2_E }).catch(e => console.error('[auto] redraw err:', e.message));
         continue;
       }
 
       if (btn.customId === 'auto_add_action') {
+        await btn.deferUpdate().catch(() => {});
         const a = await promptAction(interaction, msg, userId, btn, draft);
         if (a) { pushHistory(); draft.actions.push(a); }
-        await redraw();
-        continue;
-      }
-
-      if (btn.customId === 'auto_mode') {
-        await btn.deferUpdate().catch(() => {});
-        pushHistory();
-        draft.conditionMode = draft.conditionMode === 'all' ? 'any' : 'all';
-        await redraw();
+        save();
+        await interaction.editReply({ components: [buildMain(draft)], flags: V2_E }).catch(e => console.error('[auto] redraw err:', e.message));
         continue;
       }
 
@@ -540,8 +557,9 @@ async function runBuilder(interaction, userId, guildId, draft, hint) {
           pushHistory();
           const n = parseInt(sub.fields.getTextInputValue('sec'), 10);
           draft.cooldownSeconds = Number.isFinite(n) ? Math.max(0, Math.min(600, n)) : 5;
+          save();
         }
-        await redraw();
+        await interaction.editReply({ components: [buildMain(draft)], flags: V2_E }).catch(() => {});
         continue;
       }
 
@@ -549,15 +567,16 @@ async function runBuilder(interaction, userId, guildId, draft, hint) {
         await btn.deferUpdate().catch(() => {});
         pushHistory();
         await manage(interaction, msg, userId, btn, draft);
-        await redraw();
+        save();
+        await interaction.editReply({ components: [buildMain(draft)], flags: V2_E }).catch(() => {});
         continue;
       }
 
       await btn.deferUpdate().catch(() => {});
-      await redraw();
+      await interaction.editReply({ components: [buildMain(draft)], flags: V2_E }).catch(() => {});
     } catch (e) {
       console.error('[automation] collect error:', e);
-      try { await redraw(); } catch {}
+      try { await interaction.editReply({ components: [buildMain(draft)], flags: V2_E }); } catch {}
     }
   }
 }
@@ -649,11 +668,10 @@ module.exports = {
         const id = interaction.options.getInteger('id');
         const wf = store.get(id);
         if (!wf || wf.guildId !== guildId) {
-          return interaction.editReply({ components: [errBox(`no automation with id \`${id}\`.`)] , flags: V2_E });
+          return interaction.editReply({ components: [errBox(`no automation with id \`${id}\`.`)], flags: V2_E });
         }
         const draft = {
-          id: wf.id,
-          name: wf.name,
+          id: wf.id, name: wf.name,
           trigger: wf.trigger ? JSON.parse(JSON.stringify(wf.trigger)) : null,
           conditions: JSON.parse(JSON.stringify(wf.conditions || [])),
           conditionMode: wf.conditionMode || 'all',
