@@ -13,38 +13,43 @@ async function evaluate(member, warnCount, client) {
   for (const r of rules) if (warnCount >= r.warns) triggered = r;
   if (!triggered) return;
 
-  /* prevent duplicates: check if we already fired this rule */
-  const prevCase = store.listCases(guildId, { targetId: member.id, limit: 1 })[0];
-  if (prevCase?.meta?.escalation === triggered.warns) return;
+  /* ── LOOP GUARD: check for existing active auto-escalation at this warn count ── */
+  const previous = store.listCases(guildId, { targetId: member.id, limit: 100 });
+  const reasonKey = `auto-escalation at ${warnCount} warns`;
+  const alreadyFired = previous.some(c =>
+    c.modId === 'auto-escalation' &&
+    c.reason === reasonKey &&
+    c.status === 'active'
+  );
+  if (alreadyFired) return;
 
   try {
     if (triggered.action === 'timeout' && member.moderatable) {
-      await member.timeout(triggered.duration || 3600000, `escalation: ${warnCount} warns`).catch(() => {});
+      await member.timeout(triggered.duration || 3600000, reasonKey).catch(() => {});
     } else if (triggered.action === 'mute' && member.moderatable) {
-      await member.timeout(triggered.duration || 3600000, `escalation: ${warnCount} warns`).catch(() => {});
+      await member.timeout(triggered.duration || 3600000, reasonKey).catch(() => {});
     } else if (triggered.action === 'kick' && member.kickable) {
-      await member.kick(`escalation: ${warnCount} warns`).catch(() => {});
+      await member.kick(reasonKey).catch(() => {});
     } else if (triggered.action === 'ban' && member.bannable) {
-      await member.ban({ reason: `escalation: ${warnCount} warns` }).catch(() => {});
+      await member.ban({ reason: reasonKey }).catch(() => {});
     } else if (triggered.action === 'tempban' && member.bannable) {
-      await member.ban({ reason: `escalation: ${warnCount} warns` }).catch(() => {});
+      await member.ban({ reason: reasonKey }).catch(() => {});
     }
 
     const c = store.createCase(guildId, {
       type: triggered.action,
       targetId: member.id,
       modId: 'auto-escalation',
-      reason: `auto-escalation at ${warnCount} warns`,
+      reason: reasonKey,
       duration: triggered.duration || null,
     });
-    c.meta = { escalation: triggered.warns };
 
     await modlog.log(guildId, {
       type: triggered.action,
       caseId: c.id,
       targetId: member.id,
       modId: 'auto-escalation',
-      reason: `auto-escalation at ${warnCount} warns`,
+      reason: reasonKey,
       duration: triggered.duration,
     }, member.client);
   } catch (e) {
