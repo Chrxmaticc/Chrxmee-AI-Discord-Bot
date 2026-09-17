@@ -1,139 +1,113 @@
-/* cogs/automation/store.js — in-memory, fake sql logs */
+/* cogs/automation/store.js — postgres-backed */
+let pool = null;
+function setPool(p) { pool = p; }
 
-const guildFlows = new Map();
-let nextId = 1;
-
-function logSQL(sql, params) {
-  console.log(`[SQL] ${sql}`);
-  if (params) console.log(`[SQL] params:`, JSON.stringify(params));
-}
-
-function ensure(guildId) {
-  if (!guildFlows.has(guildId)) guildFlows.set(guildId, new Map());
-  return guildFlows.get(guildId);
+function rowToFlow(r) {
+  return {
+    id: r.id,
+    guildId: Number(r.guild_id),
+    name: r.name,
+    enabled: r.enabled,
+    trigger: r.trigger,
+    conditions: r.conditions || [],
+    conditionMode: r.condition_mode,
+    actions: r.actions || [],
+    cooldownSeconds: r.cooldown_seconds,
+    createdBy: r.created_by ? Number(r.created_by) : null,
+    createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
+    errorCount: r.error_count || 0,
+    fireCount: r.fire_count || 0,
+  };
 }
 
 module.exports = {
-  create(guildId, data) {
-    const id = nextId++;
-    const wf = {
-      id, guildId,
-      name: data.name,
-      enabled: data.enabled !== false,
-      trigger: data.trigger || null,
-      conditions: data.conditions || [],
-      conditionMode: data.conditionMode || 'all',
-      actions: data.actions || [],
-      cooldownSeconds: data.cooldownSeconds ?? 5,
-      priority: data.priority ?? 0,
-      stopOnError: data.stopOnError === true,
-      createdBy: data.createdBy || null,
-      createdAt: Date.now(),
-      errorCount: 0,
-      fireCount: 0,
-      lastFiredAt: 0,
-      lastFires: [],
-    };
-    logSQL(
-      `INSERT INTO automation_flows (id, guild_id, name, enabled, trigger, conditions, condition_mode, actions, cooldown_seconds, priority, stop_on_error, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [wf.id, wf.guildId, wf.name, wf.enabled, JSON.stringify(wf.trigger), JSON.stringify(wf.conditions), wf.conditionMode, JSON.stringify(wf.actions), wf.cooldownSeconds, wf.priority, wf.stopOnError, wf.createdBy]
+  setPool,
+  async create(guildId, data) {
+    const r = await pool.query(
+      `INSERT INTO automation_flows (guild_id, name, enabled, trigger, conditions, condition_mode, actions, cooldown_seconds, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [guildId, data.name, data.enabled === true, JSON.stringify(data.trigger || null), JSON.stringify(data.conditions || []), data.conditionMode || 'all', JSON.stringify(data.actions || []), data.cooldownSeconds ?? 5, data.createdBy || null]
     );
-    ensure(guildId).set(id, wf);
-    return wf;
+    return rowToFlow(r.rows[0]);
   },
-
-  get(id) {
-    logSQL(`SELECT * FROM automation_flows WHERE id = $1`, [id]);
-    for (const m of guildFlows.values()) if (m.has(id)) return m.get(id);
-    return null;
+  async get(id) {
+    const r = await pool.query(`SELECT * FROM automation_flows WHERE id = $1`, [id]);
+    return r.rows[0] ? rowToFlow(r.rows[0]) : null;
   },
-
-  listForGuild(guildId) {
-    logSQL(`SELECT * FROM automation_flows WHERE guild_id = $1 ORDER BY priority DESC, id ASC`, [guildId]);
-    return [...(guildFlows.get(guildId)?.values() || [])];
+  async listForGuild(guildId) {
+    const r = await pool.query(`SELECT * FROM automation_flows WHERE guild_id = $1 ORDER BY id ASC`, [guildId]);
+    return r.rows.map(rowToFlow);
   },
-
-  /* returns enabled flows for a trigger, sorted by priority desc */
-  listEnabledFor(guildId, triggerType) {
-    logSQL(
-      `SELECT * FROM automation_flows WHERE guild_id = $1 AND enabled = true AND trigger->>'type' = $2 ORDER BY priority DESC, id ASC`,
+  async listEnabledFor(guildId, triggerType) {
+    const r = await pool.query(
+      `SELECT * FROM automation_flows WHERE guild_id = $1 AND enabled = true AND trigger->>'type' = $2 ORDER BY id ASC`,
       [guildId, triggerType]
     );
-    return [...(guildFlows.get(guildId)?.values() || [])]
-      .filter(w => w.enabled && w.trigger?.type === triggerType)
-      .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.id - b.id);
+    return r.rows.map(rowToFlow);
   },
-
-  allScheduled() {
-    logSQL(`SELECT * FROM automation_flows WHERE enabled = true AND trigger->>'type' = 'scheduled' ORDER BY priority DESC`);
-    const out = [];
-    for (const m of guildFlows.values()) {
-      for (const wf of m.values()) {
-        if (wf.enabled && wf.trigger?.type === 'scheduled') out.push(wf);
-      }
-    }
-    return out.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.id - b.id);
+  async allScheduled() {
+    const r = await pool.query(`SELECT * FROM automation_flows WHERE enabled = true AND trigger->>'type' = 'scheduled' ORDER BY id ASC`);
+    return r.rows.map(rowToFlow);
   },
-
-  update(id, patch) {
-    logSQL(
-      `UPDATE automation_flows SET name = $1, enabled = $2, trigger = $3, conditions = $4, condition_mode = $5, actions = $6, cooldown_seconds = $7, priority = $8, stop_on_error = $9 WHERE id = $10`,
-      [patch.name, patch.enabled, JSON.stringify(patch.trigger), JSON.stringify(patch.conditions), patch.conditionMode, JSON.stringify(patch.actions), patch.cooldownSeconds, patch.priority ?? 0, patch.stopOnError === true, id]
+  async update(id, patch) {
+    const r = await pool.query(
+      `UPDATE automation_flows SET
+        name = COALESCE($1, name),
+        enabled = COALESCE($2, enabled),
+        trigger = COALESCE($3, trigger),
+        conditions = COALESCE($4, conditions),
+        condition_mode = COALESCE($5, condition_mode),
+        actions = COALESCE($6, actions),
+        cooldown_seconds = COALESCE($7, cooldown_seconds),
+        updated_at = NOW()
+       WHERE id = $8 RETURNING *`,
+      [
+        patch.name ?? null,
+        typeof patch.enabled === 'boolean' ? patch.enabled : null,
+        patch.trigger !== undefined ? JSON.stringify(patch.trigger) : null,
+        patch.conditions !== undefined ? JSON.stringify(patch.conditions) : null,
+        patch.conditionMode ?? null,
+        patch.actions !== undefined ? JSON.stringify(patch.actions) : null,
+        patch.cooldownSeconds ?? null,
+        id,
+      ]
     );
-    for (const m of guildFlows.values()) {
-      if (m.has(id)) {
-        const wf = m.get(id);
-        Object.assign(wf, {
-          name: patch.name ?? wf.name,
-          enabled: patch.enabled ?? wf.enabled,
-          trigger: patch.trigger ?? wf.trigger,
-          conditions: patch.conditions ?? wf.conditions,
-          conditionMode: patch.conditionMode ?? wf.conditionMode,
-          actions: patch.actions ?? wf.actions,
-          cooldownSeconds: patch.cooldownSeconds ?? wf.cooldownSeconds,
-          priority: patch.priority ?? wf.priority ?? 0,
-          stopOnError: patch.stopOnError ?? wf.stopOnError ?? false,
-        });
-        return wf;
-      }
-    }
-    return null;
+    return r.rows[0] ? rowToFlow(r.rows[0]) : null;
   },
-
-  remove(id) {
-    logSQL(`DELETE FROM automation_flows WHERE id = $1`, [id]);
-    for (const m of guildFlows.values()) {
-      if (m.has(id)) { m.delete(id); return true; }
-    }
-    return false;
+  async remove(id) {
+    const r = await pool.query(`DELETE FROM automation_flows WHERE id = $1`, [id]);
+    return r.rowCount > 0;
   },
-
-  bumpError(id) {
-    logSQL(`UPDATE automation_flows SET error_count = error_count + 1 WHERE id = $1`, [id]);
-    const wf = this.get(id);
-    if (wf) wf.errorCount = (wf.errorCount || 0) + 1;
+  async bumpError(id) {
+    await pool.query(`UPDATE automation_flows SET error_count = error_count + 1 WHERE id = $1`, [id]);
   },
-
-  recordFire(id, entry) {
-    logSQL(
+  async recordFire(id, entry) {
+    await pool.query(
       `INSERT INTO automation_fires (flow_id, user_id, ok, error) VALUES ($1,$2,$3,$4)`,
-      [id, entry.userId, entry.ok, entry.error || null]
+      [id, entry.userId, entry.ok === true, entry.error || null]
     );
-    const wf = this.get(id);
-    if (!wf) return;
-    wf.fireCount = (wf.fireCount || 0) + 1;
-    wf.lastFiredAt = Date.now();
-    wf.lastFires.unshift({ ...entry, at: Date.now() });
-    if (wf.lastFires.length > 20) wf.lastFires.pop();
+    await pool.query(`UPDATE automation_flows SET fire_count = fire_count + 1 WHERE id = $1`, [id]);
+    if (!entry.ok) {
+      const r = await pool.query(`SELECT error_count FROM automation_flows WHERE id = $1`, [id]);
+      if (r.rows[0] && r.rows[0].error_count >= 5) {
+        await pool.query(`UPDATE automation_flows SET enabled = false WHERE id = $1`, [id]);
+      }
+    }
   },
-
-  setEnabledAll(guildId, enabled) {
-    logSQL(`UPDATE automation_flows SET enabled = $1 WHERE guild_id = $2`, [enabled, guildId]);
-    const map = guildFlows.get(guildId);
-    let n = 0;
-    if (map) for (const wf of map.values()) { wf.enabled = enabled; n++; }
-    return n;
+  async setEnabledAll(guildId, enabled) {
+    const r = await pool.query(`UPDATE automation_flows SET enabled = $1 WHERE guild_id = $2`, [enabled, guildId]);
+    return r.rowCount;
   },
-
-  nextIdRef() { return nextId; },
+  async getRecentFires(guildId, limit = 20) {
+    const r = await pool.query(
+      `SELECT f.*, a.name AS flow_name FROM automation_fires f
+       JOIN automation_flows a ON a.id = f.flow_id
+       WHERE a.guild_id = $1 ORDER BY f.fired_at DESC LIMIT $2`,
+      [guildId, limit]
+    );
+    return r.rows.map(x => ({
+      userId: x.user_id, ok: x.ok, error: x.error,
+      at: new Date(x.fired_at).getTime(), name: x.flow_name,
+    }));
+  },
 };
