@@ -1,22 +1,8 @@
 const {
-  SlashCommandBuilder,
-  PermissionsBitField,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
-  StringSelectMenuBuilder,
-  StringSelectMenuOptionBuilder,
-  ChannelSelectMenuBuilder,
-  RoleSelectMenuBuilder,
-  ContainerBuilder,
-  TextDisplayBuilder,
-  SeparatorBuilder,
-  SeparatorSpacingSize,
-  MessageFlags,
-  ChannelType,
+  SlashCommandBuilder, PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
+  ChannelSelectMenuBuilder, RoleSelectMenuBuilder, ContainerBuilder, TextDisplayBuilder,
+  SeparatorBuilder, SeparatorSpacingSize, MessageFlags, ChannelType,
 } = require('discord.js');
 
 const { store, templates, constants } = require('../cogs/automation');
@@ -44,7 +30,6 @@ const E = {
 const V2 = MessageFlags.IsComponentsV2;
 const V2_E = MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral;
 
-/* ───── helpers ───── */
 const errBox = (m) => new ContainerBuilder().setAccentColor(0xff3b3b)
   .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.error} ${m}`));
 const okBox = (m) => new ContainerBuilder().setAccentColor(0x57f287)
@@ -56,19 +41,12 @@ function buildMain(draft, hint) {
   c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${hint || 'trigger → conditions → actions'}`));
   c.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
-  /* header row: enabled, priority */
-  c.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-    `${draft.enabled ? E.on : E.off} **enabled:** ${draft.enabled ? 'on' : 'off'} · priority \`${draft.priority ?? 0}\` · stop-on-error \`${draft.stopOnError ? 'on' : 'off'}\``
-  ));
-
-  /* trigger */
   const t = draft.trigger;
   const tLine = t
     ? `**${t.type}**${t.keyword ? ` · \`${t.keyword}\` · ${t.matchMode}` : ''}${t.emoji ? ` · ${t.emoji}` : ''}${t.mode ? ` · ${t.mode}` : ''}`
     : '*not set*';
   c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`${t ? E.on : E.off} **trigger:** ${tLine}`));
 
-  /* conditions */
   c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.folder} **conditions** (${draft.conditions.length}) · mode \`${draft.conditionMode}\``));
   if (!draft.conditions.length) c.addTextDisplayComponents(new TextDisplayBuilder().setContent('-# none'));
   else draft.conditions.forEach((cd, i) => {
@@ -76,7 +54,6 @@ function buildMain(draft, hint) {
     c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`  \`${i + 1}.\` **${cd.type}** ${cd.op} ${val ?? ''}`));
   });
 
-  /* actions */
   c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.cursor} **actions** (${draft.actions.length}) · cooldown \`${draft.cooldownSeconds}s\``));
   if (!draft.actions.length) c.addTextDisplayComponents(new TextDisplayBuilder().setContent('-# none'));
   else draft.actions.forEach((a, i) => {
@@ -90,19 +67,15 @@ function buildMain(draft, hint) {
     new ButtonBuilder().setCustomId('auto_add_cond').setLabel('add condition').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('auto_add_action').setLabel('add action').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('auto_mode').setLabel(`mode: ${draft.conditionMode}`).setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('auto_cooldown').setLabel(`cd: ${draft.cooldownSeconds}s`).setStyle(ButtonStyle.Secondary),
   );
   const r2 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('auto_priority').setLabel(`priority: ${draft.priority ?? 0}`).setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('auto_enabled').setLabel(`enabled: ${draft.enabled ? 'on' : 'off'}`).setStyle(draft.enabled ? ButtonStyle.Success : ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('auto_stoponerror').setLabel(`stop-on-error: ${draft.stopOnError ? 'on' : 'off'}`).setStyle(draft.stopOnError ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('auto_cooldown').setLabel(`cooldown: ${draft.cooldownSeconds}s`).setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('auto_undo').setLabel('undo').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('auto_manage').setLabel('manage').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('auto_test').setLabel('test').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('auto_clear').setLabel('clear').setStyle(ButtonStyle.Danger),
   );
   const r3 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('auto_test').setLabel('dry run').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('auto_clone').setLabel('clone draft').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('auto_clear').setLabel('clear').setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId('auto_save').setLabel('save').setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId('auto_cancel').setLabel('cancel').setStyle(ButtonStyle.Secondary),
   );
@@ -110,84 +83,88 @@ function buildMain(draft, hint) {
   return c;
 }
 
-/* ───── pickers ───── */
-async function pickMenu(interaction, userId, id, title, options, multi = false, min = 1, max = 5) {
-  const menu = new StringSelectMenuBuilder().setCustomId(id).setPlaceholder('pick one').addOptions(options);
+/* ─── ack a modal submit WITHOUT locking the original ephemeral message ─── */
+async function ackModal(sub) {
+  try {
+    await sub.deferReply({ flags: 64 });
+    await sub.deleteReply();
+  } catch {}
+}
+
+/* ─── pickers — all operate on the builder message directly ─── */
+async function pickMenu(builder, userId, title, options, multi = false, min = 1, max = 5) {
+  const menu = new StringSelectMenuBuilder().setCustomId('pick').setPlaceholder('pick one').addOptions(options);
   if (multi) menu.setMinValues(min).setMaxValues(max);
   const c = new ContainerBuilder().setAccentColor(0x5b7fd4)
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${title}`))
     .addActionRowComponents(new ActionRowBuilder().addComponents(menu));
-  await interaction.editReply({ components: [c], flags: V2_E });
-  const msg = await interaction.fetchReply();
-  const p = await msg.awaitMessageComponent({ time: 60000, filter: i => i.user.id === userId }).catch(() => null);
+  await builder.edit({ components: [c] }).catch(() => {});
+  const p = await builder.awaitMessageComponent({ time: 60000, filter: i => i.user.id === userId }).catch(() => null);
   if (!p) return null;
   await p.deferUpdate().catch(() => {});
   return p;
 }
 
-async function pickChannel(interaction, userId, title, types = [ChannelType.GuildText, ChannelType.GuildAnnouncement]) {
-  const menu = new ChannelSelectMenuBuilder().setCustomId('auto_pick_channel').setPlaceholder('pick a channel').addChannelTypes(...types);
+async function pickChannel(builder, userId, title, types = [ChannelType.GuildText, ChannelType.GuildAnnouncement]) {
+  const menu = new ChannelSelectMenuBuilder().setCustomId('pick_ch').setPlaceholder('pick a channel').addChannelTypes(...types);
   const c = new ContainerBuilder().setAccentColor(0x5b7fd4)
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.channel} ${title}`))
     .addActionRowComponents(new ActionRowBuilder().addComponents(menu));
-  await interaction.editReply({ components: [c], flags: V2_E });
-  const msg = await interaction.fetchReply();
-  const p = await msg.awaitMessageComponent({ time: 60000, filter: i => i.user.id === userId }).catch(() => null);
+  await builder.edit({ components: [c] }).catch(() => {});
+  const p = await builder.awaitMessageComponent({ time: 60000, filter: i => i.user.id === userId }).catch(() => null);
   if (!p) return null;
   await p.deferUpdate().catch(() => {});
   return p.values[0];
 }
 
-async function pickRole(interaction, userId, title) {
-  const menu = new RoleSelectMenuBuilder().setCustomId('auto_pick_role').setPlaceholder('pick a role');
+async function pickRole(builder, userId, title) {
+  const menu = new RoleSelectMenuBuilder().setCustomId('pick_rl').setPlaceholder('pick a role');
   const c = new ContainerBuilder().setAccentColor(0x5b7fd4)
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.member} ${title}`))
     .addActionRowComponents(new ActionRowBuilder().addComponents(menu));
-  await interaction.editReply({ components: [c], flags: V2_E });
-  const msg = await interaction.fetchReply();
-  const p = await msg.awaitMessageComponent({ time: 60000, filter: i => i.user.id === userId }).catch(() => null);
+  await builder.edit({ components: [c] }).catch(() => {});
+  const p = await builder.awaitMessageComponent({ time: 60000, filter: i => i.user.id === userId }).catch(() => null);
   if (!p) return null;
   await p.deferUpdate().catch(() => {});
   return p.values[0];
 }
 
-async function openModal(interaction, userId, modal, label = 'open modal') {
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('auto_open_modal').setLabel(label).setStyle(ButtonStyle.Primary)
-  );
-  const c = new ContainerBuilder().setAccentColor(0x5b7fd4)
-    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.rename} ${modal.data.title}`))
-    .addActionRowComponents(row);
-  await interaction.editReply({ components: [c], flags: V2_E });
-  const msg = await interaction.fetchReply();
-  const open = await msg.awaitMessageComponent({ time: 60000, filter: i => i.user.id === userId }).catch(() => null);
-  if (!open) return null;
-  await open.showModal(modal).catch(() => {});
-  const sub = await open.awaitModalSubmit({ time: 120000, filter: m => m.customId === modal.data.custom_id && m.user.id === userId }).catch(() => null);
-  if (!sub) return null;
-  await sub.deferUpdate().catch(() => {});
-  return sub;
-}
-
-async function pickOp(interaction, userId, a = 'is', b = 'is not') {
-  const m = new StringSelectMenuBuilder().setCustomId('auto_op').setPlaceholder('operator').addOptions(
+async function pickOp(builder, userId, a = 'is', b = 'is not') {
+  const m = new StringSelectMenuBuilder().setCustomId('pick_op').setPlaceholder('operator').addOptions(
     new StringSelectMenuOptionBuilder().setLabel(a).setValue(a),
     new StringSelectMenuOptionBuilder().setLabel(b).setValue(b),
   );
   const c = new ContainerBuilder().setAccentColor(0x5b7fd4)
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.settings} operator`))
     .addActionRowComponents(new ActionRowBuilder().addComponents(m));
-  await interaction.editReply({ components: [c], flags: V2_E });
-  const msg = await interaction.fetchReply();
-  const p = await msg.awaitMessageComponent({ time: 60000, filter: i => i.user.id === userId }).catch(() => null);
+  await builder.edit({ components: [c] }).catch(() => {});
+  const p = await builder.awaitMessageComponent({ time: 60000, filter: i => i.user.id === userId }).catch(() => null);
   if (!p) return null;
   await p.deferUpdate().catch(() => {});
   return p.values[0];
 }
 
-/* ───── trigger prompt ───── */
-async function promptTrigger(interaction, userId) {
-  const p = await pickMenu(interaction, userId, 'auto_trig', `${E.compass} pick a trigger`,
+/* openModal — shows a "click to open" button, opens modal, returns the raw sub (unacked) */
+async function openModal(builder, userId, modal, label = 'open modal') {
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('open_modal').setLabel(label).setStyle(ButtonStyle.Primary)
+  );
+  const c = new ContainerBuilder().setAccentColor(0x5b7fd4)
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.rename} ${modal.data.title}`))
+    .addActionRowComponents(row);
+  await builder.edit({ components: [c] }).catch(() => {});
+  const open = await builder.awaitMessageComponent({ time: 60000, filter: i => i.user.id === userId }).catch(() => null);
+  if (!open) return null;
+  await open.showModal(modal).catch(() => {});
+  const sub = await open.awaitModalSubmit({ time: 120000, filter: m => m.customId === modal.data.custom_id && m.user.id === userId }).catch(() => null);
+  if (!sub) return null;
+  await ackModal(sub);  // ← ACK WITHOUT LOCKING THE ORIGINAL MESSAGE
+  return sub;
+}
+
+/* ─── prompt: trigger ─── */
+async function promptTrigger(builder, userId) {
+  const p = await pickMenu(builder, userId, `${E.compass} pick a trigger`,
     TRIGGERS.map(t => new StringSelectMenuOptionBuilder().setLabel(t.label).setValue(t.value).setDescription(t.desc)));
   if (!p) return null;
   const type = p.values[0];
@@ -198,7 +175,7 @@ async function promptTrigger(interaction, userId) {
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('kw').setLabel('keyword').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(150)),
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('mode').setLabel('contains/exact/starts/ends/regex').setStyle(TextInputStyle.Short).setRequired(true).setValue('contains').setMaxLength(10)),
     );
-    const sub = await openModal(interaction, userId, m, 'set keyword + mode');
+    const sub = await openModal(builder, userId, m, 'set keyword + mode');
     if (!sub) return null;
     const raw = (sub.fields.getTextInputValue('mode') || 'contains').toLowerCase().trim();
     const valid = ['contains','exact','starts','ends','regex'];
@@ -210,18 +187,18 @@ async function promptTrigger(interaction, userId) {
     m.addComponents(new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('emoji').setLabel('emoji (blank = any)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(60)
     ));
-    const sub = await openModal(interaction, userId, m, 'set emoji (optional)');
+    const sub = await openModal(builder, userId, m, 'set emoji (optional)');
     if (!sub) return null;
     return { type, emoji: sub.fields.getTextInputValue('emoji') || '' };
   }
 
   if (type === 'role_added' || type === 'role_removed') {
-    const r = await pickRole(interaction, userId, 'pick a role (blank = any)');
+    const r = await pickRole(builder, userId, 'pick a role (blank = any)');
     return { type, roleId: r || null };
   }
 
   if (type === 'scheduled') {
-    const p2 = await pickMenu(interaction, userId, 'auto_trig_sched', `${E.settings} schedule type`,
+    const p2 = await pickMenu(builder, userId, `${E.settings} schedule type`,
       [
         new StringSelectMenuOptionBuilder().setLabel('interval').setValue('interval').setDescription('every N minutes'),
         new StringSelectMenuOptionBuilder().setLabel('daily').setValue('daily').setDescription('every day at HH:MM'),
@@ -235,7 +212,7 @@ async function promptTrigger(interaction, userId) {
       m.addComponents(new ActionRowBuilder().addComponents(
         new TextInputBuilder().setCustomId('min').setLabel('minutes (min 1)').setStyle(TextInputStyle.Short).setRequired(true).setValue('60').setMaxLength(4)
       ));
-      const sub = await openModal(interaction, userId, m, 'set interval');
+      const sub = await openModal(builder, userId, m, 'set interval');
       if (!sub) return null;
       const minutes = Math.max(1, parseInt(sub.fields.getTextInputValue('min'), 10) || 60);
       return { type, mode, minutes };
@@ -247,7 +224,7 @@ async function promptTrigger(interaction, userId) {
         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('h').setLabel('hour (0-23)').setStyle(TextInputStyle.Short).setRequired(true).setValue('9').setMaxLength(2)),
         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('mi').setLabel('minute (0-59)').setStyle(TextInputStyle.Short).setRequired(true).setValue('0').setMaxLength(2)),
       );
-      const sub = await openModal(interaction, userId, m, 'set time');
+      const sub = await openModal(builder, userId, m, 'set time');
       if (!sub) return null;
       return {
         type, mode,
@@ -263,7 +240,7 @@ async function promptTrigger(interaction, userId) {
         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('h').setLabel('hour (0-23)').setStyle(TextInputStyle.Short).setRequired(true).setValue('9').setMaxLength(2)),
         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('mi').setLabel('minute (0-59)').setStyle(TextInputStyle.Short).setRequired(true).setValue('0').setMaxLength(2)),
       );
-      const sub = await openModal(interaction, userId, m, 'set time');
+      const sub = await openModal(builder, userId, m, 'set time');
       if (!sub) return null;
       return {
         type, mode,
@@ -279,7 +256,7 @@ async function promptTrigger(interaction, userId) {
     m.addComponents(new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('cid').setLabel('custom id (blank = any)').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(100)
     ));
-    const sub = await openModal(interaction, userId, m, 'set custom id');
+    const sub = await openModal(builder, userId, m, 'set custom id');
     if (!sub) return null;
     return { type, customId: sub.fields.getTextInputValue('cid') || null };
   }
@@ -287,38 +264,38 @@ async function promptTrigger(interaction, userId) {
   return { type };
 }
 
-/* ───── condition prompt ───── */
-async function promptCondition(interaction, userId) {
-  const p = await pickMenu(interaction, userId, 'auto_cond', `${E.folder} pick a condition`,
+/* ─── prompt: condition ─── */
+async function promptCondition(builder, userId) {
+  const p = await pickMenu(builder, userId, `${E.folder} pick a condition`,
     CONDITIONS.map(c => new StringSelectMenuOptionBuilder().setLabel(c.label).setValue(c.value).setDescription(c.desc)));
   if (!p) return null;
   const type = p.values[0];
   const def = CONDITIONS.find(x => x.value === type);
 
   if (def.input === 'channel') {
-    const v = await pickChannel(interaction, userId, 'pick a channel');
+    const v = await pickChannel(builder, userId, 'pick a channel');
     if (!v) return null;
-    const op = await pickOp(interaction, userId);
+    const op = await pickOp(builder, userId);
     return op ? { type, op, value: v } : null;
   }
   if (def.input === 'category') {
-    const v = await pickChannel(interaction, userId, 'pick a category', [ChannelType.GuildCategory]);
+    const v = await pickChannel(builder, userId, 'pick a category', [ChannelType.GuildCategory]);
     if (!v) return null;
-    const op = await pickOp(interaction, userId);
+    const op = await pickOp(builder, userId);
     return op ? { type, op, value: v } : null;
   }
   if (def.input === 'role') {
-    const v = await pickRole(interaction, userId, 'pick a role');
+    const v = await pickRole(builder, userId, 'pick a role');
     if (!v) return null;
-    const op = await pickOp(interaction, userId);
+    const op = await pickOp(builder, userId);
     return op ? { type, op, value: v } : null;
   }
   if (def.input === 'roles_multi') {
-    const list = interaction.guild.roles.cache.filter(r => !r.managed && r.id !== interaction.guild.id).first(24);
+    const list = builder.guild.roles.cache.filter(r => !r.managed && r.id !== builder.guild.id).first(24);
     const opts = list.map(r => new StringSelectMenuOptionBuilder().setLabel(r.name.slice(0, 100)).setValue(r.id));
-    const pk = await pickMenu(interaction, userId, 'auto_cond_rmulti', `${E.member} pick roles (up to 5)`, opts, true, 1, 5);
+    const pk = await pickMenu(builder, userId, `${E.member} pick roles (up to 5)`, opts, true, 1, 5);
     if (!pk) return null;
-    const op = await pickOp(interaction, userId);
+    const op = await pickOp(builder, userId);
     return op ? { type, op, value: pk.values } : null;
   }
   if (def.input === 'text') {
@@ -326,9 +303,9 @@ async function promptCondition(interaction, userId) {
     m.addComponents(new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('v').setLabel('string').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(200)
     ));
-    const s = await openModal(interaction, userId, m, 'set string');
+    const s = await openModal(builder, userId, m, 'set string');
     if (!s) return null;
-    const op = await pickOp(interaction, userId);
+    const op = await pickOp(builder, userId);
     return op ? { type, op, value: s.fields.getTextInputValue('v') } : null;
   }
   if (def.input === 'number') {
@@ -336,13 +313,13 @@ async function promptCondition(interaction, userId) {
     m.addComponents(new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('v').setLabel('threshold').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(10)
     ));
-    const s = await openModal(interaction, userId, m, 'set number');
+    const s = await openModal(builder, userId, m, 'set number');
     if (!s) return null;
-    const op = await pickOp(interaction, userId, 'is (>=)', 'is not (<)');
+    const op = await pickOp(builder, userId, 'is (>=)', 'is not (<)');
     return op ? { type, op: op === 'is (>=)' ? 'is' : 'is not', value: s.fields.getTextInputValue('v') } : null;
   }
   if (def.input === 'bool') {
-    const op = await pickOp(interaction, userId);
+    const op = await pickOp(builder, userId);
     return op ? { type, op, value: null } : null;
   }
   if (def.input === 'user') {
@@ -350,9 +327,9 @@ async function promptCondition(interaction, userId) {
     m.addComponents(new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('v').setLabel('user id').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(25)
     ));
-    const s = await openModal(interaction, userId, m, 'set user id');
+    const s = await openModal(builder, userId, m, 'set user id');
     if (!s) return null;
-    const op = await pickOp(interaction, userId);
+    const op = await pickOp(builder, userId);
     return op ? { type, op, value: s.fields.getTextInputValue('v') } : null;
   }
   if (def.input === 'hour_range') {
@@ -360,43 +337,43 @@ async function promptCondition(interaction, userId) {
     m.addComponents(new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('v').setLabel('range like 9-17 (24h)').setStyle(TextInputStyle.Short).setRequired(true).setValue('9-17').setMaxLength(5)
     ));
-    const s = await openModal(interaction, userId, m, 'set range');
+    const s = await openModal(builder, userId, m, 'set range');
     if (!s) return null;
-    const op = await pickOp(interaction, userId);
+    const op = await pickOp(builder, userId);
     return op ? { type, op, value: s.fields.getTextInputValue('v') } : null;
   }
   if (def.input === 'days_multi') {
     const opts = [['sun','0'],['mon','1'],['tue','2'],['wed','3'],['thu','4'],['fri','5'],['sat','6']]
       .map(([l, v]) => new StringSelectMenuOptionBuilder().setLabel(l).setValue(v));
-    const pk = await pickMenu(interaction, userId, 'auto_cond_days', `${E.settings} pick days`, opts, true, 1, 7);
+    const pk = await pickMenu(builder, userId, `${E.settings} pick days`, opts, true, 1, 7);
     if (!pk) return null;
-    const op = await pickOp(interaction, userId);
+    const op = await pickOp(builder, userId);
     return op ? { type, op, value: pk.values } : null;
   }
   return null;
 }
 
-/* ───── action prompt ───── */
-async function promptAction(interaction, userId, draft) {
-  const p = await pickMenu(interaction, userId, 'auto_act', `${E.cursor} pick an action`,
+/* ─── prompt: action ─── */
+async function promptAction(builder, userId, draft) {
+  const p = await pickMenu(builder, userId, `${E.cursor} pick an action`,
     ACTIONS.map(a => new StringSelectMenuOptionBuilder().setLabel(a.label).setValue(a.value).setDescription(a.desc)));
   if (!p) return null;
   const type = p.values[0];
   const def = ACTIONS.find(x => x.value === type);
 
   if (def.input === 'channel+text') {
-    const ch = await pickChannel(interaction, userId, 'pick a channel');
+    const ch = await pickChannel(builder, userId, 'pick a channel');
     if (!ch) return null;
     const m = new ModalBuilder().setCustomId('auto_act_txt').setTitle('message content');
     m.addComponents(new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('v').setLabel('content').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(2000)
         .setValue('hello {user}, welcome to {server}!').setPlaceholder('{user} {server} {channel} {message} {random.1-100}')
     ));
-    const s = await openModal(interaction, userId, m, 'set content');
+    const s = await openModal(builder, userId, m, 'set content');
     return s ? { type, channelId: ch, content: s.fields.getTextInputValue('v'), summary: `→ <#${ch}>` } : null;
   }
   if (def.input === 'channel+container') {
-    const ch = await pickChannel(interaction, userId, 'pick a channel');
+    const ch = await pickChannel(builder, userId, 'pick a channel');
     if (!ch) return null;
     const m = new ModalBuilder().setCustomId('auto_act_con').setTitle('container');
     m.addComponents(
@@ -404,7 +381,7 @@ async function promptAction(interaction, userId, draft) {
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('desc').setLabel('description').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(2000)),
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('color').setLabel('accent hex').setStyle(TextInputStyle.Short).setRequired(false).setValue('#5b7fd4').setMaxLength(10)),
     );
-    const s = await openModal(interaction, userId, m, 'set container');
+    const s = await openModal(builder, userId, m, 'set container');
     if (!s) return null;
     const hex = (s.fields.getTextInputValue('color') || '#5b7fd4').replace('#','');
     return {
@@ -416,14 +393,14 @@ async function promptAction(interaction, userId, draft) {
     };
   }
   if (def.input === 'channel+embed') {
-    const ch = await pickChannel(interaction, userId, 'pick a channel');
+    const ch = await pickChannel(builder, userId, 'pick a channel');
     if (!ch) return null;
     const m = new ModalBuilder().setCustomId('auto_act_emb').setTitle('embed');
     m.addComponents(
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('title').setLabel('title').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(200)),
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('desc').setLabel('description').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(2000)),
     );
-    const s = await openModal(interaction, userId, m, 'set embed');
+    const s = await openModal(builder, userId, m, 'set embed');
     return s ? { type, channelId: ch, title: s.fields.getTextInputValue('title'), description: s.fields.getTextInputValue('desc'), color: 0x5b7fd4, summary: `→ <#${ch}>` } : null;
   }
   if (def.input === 'webhook+text') {
@@ -432,7 +409,7 @@ async function promptAction(interaction, userId, draft) {
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('url').setLabel('webhook url').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(500)),
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('v').setLabel('content').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(2000)),
     );
-    const s = await openModal(interaction, userId, m, 'set webhook');
+    const s = await openModal(builder, userId, m, 'set webhook');
     return s ? { type, url: s.fields.getTextInputValue('url'), content: s.fields.getTextInputValue('v'), summary: 'webhook' } : null;
   }
   if (def.input === 'text') {
@@ -441,7 +418,7 @@ async function promptAction(interaction, userId, draft) {
       new TextInputBuilder().setCustomId('v').setLabel('content').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(2000)
         .setPlaceholder('{user} {server} {channel} {message}')
     ));
-    const s = await openModal(interaction, userId, m, 'set content');
+    const s = await openModal(builder, userId, m, 'set content');
     return s ? { type, content: s.fields.getTextInputValue('v'), summary: s.fields.getTextInputValue('v').slice(0, 40) } : null;
   }
   if (def.input === 'text_reason') {
@@ -449,7 +426,7 @@ async function promptAction(interaction, userId, draft) {
     m.addComponents(new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('v').setLabel('reason').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(200).setValue('automation')
     ));
-    const s = await openModal(interaction, userId, m, 'set reason');
+    const s = await openModal(builder, userId, m, 'set reason');
     return s ? { type, reason: s.fields.getTextInputValue('v'), summary: type } : null;
   }
   if (def.input === 'user_id+text') {
@@ -458,21 +435,21 @@ async function promptAction(interaction, userId, draft) {
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('uid').setLabel('user id').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(25)),
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('v').setLabel('content').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(2000)),
     );
-    const s = await openModal(interaction, userId, m, 'set dm');
+    const s = await openModal(builder, userId, m, 'set dm');
     return s ? { type, userId: s.fields.getTextInputValue('uid'), content: s.fields.getTextInputValue('v'), summary: 'dm' } : null;
   }
   if (def.input === 'role+text') {
-    const r = await pickRole(interaction, userId, 'pick a role');
+    const r = await pickRole(builder, userId, 'pick a role');
     if (!r) return null;
     const m = new ModalBuilder().setCustomId('auto_act_dmrh').setTitle('dm message');
     m.addComponents(new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('v').setLabel('content').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(2000)
     ));
-    const s = await openModal(interaction, userId, m, 'set content');
+    const s = await openModal(builder, userId, m, 'set content');
     return s ? { type, roleId: r, content: s.fields.getTextInputValue('v'), summary: `dm <@&${r}>` } : null;
   }
   if (def.input === 'role') {
-    const r = await pickRole(interaction, userId, 'pick a role');
+    const r = await pickRole(builder, userId, 'pick a role');
     return r ? { type, roleId: r, summary: `<@&${r}>` } : null;
   }
   if (def.input === 'emoji') {
@@ -480,7 +457,7 @@ async function promptAction(interaction, userId, draft) {
     m.addComponents(new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('v').setLabel('emoji').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(60).setValue('⭐')
     ));
-    const s = await openModal(interaction, userId, m, 'set emoji');
+    const s = await openModal(builder, userId, m, 'set emoji');
     return s ? { type, emoji: s.fields.getTextInputValue('v'), summary: s.fields.getTextInputValue('v') } : null;
   }
   if (def.input === 'seconds') {
@@ -488,7 +465,7 @@ async function promptAction(interaction, userId, draft) {
     m.addComponents(new ActionRowBuilder().addComponents(
       new TextInputBuilder().setCustomId('v').setLabel('seconds (1-60)').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(3).setValue('3')
     ));
-    const s = await openModal(interaction, userId, m, 'set wait');
+    const s = await openModal(builder, userId, m, 'set wait');
     if (!s) return null;
     const n = parseInt(s.fields.getTextInputValue('v'), 10) || 3;
     const sec = Math.max(1, Math.min(60, n));
@@ -500,21 +477,20 @@ async function promptAction(interaction, userId, draft) {
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('min').setLabel('minutes').setStyle(TextInputStyle.Short).setRequired(true).setValue('10').setMaxLength(6)),
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('rsn').setLabel('reason').setStyle(TextInputStyle.Short).setRequired(false).setValue('automation').setMaxLength(200)),
     );
-    const s = await openModal(interaction, userId, m, 'set timeout');
+    const s = await openModal(builder, userId, m, 'set timeout');
     if (!s) return null;
     const n = parseInt(s.fields.getTextInputValue('min'), 10) || 10;
     const minutes = Math.max(1, Math.min(40320, n));
     return { type, minutes, reason: s.fields.getTextInputValue('rsn') || 'automation', summary: `${minutes}m` };
   }
   if (def.input === 'automation') {
-    // fix: filter by name not id (draft.id is undefined on new drafts)
-    const list = store.listForGuild(interaction.guild.id).filter(w => w.name !== draft.name);
+    const list = store.listForGuild(builder.guild.id).filter(w => w.name !== draft.name);
     if (!list.length) {
-      await interaction.editReply({ components: [errBox('no other automations to chain into.')], flags: V2_E });
+      await builder.edit({ components: [errBox('no other automations to chain into.')] }).catch(() => {});
       return null;
     }
     const opts = list.slice(0, 25).map(w => new StringSelectMenuOptionBuilder().setLabel(w.name.slice(0, 100)).setValue(w.name).setDescription(`id ${w.id} · ${w.actions.length} actions`));
-    const pk = await pickMenu(interaction, userId, 'auto_chain', `${E.link} chain into...`, opts);
+    const pk = await pickMenu(builder, userId, `${E.link} chain into...`, opts);
     if (!pk) return null;
     return { type, name: pk.values[0], summary: pk.values[0] };
   }
@@ -522,18 +498,18 @@ async function promptAction(interaction, userId, draft) {
   return null;
 }
 
-/* ───── manage (with reorder) ───── */
-async function manage(interaction, userId, draft) {
+/* ─── manage (with reorder) ─── */
+async function manage(builder, userId, draft) {
   const items = [
     ...draft.conditions.map((c, i) => ({ k: 'c', i, label: `cond ${i + 1}: ${c.type} ${c.op} ${Array.isArray(c.value) ? c.value.join(',') : c.value ?? ''}` })),
     ...draft.actions.map((a, i) => ({ k: 'a', i, label: `act ${i + 1}: ${a.type} · ${a.summary || ''}` })),
   ];
   if (!items.length) {
-    await interaction.editReply({ components: [errBox('nothing to manage.')], flags: V2_E });
+    await builder.edit({ components: [errBox('nothing to manage.')] }).catch(() => {});
     return false;
   }
   const opts = items.map(x => new StringSelectMenuOptionBuilder().setLabel(x.label.slice(0, 100)).setValue(`${x.k}:${x.i}`));
-  const p = await pickMenu(interaction, userId, 'auto_manage', `${E.folder} pick an item to edit`, opts);
+  const p = await pickMenu(builder, userId, `${E.folder} pick an item to edit`, opts);
   if (!p) return false;
   const [k, i] = p.values[0].split(':');
   const idx = parseInt(i, 10);
@@ -549,104 +525,75 @@ async function manage(interaction, userId, draft) {
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.folder} editing — ${k === 'c' ? 'condition' : 'action'} ${idx + 1}`))
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${items.find(x => x.k === k && x.i === idx)?.label || ''}`))
     .addActionRowComponents(row);
-  await interaction.editReply({ components: [c], flags: V2_E });
-  const msg = await interaction.fetchReply();
-  const action = await msg.awaitMessageComponent({ time: 30000, filter: i => i.user.id === userId }).catch(() => null);
+  await builder.edit({ components: [c] }).catch(() => {});
+  const action = await builder.awaitMessageComponent({ time: 30000, filter: i => i.user.id === userId }).catch(() => null);
   if (!action) return false;
   await action.deferUpdate().catch(() => {});
 
-  if (action.customId === 'mg_del') {
-    arr.splice(idx, 1);
-  } else if (action.customId === 'mg_up' && idx > 0) {
-    [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
-  } else if (action.customId === 'mg_down' && idx < arr.length - 1) {
-    [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
-  }
+  if (action.customId === 'mg_del') arr.splice(idx, 1);
+  else if (action.customId === 'mg_up' && idx > 0) [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
+  else if (action.customId === 'mg_down' && idx < arr.length - 1) [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
   return true;
 }
 
-/* ───── shared builder runner ───── */
+/* ─── shared builder runner ─── */
 async function runBuilder(interaction, userId, guildId, initialDraft, hint, editingId) {
   const draft = initialDraft;
   const undo = [];
   const push = () => {
     undo.push(JSON.stringify({
-      trigger: draft.trigger, conditions: draft.conditions,
-      actions: draft.actions, conditionMode: draft.conditionMode,
-      cooldownSeconds: draft.cooldownSeconds, priority: draft.priority,
-      enabled: draft.enabled, stopOnError: draft.stopOnError,
+      trigger: draft.trigger, conditions: draft.conditions, actions: draft.actions,
+      conditionMode: draft.conditionMode, cooldownSeconds: draft.cooldownSeconds,
     }));
     if (undo.length > 10) undo.shift();
   };
 
   await interaction.editReply({ components: [buildMain(draft, hint)], flags: V2_E });
   const builder = await interaction.fetchReply();
-  const col = builder.createMessageComponentCollector({ time: 900000 });
 
-  const recover = (msg) => builder.edit({ components: [buildMain(draft, msg || 'cancelled')] }).catch(() => {});
-  const redraw = () => builder.edit({ components: [buildMain(draft)] }).catch(() => {});
+  const redraw = (msg) => builder.edit({ components: [buildMain(draft, msg)] }).catch(() => {});
 
-  col.on('collect', async btn => {
-    if (btn.user.id !== userId) {
-      return btn.reply({ components: [errBox('not yours.')], flags: V2_E }).catch(() => {});
-    }
+  /* main loop — one interaction at a time, always redraw after */
+  while (true) {
+    const btn = await builder.awaitMessageComponent({ time: 900000, filter: i => i.user.id === userId }).catch(() => null);
+    if (!btn) return; // timed out
 
+    /* ── set trigger ── */
     if (btn.customId === 'auto_set_trigger') {
       await btn.deferUpdate().catch(() => {});
-      const t = await promptTrigger(interaction, userId);
-      if (!t) return recover();
-      push(); draft.trigger = t;
-      return redraw();
+      const t = await promptTrigger(builder, userId);
+      if (t) { push(); draft.trigger = t; }
+      await redraw();
+      continue;
     }
 
+    /* ── add condition ── */
     if (btn.customId === 'auto_add_cond') {
       await btn.deferUpdate().catch(() => {});
-      const c = await promptCondition(interaction, userId);
-      if (!c) return recover();
-      push(); draft.conditions.push(c);
-      return redraw();
+      const c = await promptCondition(builder, userId);
+      if (c) { push(); draft.conditions.push(c); }
+      await redraw();
+      continue;
     }
 
+    /* ── add action ── */
     if (btn.customId === 'auto_add_action') {
       await btn.deferUpdate().catch(() => {});
-      const a = await promptAction(interaction, userId, draft);
-      if (!a) return recover();
-      push(); draft.actions.push(a);
-      return redraw();
+      const a = await promptAction(builder, userId, draft);
+      if (a) { push(); draft.actions.push(a); }
+      await redraw();
+      continue;
     }
 
+    /* ── mode toggle ── */
     if (btn.customId === 'auto_mode') {
       await btn.deferUpdate().catch(() => {});
       draft.conditionMode = draft.conditionMode === 'all' ? 'any' : 'all';
-      return redraw();
+      await redraw();
+      continue;
     }
 
-    if (btn.customId === 'auto_enabled') {
-      await btn.deferUpdate().catch(() => {});
-      draft.enabled = !draft.enabled;
-      return redraw();
-    }
-
-    if (btn.customId === 'auto_stoponerror') {
-      await btn.deferUpdate().catch(() => {});
-      draft.stopOnError = !draft.stopOnError;
-      return redraw();
-    }
-
-    if (btn.customId === 'auto_priority') {
-      const modal = new ModalBuilder().setCustomId('auto_pri').setTitle('priority');
-      modal.addComponents(new ActionRowBuilder().addComponents(
-        new TextInputBuilder().setCustomId('v').setLabel('priority 0-100 (higher = runs first)').setStyle(TextInputStyle.Short).setRequired(true).setValue(String(draft.priority ?? 0)).setMaxLength(3)
-      ));
-      await btn.showModal(modal).catch(() => {});
-      const s = await btn.awaitModalSubmit({ time: 60000, filter: m => m.customId === 'auto_pri' && m.user.id === userId }).catch(() => null);
-      if (!s) return;
-      await s.deferUpdate().catch(() => {});
-      const n = parseInt(s.fields.getTextInputValue('v'), 10);
-      push(); draft.priority = Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
-      return redraw();
-    }
-
+    /* ── cooldown ── */
     if (btn.customId === 'auto_cooldown') {
       const modal = new ModalBuilder().setCustomId('auto_cd').setTitle('cooldown');
       modal.addComponents(new ActionRowBuilder().addComponents(
@@ -654,134 +601,107 @@ async function runBuilder(interaction, userId, guildId, initialDraft, hint, edit
       ));
       await btn.showModal(modal).catch(() => {});
       const s = await btn.awaitModalSubmit({ time: 60000, filter: m => m.customId === 'auto_cd' && m.user.id === userId }).catch(() => null);
-      if (!s) return;
-      await s.deferUpdate().catch(() => {});
-      const n = parseInt(s.fields.getTextInputValue('sec'), 10);
-      push(); draft.cooldownSeconds = Number.isFinite(n) ? Math.max(0, Math.min(600, n)) : 5;
-      return redraw();
+      if (s) {
+        await ackModal(s);
+        const n = parseInt(s.fields.getTextInputValue('sec'), 10);
+        push(); draft.cooldownSeconds = Number.isFinite(n) ? Math.max(0, Math.min(600, n)) : 5;
+      }
+      await redraw();
+      continue;
     }
 
+    /* ── undo ── */
     if (btn.customId === 'auto_undo') {
       await btn.deferUpdate().catch(() => {});
-      if (!undo.length) return recover('nothing to undo');
+      if (!undo.length) { await redraw('nothing to undo'); continue; }
       const prev = JSON.parse(undo.pop());
       Object.assign(draft, prev);
-      return redraw();
+      await redraw();
+      continue;
     }
 
+    /* ── manage ── */
     if (btn.customId === 'auto_manage') {
       await btn.deferUpdate().catch(() => {});
       push();
-      await manage(interaction, userId, draft);
-      return redraw();
+      await manage(builder, userId, draft);
+      await redraw();
+      continue;
     }
 
+    /* ── clear ── */
     if (btn.customId === 'auto_clear') {
       await btn.deferUpdate().catch(() => {});
       push();
       draft.trigger = null; draft.conditions = []; draft.actions = [];
-      return recover('cleared');
+      await redraw('cleared');
+      continue;
     }
 
-    if (btn.customId === 'auto_clone') {
-      const modal = new ModalBuilder().setCustomId('auto_clone_name').setTitle('clone this draft');
-      modal.addComponents(new ActionRowBuilder().addComponents(
-        new TextInputBuilder().setCustomId('name').setLabel('new name').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(50).setValue(`${draft.name}-copy`)
-      ));
-      await btn.showModal(modal).catch(() => {});
-      const s = await btn.awaitModalSubmit({ time: 60000, filter: m => m.customId === 'auto_clone_name' && m.user.id === userId }).catch(() => null);
-      if (!s) return;
-      await s.deferUpdate().catch(() => {});
-      const newName = s.fields.getTextInputValue('name');
-      if (store.listForGuild(guildId).some(w => w.name.toLowerCase() === newName.toLowerCase())) {
-        return recover(`name ${newName} already taken`);
-      }
-      const wf = store.create(guildId, {
-        name: newName,
-        trigger: draft.trigger, conditions: draft.conditions,
-        conditionMode: draft.conditionMode, actions: draft.actions,
-        cooldownSeconds: draft.cooldownSeconds, priority: draft.priority,
-        enabled: draft.enabled, stopOnError: draft.stopOnError,
-        createdBy: userId,
-      });
-      await interaction.editReply({ components: [okBox(`cloned → **${wf.name}** · id \`${wf.id}\``)], flags: V2_E }).catch(() => {});
-      col.stop('saved');
-      return;
-    }
-
+    /* ── test ── */
     if (btn.customId === 'auto_test') {
       await btn.deferUpdate().catch(() => {});
       const summary = [
-        `${draft.trigger ? E.on : E.off} **trigger:** ${draft.trigger ? `\`${draft.trigger.type}\`` : '*none*'}`,
+        `${E.compass} **trigger:** ${draft.trigger ? draft.trigger.type : '*none*'}`,
         `${E.folder} **conditions:** ${draft.conditions.length} · \`${draft.conditionMode}\``,
-        `${E.cursor} **actions:** ${draft.actions.length} · cd \`${draft.cooldownSeconds}s\``,
-        `${draft.enabled ? E.on : E.off} **enabled:** ${draft.enabled ? 'on' : 'off'} · priority \`${draft.priority ?? 0}\``,
-        `${draft.stopOnError ? E.on : E.off} **stop-on-error:** ${draft.stopOnError ? 'on' : 'off'}`,
+        `${E.cursor} **actions:** ${draft.actions.length} · cooldown \`${draft.cooldownSeconds}s\``,
         '',
-        !draft.trigger ? 'no trigger — will never fire' : `fires on \`${draft.trigger.type}\` event`,
-        !draft.actions.length ? 'no actions — nothing happens' : `${draft.actions.length} action(s) will run in order`,
-        !draft.enabled ? `${E.off} currently **disabled** — enable before it will fire` : '',
-      ].filter(Boolean).join('\n');
-      return btn.followUp({ components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
+        draft.trigger ? `fires on \`${draft.trigger.type}\` event` : 'no trigger — never fires',
+        draft.actions.length ? `${draft.actions.length} action(s) will run in order` : 'no actions — nothing happens',
+      ].join('\n');
+      await btn.followUp({ components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.file} dry run`))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(summary))], flags: V2_E }).catch(() => {});
+      await redraw();
+      continue;
     }
 
+    /* ── cancel ── */
     if (btn.customId === 'auto_cancel') {
-      await btn.deferUpdate().catch(() => {});
-      await interaction.editReply({ components: [okBox('cancelled.')], flags: V2_E }).catch(() => {});
-      col.stop('cancel');
+      await btn.update({ components: [okBox('cancelled.')], flags: V2_E }).catch(() => {});
       return;
     }
 
+    /* ── save ── */
     if (btn.customId === 'auto_save') {
       await btn.deferUpdate().catch(() => {});
-      if (!draft.trigger) return recover('set a trigger first');
-      if (!draft.actions.length) return recover('add at least one action');
+      if (!draft.trigger) { await redraw('set a trigger first'); continue; }
+      if (!draft.actions.length) { await redraw('add at least one action'); continue; }
 
       if (editingId) {
         const updated = store.update(editingId, draft);
-        await interaction.editReply({
-          components: [okBox(`updated **${updated.name}** · id \`${updated.id}\`\n-# ${updated.enabled ? 'enabled' : 'disabled'} · ${updated.trigger.type} · ${updated.conditions.length}c / ${updated.actions.length}a`)],
-          flags: V2_E,
-        }).catch(() => {});
-        col.stop('saved');
+        await builder.edit({ components: [okBox(`updated **${updated.name}** · id \`${updated.id}\`\n-# ${updated.trigger.type} · ${updated.conditions.length}c / ${updated.actions.length}a`)] }).catch(() => {});
         return;
       }
 
       if (store.listForGuild(guildId).some(w => w.name.toLowerCase() === draft.name.toLowerCase())) {
-        return recover('name already taken');
+        await redraw('name already taken');
+        continue;
       }
-
       const wf = store.create(guildId, draft);
-      await interaction.editReply({
-        components: [okBox(`saved **${wf.name}** · id \`${wf.id}\`\n-# ${wf.enabled ? 'enabled' : 'disabled'} · ${wf.trigger.type} · ${wf.conditions.length}c / ${wf.actions.length}a`)],
-        flags: V2_E,
-      }).catch(() => {});
-      col.stop('saved');
+      await builder.edit({ components: [okBox(`saved **${wf.name}** · id \`${wf.id}\`\n-# ${wf.trigger.type} · ${wf.conditions.length}c / ${wf.actions.length}a`)] }).catch(() => {});
       return;
     }
-  });
 
-  col.on('end', (_, r) => {
-    if (r === 'time') interaction.editReply({ components: [errBox('builder timed out.')], flags: V2_E }).catch(() => {});
-  });
+    /* ── fallthrough: unknown button ── */
+    await redraw();
+  }
 }
 
-/* ───── command ───── */
+/* ─── command ─── */
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('automation')
     .setDescription('build server automations (mod only)')
     .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild)
     .addSubcommand(s => s.setName('create').setDescription('create a new automation'))
-    .addSubcommand(s => s.setName('edit').setDescription('edit an existing automation in the builder')
+    .addSubcommand(s => s.setName('edit').setDescription('edit an existing automation')
       .addIntegerOption(o => o.setName('id').setDescription('automation id').setRequired(true)))
     .addSubcommand(s => s.setName('templates').setDescription('browse pre-made automations'))
     .addSubcommand(s => s.setName('from-template').setDescription('create from a template')
-      .addStringOption(o => o.setName('id').setDescription('template id').setRequired(true).setAutocomplete(true)))
+      .addStringOption(o => o.setName('id').setDescription('template id').setRequired(true)))
     .addSubcommand(s => s.setName('list').setDescription('list all automations'))
-    .addSubcommand(s => s.setName('search').setDescription('search automations by name / trigger')
+    .addSubcommand(s => s.setName('search').setDescription('search automations')
       .addStringOption(o => o.setName('query').setDescription('search query').setRequired(true)))
     .addSubcommand(s => s.setName('info').setDescription('view an automation')
       .addIntegerOption(o => o.setName('id').setDescription('automation id').setRequired(true)))
@@ -841,7 +761,7 @@ module.exports = {
       await pick.showModal(nameModal).catch(() => {});
       const nameSub = await pick.awaitModalSubmit({ time: 120000, filter: m => m.customId === 'auto_name' && m.user.id === userId }).catch(() => null);
       if (!nameSub) return;
-      await nameSub.deferUpdate().catch(() => {});
+      await ackModal(nameSub);
 
       const draft = {
         name: nameSub.fields.getTextInputValue('name'),
@@ -850,9 +770,6 @@ module.exports = {
         conditionMode: 'all',
         actions: [],
         cooldownSeconds: 5,
-        priority: 0,
-        enabled: false,
-        stopOnError: false,
         createdBy: userId,
       };
 
@@ -868,7 +785,6 @@ module.exports = {
       if (!wf || wf.guildId !== guildId) {
         return interaction.editReply({ components: [errBox(`no automation with id \`${id}\`.`)], flags: V2_E });
       }
-
       const draft = {
         name: wf.name,
         trigger: JSON.parse(JSON.stringify(wf.trigger)),
@@ -876,12 +792,8 @@ module.exports = {
         conditionMode: wf.conditionMode || 'all',
         actions: JSON.parse(JSON.stringify(wf.actions || [])),
         cooldownSeconds: wf.cooldownSeconds ?? 5,
-        priority: wf.priority ?? 0,
-        enabled: wf.enabled ?? false,
-        stopOnError: wf.stopOnError ?? false,
         createdBy: wf.createdBy,
       };
-
       await runBuilder(interaction, userId, guildId, draft, `editing **${wf.name}** · id \`${wf.id}\``, wf.id);
       return;
     }
@@ -920,7 +832,6 @@ module.exports = {
         components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
           .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.file} ${tpl.name}`))
           .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${tpl.desc}`))
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`**trigger:** \`${tpl.trigger.type}\`\n**actions:** ${tpl.actions.length}`))
           .addActionRowComponents(row)],
         flags: V2_E,
       });
@@ -930,17 +841,15 @@ module.exports = {
       await pick.showModal(nameModal).catch(() => {});
       const sub2 = await pick.awaitModalSubmit({ time: 120000, filter: m => m.customId === 'auto_tpl_name' && m.user.id === userId }).catch(() => null);
       if (!sub2) return;
-      await sub2.deferUpdate().catch(() => {});
+      await ackModal(sub2);
 
       const name = sub2.fields.getTextInputValue('name');
       if (store.listForGuild(guildId).some(w => w.name.toLowerCase() === name.toLowerCase())) {
         return interaction.editReply({ components: [errBox(`name **${name}** already taken.`)], flags: V2_E });
       }
-
-      const wf = store.create(guildId, { ...tpl, name, enabled: false, priority: 0, stopOnError: false, createdBy: userId });
-
+      const wf = store.create(guildId, { ...tpl, name, createdBy: userId });
       return interaction.editReply({
-        components: [okBox(`created **${wf.name}** · id \`${wf.id}\`\n-# fill in blanks via \`/automation edit ${wf.id}\` then enable when ready.`)],
+        components: [okBox(`created **${wf.name}** · id \`${wf.id}\`\n-# fill in blanks via \`/automation edit ${wf.id}\``)],
         flags: V2_E,
       });
     }
@@ -951,12 +860,11 @@ module.exports = {
       const list = store.listForGuild(guildId);
       if (!list.length) return interaction.editReply({
         components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.folder} no automations yet. run \`/automation create\` or \`/automation templates\`.`))],
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.folder} no automations yet. run \`/automation create\`.`))],
         flags: V2_E,
       });
-      const sorted = [...list].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.id - b.id);
-      const lines = sorted.map(w =>
-        `${w.enabled ? E.on : E.off} **${w.name}** · id \`${w.id}\` · \`${w.trigger?.type || 'none'}\` · p\`${w.priority ?? 0}\` · ${w.conditions.length}c/${w.actions.length}a · ${w.fireCount || 0}🔥`
+      const lines = list.map(w =>
+        `${w.enabled ? E.on : E.off} **${w.name}** · id \`${w.id}\` · \`${w.trigger?.type || 'none'}\` · ${w.conditions.length}c / ${w.actions.length}a · ${w.fireCount || 0}🔥`
       );
       return interaction.editReply({
         components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
@@ -980,7 +888,7 @@ module.exports = {
       );
       if (!list.length) return interaction.editReply({ components: [errBox(`no automations matching **${q}**.`)], flags: V2_E });
       const lines = list.map(w =>
-        `${w.enabled ? E.on : E.off} **${w.name}** · id \`${w.id}\` · \`${w.trigger?.type || 'none'}\` · ${w.conditions.length}c/${w.actions.length}a`
+        `${w.enabled ? E.on : E.off} **${w.name}** · id \`${w.id}\` · \`${w.trigger?.type || 'none'}\` · ${w.conditions.length}c / ${w.actions.length}a`
       );
       return interaction.editReply({
         components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
@@ -997,12 +905,9 @@ module.exports = {
       const id = interaction.options.getInteger('id');
       const wf = store.get(id);
       if (!wf || wf.guildId !== guildId) return interaction.editReply({ components: [errBox(`no automation with id \`${id}\`.`)], flags: V2_E });
-
       const c = new ContainerBuilder().setAccentColor(0x5b7fd4);
       c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.file} ${wf.name}`));
-      c.addTextDisplayComponents(new TextDisplayBuilder().setContent(
-        `-# id \`${wf.id}\` · ${wf.enabled ? 'enabled' : 'disabled'} · p\`${wf.priority ?? 0}\` · ${wf.fireCount || 0} fires · ${wf.errorCount || 0} errors`
-      ));
+      c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# id \`${wf.id}\` · ${wf.enabled ? 'enabled' : 'disabled'} · ${wf.fireCount || 0} fires · ${wf.errorCount || 0} errors`));
       c.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
       const tLine = wf.trigger
         ? `\`${wf.trigger.type}\`${wf.trigger.keyword ? ` · \`${wf.trigger.keyword}\` · ${wf.trigger.matchMode}` : ''}${wf.trigger.mode ? ` · ${wf.trigger.mode}` : ''}`
@@ -1015,7 +920,7 @@ module.exports = {
       });
       c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.cursor} **actions** (${wf.actions.length})`));
       wf.actions.forEach((a, i) => c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`  \`${i + 1}.\` **${a.type}** · ${a.summary || ''}`)));
-      c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# cooldown ${wf.cooldownSeconds}s · stop-on-error \`${wf.stopOnError ? 'on' : 'off'}\``));
+      c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# cooldown ${wf.cooldownSeconds}s`));
       return interaction.editReply({ components: [c], flags: V2_E });
     }
 
@@ -1025,7 +930,6 @@ module.exports = {
       const id = interaction.options.getInteger('id');
       const wf = store.get(id);
       if (!wf || wf.guildId !== guildId) return interaction.editReply({ components: [errBox(`no automation with id \`${id}\`.`)], flags: V2_E });
-
       const c = new ContainerBuilder().setAccentColor(0x5b7fd4);
       c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.file} logs — ${wf.name}`));
       c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${wf.fireCount || 0} total · ${wf.errorCount || 0} errors`));
@@ -1042,20 +946,18 @@ module.exports = {
       return interaction.editReply({ components: [c], flags: V2_E });
     }
 
-    /* ─── recent (across all) ─── */
+    /* ─── recent ─── */
     if (sub === 'recent') {
       await interaction.deferReply({ flags: V2_E });
       const all = [];
-      for (const wf of store.listForGuild(guildId)) {
-        for (const f of (wf.lastFires || [])) all.push({ ...f, name: wf.name, id: wf.id });
-      }
+      for (const wf of store.listForGuild(guildId)) for (const f of (wf.lastFires || [])) all.push({ ...f, name: wf.name, id: wf.id });
       all.sort((a, b) => b.at - a.at);
       const top = all.slice(0, 20);
-      if (!top.length) return interaction.editReply({ components: [errBox('no recent fires in this server.')], flags: V2_E });
+      if (!top.length) return interaction.editReply({ components: [errBox('no recent fires.')], flags: V2_E });
       const lines = top.map(f => {
         const stamp = `<t:${Math.floor(f.at / 1000)}:R>`;
         const who = f.userId !== 'system' ? `<@${f.userId}>` : 'system';
-        return `${f.ok ? E.success : E.error} ${stamp} · **${f.name}** (\`${f.id}\`) · ${who}${f.error ? ` · \`${f.error.slice(0, 40)}\`` : ''}`;
+        return `${f.ok ? E.success : E.error} ${stamp} · **${f.name}** (\`${f.id}\`) · ${who}`;
       });
       return interaction.editReply({
         components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
@@ -1074,7 +976,6 @@ module.exports = {
       const totalFires = list.reduce((s, w) => s + (w.fireCount || 0), 0);
       const totalErrors = list.reduce((s, w) => s + (w.errorCount || 0), 0);
       const top = [...list].sort((a, b) => (b.fireCount || 0) - (a.fireCount || 0)).slice(0, 5);
-
       const c = new ContainerBuilder().setAccentColor(0x5b7fd4);
       c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.wheel} automation stats`));
       c.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
@@ -1088,9 +989,7 @@ module.exports = {
       if (top.length) {
         c.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
         c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**top automations**`));
-        for (const w of top) {
-          c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`  **${w.name}** · ${w.fireCount || 0} fires`));
-        }
+        for (const w of top) c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`  **${w.name}** · ${w.fireCount || 0} fires`));
       }
       return interaction.editReply({ components: [c], flags: V2_E });
     }
@@ -1144,12 +1043,9 @@ module.exports = {
         conditionMode: wf.conditionMode,
         actions: JSON.parse(JSON.stringify(wf.actions)),
         cooldownSeconds: wf.cooldownSeconds,
-        priority: wf.priority,
-        enabled: false,
-        stopOnError: wf.stopOnError,
         createdBy: userId,
       });
-      return interaction.editReply({ components: [okBox(`duplicated **${wf.name}** → **${copy.name}** · id \`${copy.id}\`\n-# starts disabled — enable when ready.`)], flags: V2_E });
+      return interaction.editReply({ components: [okBox(`duplicated **${wf.name}** → **${copy.name}** · id \`${copy.id}\``)], flags: V2_E });
     }
 
     /* ─── export ─── */
@@ -1161,8 +1057,7 @@ module.exports = {
       const json = JSON.stringify({
         name: wf.name, trigger: wf.trigger, conditions: wf.conditions,
         conditionMode: wf.conditionMode, actions: wf.actions,
-        cooldownSeconds: wf.cooldownSeconds, priority: wf.priority,
-        enabled: wf.enabled, stopOnError: wf.stopOnError,
+        cooldownSeconds: wf.cooldownSeconds,
       }, null, 2);
       return interaction.editReply({
         components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
@@ -1173,22 +1068,17 @@ module.exports = {
       });
     }
 
-    /* ─── import (single or array) ─── */
+    /* ─── import ─── */
     if (sub === 'import') {
       await interaction.deferReply({ flags: V2_E });
       const raw = interaction.options.getString('json');
       let data;
       try { data = JSON.parse(raw); } catch { return interaction.editReply({ components: [errBox('invalid json.')], flags: V2_E }); }
-
       const items = Array.isArray(data) ? data : [data];
-      const imported = [];
-      const skipped = [];
-
+      const imported = [], skipped = [];
       for (const item of items) {
         if (!item.name || !item.trigger) { skipped.push(item.name || '(unnamed)'); continue; }
-        if (store.listForGuild(guildId).some(w => w.name.toLowerCase() === String(item.name).toLowerCase())) {
-          skipped.push(item.name); continue;
-        }
+        if (store.listForGuild(guildId).some(w => w.name.toLowerCase() === String(item.name).toLowerCase())) { skipped.push(item.name); continue; }
         const wf = store.create(guildId, {
           name: String(item.name).slice(0, 50),
           trigger: item.trigger,
@@ -1196,18 +1086,13 @@ module.exports = {
           conditionMode: item.conditionMode === 'any' ? 'any' : 'all',
           actions: Array.isArray(item.actions) ? item.actions : [],
           cooldownSeconds: Number(item.cooldownSeconds) || 5,
-          priority: Number(item.priority) || 0,
-          enabled: item.enabled === true,
-          stopOnError: item.stopOnError === true,
           createdBy: userId,
         });
         imported.push(`${wf.name} (\`${wf.id}\`)`);
       }
-
       const lines = [];
       if (imported.length) lines.push(`${E.success} imported ${imported.length}:\n${imported.map(x => '  · ' + x).join('\n')}`);
-      if (skipped.length) lines.push(`${E.error} skipped ${skipped.length} (name taken or invalid):\n${skipped.map(x => '  · ' + x).join('\n')}`);
-
+      if (skipped.length) lines.push(`${E.error} skipped ${skipped.length}:\n${skipped.map(x => '  · ' + x).join('\n')}`);
       return interaction.editReply({
         components: [new ContainerBuilder().setAccentColor(imported.length ? 0x57f287 : 0xff3b3b)
           .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n\n') || 'nothing imported.'))],
