@@ -53,6 +53,11 @@ async function tick(client) {
 }
 
 function start(client) {
+  if (!client || !client.pool) {
+    console.error('[automation] scheduler: client.pool missing, cannot start');
+    return;
+  }
+  store.setPool(client.pool);
   console.log('[automation] scheduler started');
   setInterval(() => tick(client).catch(e => console.error('[automation] tick err:', e.message)), TICK_MS);
 }
