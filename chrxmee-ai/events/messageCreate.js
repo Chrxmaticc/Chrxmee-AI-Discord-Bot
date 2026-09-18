@@ -4,7 +4,6 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("
 const { handleKeywords } = require("../commands/keyword-responder");
 const { handleMessage: handleUwuify } = require("../commands/uwuify");
 const { detectTool, executeTool } = require("../tools");
-const { engine } = require('../cogs/automation');
 
 // ─── CUSTOM EMOJIS (Chromed Server) ──────────────────────────
 const E = {
@@ -53,6 +52,7 @@ const E = {
   manguns: "<:manguns:1526537075778654329>",
   point_laugh: "<:PointAndLaughingEmoji:1525657154567016469>",
   golden_verified: "<:Golden_Verified:1531893351920697484>",
+  // New additions
   Reply_Continued: "<:Reply_Continued:1531902914824638584>",
   skulllmao: "<a:skulllmao:1544845693762535477>",
   emoji_52: "<a:emoji_52:1544845538329895032>",
@@ -195,7 +195,7 @@ async function callAI(modelKey, messages, temperature, maxTokens = 1024) {
   throw new Error(`All providers failed. Last error: ${lastError?.message || "Unknown"}`);
 }
 
-// ─── MODES ──────────────────────────────────────────────────────
+// ─── MODES (full prompts) ───────────────────────────────────────
 const MODES = {
   unfiltered: {
     label: "🛡️ Unfiltered",
@@ -362,7 +362,7 @@ TONE: Aggressive interrogation energy. Lots of caps. "I KNEW IT." "Security!!" Y
 
 const DEFAULT_MODE = "unfiltered";
 
-// ─── SYSTEM PROMPT BUILDER ───────────────────────────────────────
+// ─── SYSTEM PROMPT BUILDER (with emoji instruction) ─────────────
 function buildSystemPrompt(modelPreference, modePreference, customPrompt, personalInfo, isGroup) {
   const modelInfo = MODELS[modelPreference] || MODELS[DEFAULT_MODEL];
   const modeInfo = MODES[modePreference] || MODES[DEFAULT_MODE];
@@ -538,6 +538,7 @@ async function getPremiumSettings(pool, userId, guildId) {
   }
 }
 
+// ─── ERROR TOGGLE HELPER (per server) ────────────────────────────
 async function shouldShowSupportLink(pool, guildId) {
   if (!guildId) return true;
   try {
@@ -551,6 +552,7 @@ async function shouldShowSupportLink(pool, guildId) {
   }
 }
 
+// ─── SEND AI REPLY (font, swear filter, premium embed) ───────────
 async function sendAiReply(message, text, userId, client) {
   const pool = client.pool;
   const premium = await getPremiumSettings(pool, userId, message.guildId);
@@ -580,6 +582,7 @@ async function sendAiReply(message, text, userId, client) {
   return message.reply(finalText).catch(() => {});
 }
 
+// ─── GET STYLED ANSWER (font only) ───────────────────────────────
 async function getStyledAnswer(pool, rawAnswer, userId) {
   try {
     const res = await pool.query(`SELECT style FROM user_fonts WHERE user_id = $1`, [userId]);
@@ -601,15 +604,6 @@ module.exports = {
     const userId = message.author.id;
     const channelId = message.channelId;
     const guildId = message.guildId;
-
-    // ─── automation (runs alongside everything else, fire-and-forget) ───
-    if (message.guild && !message.author.bot && message.member) {
-      engine.run('message', {
-        eventType: 'message', client: message.client,
-        message, member: message.member, user: message.author,
-        guild: message.guild, channel: message.channel,
-      }).catch(() => {});
-    }
 
     // 1. Global swear block on user message
     const userSwear = await globalSwearFilter(pool, message.content);
@@ -652,6 +646,7 @@ module.exports = {
         }
       } catch (err) {
         console.warn("Tool execution failed, falling back to AI:", err.message);
+        // fall through to AI
       }
     }
 
@@ -688,6 +683,7 @@ module.exports = {
             let customPrompt = userData.customPrompt || "";
             let personalInfo = "";
 
+            // Load workflow from DB if not in memory
             if (userData.workflow === undefined) {
               try {
                 const wfRes = await pool.query(
