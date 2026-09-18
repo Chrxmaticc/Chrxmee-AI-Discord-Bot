@@ -4,7 +4,10 @@ const {
   MessageFlags, ChannelType,
 } = require('discord.js');
 
-const { engine, store, cases, constants } = require('../cogs/moderation');
+const engine = require('../cogs/moderation/engine');
+const store = require('../cogs/moderation/store');
+const cases = require('../cogs/moderation/cases');
+const constants = require('../cogs/moderation/constants');
 const { CASE_TYPES } = constants;
 
 const E = {
@@ -68,10 +71,17 @@ async function caseContainer(guildId, c) {
     `**when:** <t:${Math.floor(c.createdAt / 1000)}:F>`,
   ].filter(Boolean);
   cont.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')));
+  if (c.notes && c.notes.length) {
+    cont.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+    cont.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**notes:**`));
+    for (const n of c.notes) {
+      cont.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# <@${n.modId}> · <t:${Math.floor(n.at / 1000)}:R> · ${n.note}`));
+    }
+  }
   return cont;
 }
 
-async function awaitOne(msg, userId, time, filterFn) {
+function awaitOne(msg, userId, time, filterFn) {
   return new Promise(resolve => {
     const col = msg.createMessageComponentCollector({
       time, max: 1,
@@ -82,7 +92,6 @@ async function awaitOne(msg, userId, time, filterFn) {
   });
 }
 
-/* confirmation for destructive actions */
 async function confirmDestructive(interaction, userId, title, body) {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('mod_yes').setLabel('confirm').setStyle(ButtonStyle.Danger),
@@ -124,7 +133,7 @@ module.exports = {
       .addUserOption(o => o.setName('user').setDescription('target').setRequired(true))
       .addStringOption(o => o.setName('duration').setDescription('optional — blank = permanent'))
       .addStringOption(o => o.setName('reason').setDescription('reason').setMaxLength(500)))
-    .addSubcommand(s => s.setName('softban').setDescription('ban then immediately unban (deletes messages)')
+    .addSubcommand(s => s.setName('softban').setDescription('ban then unban (wipes recent messages)')
       .addUserOption(o => o.setName('user').setDescription('target').setRequired(true))
       .addStringOption(o => o.setName('reason').setDescription('reason').setMaxLength(500)))
     .addSubcommand(s => s.setName('unban').setDescription('unban a user')
@@ -151,10 +160,10 @@ module.exports = {
       .addIntegerOption(o => o.setName('count').setDescription('1-100').setRequired(true).setMinValue(1).setMaxValue(100))
       .addUserOption(o => o.setName('user').setDescription('filter by user'))
       .addStringOption(o => o.setName('contains').setDescription('filter by text')))
-    .addSubcommand(s => s.setName('purge-user').setDescription('purge up to 100 messages from one user in this channel')
+    .addSubcommand(s => s.setName('purge-user').setDescription('purge messages from one user in this channel')
       .addUserOption(o => o.setName('user').setDescription('user').setRequired(true))
-      .addIntegerOption(o => o.setName('count').setDescription('max messages to scan (1-100)').setRequired(true).setMinValue(1).setMaxValue(100)))
-    .addSubcommand(s => s.setName('lock').setDescription('lock a channel (deny @everyone send)')
+      .addIntegerOption(o => o.setName('count').setDescription('max to scan (1-100)').setRequired(true).setMinValue(1).setMaxValue(100)))
+    .addSubcommand(s => s.setName('lock').setDescription('lock a channel')
       .addChannelOption(o => o.setName('channel').setDescription('channel (blank = this one)').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement))
       .addStringOption(o => o.setName('reason').setDescription('reason').setMaxLength(200)))
     .addSubcommand(s => s.setName('unlock').setDescription('unlock a channel')
@@ -164,7 +173,7 @@ module.exports = {
       .addChannelOption(o => o.setName('channel').setDescription('channel (blank = this one)').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)))
     .addSubcommand(s => s.setName('nick').setDescription('set a user\'s nickname')
       .addUserOption(o => o.setName('user').setDescription('target').setRequired(true))
-      .addStringOption(o => o.setName('nickname').setDescription('new nickname (max 32)').setRequired(true).setMaxLength(32)))
+      .addStringOption(o => o.setName('nickname').setDescription('new nickname').setRequired(true).setMaxLength(32)))
     .addSubcommand(s => s.setName('resetnick').setDescription('reset a user\'s nickname')
       .addUserOption(o => o.setName('user').setDescription('target').setRequired(true)))
     .addSubcommand(s => s.setName('vckick').setDescription('disconnect a user from voice')
@@ -180,10 +189,8 @@ module.exports = {
     .addSubcommand(s => s.setName('stats').setDescription('moderation stats')),
 
   async execute(interaction) {
-    /* ack first so we never time out */
     await interaction.deferReply({ flags: V2_E }).catch(() => {});
 
-    /* permissions AFTER ack */
     if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.ModerateMembers)) {
       return interaction.editReply({ components: [errBox('moderate members permission required.')], flags: V2_E });
     }
@@ -192,17 +199,16 @@ module.exports = {
     const modId = interaction.user.id;
     const guildId = interaction.guildId;
 
-    /* ensure member is cached */
     if (!interaction.member) {
       await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
     }
     if (!interaction.member) {
-      return interaction.editReply({ components: [errBox('could not load your member data. try again.')], flags: V2_E });
+      return interaction.editReply({ components: [errBox('could not load your member data.')], flags: V2_E });
     }
 
     const config = store.getConfig(guildId);
 
-    /* ── no-target subcommands ── */
+    /* ── no-target subs ── */
     if (sub === 'recent') {
       const list = store.recentCases(guildId, 15);
       if (!list.length) return interaction.editReply({ components: [errBox('no cases yet.')], flags: V2_E });
@@ -249,7 +255,7 @@ module.exports = {
       });
     }
 
-    /* ── case lookup ── */
+    /* ── case ── */
     if (sub === 'case') {
       const id = interaction.options.getString('id').toUpperCase();
       const c = store.getCase(guildId, id);
@@ -268,7 +274,7 @@ module.exports = {
       return interaction.editReply({ components: [okBox(`note added to case \`${id}\`.`)], flags: V2_E });
     }
 
-    /* ── history ── */
+    /* ── history / notes / warns / unwarn ── */
     if (sub === 'history') {
       const user = interaction.options.getUser('user');
       const list = store.listCases(guildId, { targetId: user.id, limit: 20 });
@@ -277,8 +283,8 @@ module.exports = {
       const watched = store.isWatched(guildId, user.id);
       return interaction.editReply({
         components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.file} ${user.username} — case history`))
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# id \`${user.id}\` ${watched ? '· watched' : ''}`))
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.file} ${user.username} — history`))
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# id \`${user.id}\`${watched ? ' · watched' : ''}`))
           .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
           .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')))],
         flags: V2_E,
@@ -310,10 +316,7 @@ module.exports = {
           lines.push(`  \`${w.caseId}\` · <@${w.modId}> · *${w.reason.slice(0, 60)}*${exp}`);
         }
       }
-      if (expired.length) {
-        lines.push('');
-        lines.push(`-# expired: ${expired.length}`);
-      }
+      if (expired.length) lines.push('', `-# expired: ${expired.length}`);
       if (!lines.length) lines.push('no warns.');
       return interaction.editReply({
         components: [new ContainerBuilder().setAccentColor(0xf5c34a)
@@ -378,8 +381,6 @@ module.exports = {
       const reason = interaction.options.getString('reason') || 'channel locked';
       try {
         await ch.permissionOverwrites.edit(interaction.guild.roles.everyone, { SendMessages: false }, { reason });
-        await ch.send({ components: [new ContainerBuilder().setAccentColor(0xffa500)
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.lock} this channel is locked.`))], flags: MessageFlags.IsComponentsV2 }).catch(() => {});
         return interaction.editReply({ components: [okBox(`locked <#${ch.id}>.`)], flags: V2_E });
       } catch (e) {
         return interaction.editReply({ components: [errBox(`could not lock: ${e.message.slice(0, 100)}`)], flags: V2_E });
@@ -389,7 +390,7 @@ module.exports = {
     if (sub === 'unlock') {
       const ch = interaction.options.getChannel('channel') || interaction.channel;
       try {
-        await ch.permissionOverwrites.edit(interaction.guild.roles.everyone, { SendMessages: null }, { reason: 'channel unlocked' });
+        await ch.permissionOverwrites.edit(interaction.guild.roles.everyone, { SendMessages: null }, { reason: 'unlocked' });
         return interaction.editReply({ components: [okBox(`unlocked <#${ch.id}>.`)], flags: V2_E });
       } catch (e) {
         return interaction.editReply({ components: [errBox(`could not unlock: ${e.message.slice(0, 100)}`)], flags: V2_E });
@@ -400,14 +401,14 @@ module.exports = {
       const seconds = interaction.options.getInteger('seconds');
       const ch = interaction.options.getChannel('channel') || interaction.channel;
       try {
-        await ch.setRateLimitPerUser(seconds, `slowmode set by ${interaction.user.tag}`);
+        await ch.setRateLimitPerUser(seconds, `set by ${interaction.user.tag}`);
         return interaction.editReply({ components: [okBox(`slowmode on <#${ch.id}> set to **${seconds}s**.`)], flags: V2_E });
       } catch (e) {
         return interaction.editReply({ components: [errBox(`could not set slowmode: ${e.message.slice(0, 100)}`)], flags: V2_E });
       }
     }
 
-    /* ── unban (no member required) ── */
+    /* ── unban (no member) ── */
     if (sub === 'unban') {
       const targetUser = interaction.options.getUser('user');
       const reason = interaction.options.getString('reason') || 'no reason';
@@ -415,14 +416,14 @@ module.exports = {
       return interaction.editReply({ components: [okBox(`unbanned ${targetUser.username}. case \`${c.id}\``)], flags: V2_E });
     }
 
-    /* ── member-required subcommands ── */
+    /* ── member-required ── */
     const targetUser = interaction.options.getUser('user');
     const reason = interaction.options.getString('reason') || 'no reason';
     const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
 
     if (!member) return interaction.editReply({ components: [errBox('user not in server.')], flags: V2_E });
     if (isImmune(member, interaction.member, config) && modId !== interaction.guild.ownerId) {
-      return interaction.editReply({ components: [errBox('cannot moderate this user (immune or higher role).')], flags: V2_E });
+      return interaction.editReply({ components: [errBox('cannot moderate this user.')], flags: V2_E });
     }
 
     if (sub === 'warn') {
@@ -432,7 +433,7 @@ module.exports = {
 
     if (sub === 'timeout') {
       const dur = parseDuration(interaction.options.getString('duration'));
-      if (!dur || dur < 1000 || dur > 2419200000) return interaction.editReply({ components: [errBox('invalid duration. use e.g. `10m`, `2h`, `1d` (max 28d).')], flags: V2_E });
+      if (!dur || dur < 1000 || dur > 2419200000) return interaction.editReply({ components: [errBox('invalid duration (max 28d).')], flags: V2_E });
       const c = await engine.timeout(member, modId, dur, reason);
       return interaction.editReply({ components: [okBox(`timed out ${member.user.username} for \`${cases.fmtDuration(dur)}\`. case \`${c.id}\``)], flags: V2_E });
     }
@@ -453,7 +454,7 @@ module.exports = {
     if (sub === 'ban') {
       const durStr = interaction.options.getString('duration');
       const dur = durStr ? parseDuration(durStr) : null;
-      if (durStr && !dur) return interaction.editReply({ components: [errBox('invalid duration. use e.g. `7d`, `30d`.')], flags: V2_E });
+      if (durStr && !dur) return interaction.editReply({ components: [errBox('invalid duration.')], flags: V2_E });
       const ok = await confirmDestructive(interaction, modId, `ban ${member.user.username}?`, `reason: **${reason}**${dur ? `\nduration: \`${cases.fmtDuration(dur)}\`` : '\npermanent'}`);
       if (!ok) return interaction.editReply({ components: [okBox('cancelled.')], flags: V2_E });
       const c = await engine.ban(interaction.guild, targetUser.id, modId, reason, dur);
@@ -461,13 +462,12 @@ module.exports = {
     }
 
     if (sub === 'softban') {
-      const ok = await confirmDestructive(interaction, modId, `softban ${member.user.username}?`, `bans then unbans to wipe recent messages.\nreason: **${reason}**`);
+      const ok = await confirmDestructive(interaction, modId, `softban ${member.user.username}?`, `bans then unbans (wipes 7d of messages).\nreason: **${reason}**`);
       if (!ok) return interaction.editReply({ components: [okBox('cancelled.')], flags: V2_E });
       try {
         await member.ban({ reason: `softban: ${reason}`, deleteMessageSeconds: 604800 });
         await interaction.guild.members.unban(targetUser.id, 'softban auto-unban').catch(() => {});
         const c = store.createCase(guildId, { type: 'softban', targetId: targetUser.id, modId, reason });
-        await engine.purge(interaction.channel, 100, modId, { user: targetUser.id }).catch(() => {});
         return interaction.editReply({ components: [okBox(`softbanned ${targetUser.username}. case \`${c.id}\``)], flags: V2_E });
       } catch (e) {
         return interaction.editReply({ components: [errBox(`softban failed: ${e.message.slice(0, 100)}`)], flags: V2_E });
@@ -497,7 +497,7 @@ module.exports = {
 
     if (sub === 'vckick') {
       if (!member.voice || !member.voice.channel) {
-        return interaction.editReply({ components: [errBox(`${member.user.username} is not in a voice channel.`)], flags: V2_E });
+        return interaction.editReply({ components: [errBox(`${member.user.username} is not in voice.`)], flags: V2_E });
       }
       try {
         await member.voice.disconnect(reason);
