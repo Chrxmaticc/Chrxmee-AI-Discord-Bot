@@ -633,6 +633,12 @@ console.log("guild_settings.prefix column ready");
     await pgClient.query(`CREATE TABLE IF NOT EXISTS mode_interactions (user_id TEXT PRIMARY KEY, preferred_mode TEXT DEFAULT 'unfiltered')`);
     console.log("mode_interactions table ready");
 
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS automation_flows (id SERIAL PRIMARY KEY, guild_id TEXT NOT NULL, name TEXT NOT NULL, enabled BOOLEAN DEFAULT false, trigger JSONB, conditions JSONB DEFAULT '[]'::jsonb, condition_mode TEXT DEFAULT 'all', actions JSONB DEFAULT '[]'::jsonb, cooldown_seconds INTEGER DEFAULT 5, created_by TEXT, error_count INTEGER DEFAULT 0, fire_count INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW())`);
+console.log("automation_flows table ready");
+
+await pgClient.query(`CREATE TABLE IF NOT EXISTS automation_fires (id SERIAL PRIMARY KEY, flow_id INTEGER, user_id TEXT, ok BOOLEAN, error TEXT, fired_at TIMESTAMP DEFAULT NOW())`);
+console.log("automation_fires table ready");
+
     await pgClient.query(`
   CREATE TABLE IF NOT EXISTS user_stats (
     user_id BIGINT,
