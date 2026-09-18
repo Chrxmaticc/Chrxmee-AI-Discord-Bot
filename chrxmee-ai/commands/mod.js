@@ -142,15 +142,14 @@ module.exports = {
     .addSubcommand(s => s.setName('note').setDescription('add a note to a user')
       .addUserOption(o => o.setName('user').setDescription('target').setRequired(true))
       .addStringOption(o => o.setName('note').setDescription('note').setRequired(true).setMaxLength(500)))
-    .addSubcommand(s => s.setName('notes').setDescription('view a user\'s notes')
-      .addUserOption(o => o.setName('user').setDescription('target').setRequired(true)))
     .addSubcommand(s => s.setName('case').setDescription('view a case')
       .addStringOption(o => o.setName('id').setDescription('case id like MC-0001').setRequired(true)))
     .addSubcommand(s => s.setName('case-note').setDescription('add a staff note to a case')
       .addStringOption(o => o.setName('id').setDescription('case id').setRequired(true))
       .addStringOption(o => o.setName('note').setDescription('note').setRequired(true).setMaxLength(500)))
-    .addSubcommand(s => s.setName('history').setDescription('view a user\'s case history')
-      .addUserOption(o => o.setName('user').setDescription('target').setRequired(true)))
+    .addSubcommand(s => s.setName('history').setDescription('view cases + notes on a user')
+      .addUserOption(o => o.setName('user').setDescription('target').setRequired(true))
+      .addBooleanOption(o => o.setName('show_notes').setDescription('include staff notes?')))
     .addSubcommand(s => s.setName('warns').setDescription('view a user\'s warns')
       .addUserOption(o => o.setName('user').setDescription('target').setRequired(true)))
     .addSubcommand(s => s.setName('unwarn').setDescription('remove a warn')
@@ -160,9 +159,6 @@ module.exports = {
       .addIntegerOption(o => o.setName('count').setDescription('1-100').setRequired(true).setMinValue(1).setMaxValue(100))
       .addUserOption(o => o.setName('user').setDescription('filter by user'))
       .addStringOption(o => o.setName('contains').setDescription('filter by text')))
-    .addSubcommand(s => s.setName('purge-user').setDescription('purge messages from one user in this channel')
-      .addUserOption(o => o.setName('user').setDescription('user').setRequired(true))
-      .addIntegerOption(o => o.setName('count').setDescription('max to scan (1-100)').setRequired(true).setMinValue(1).setMaxValue(100)))
     .addSubcommand(s => s.setName('lock').setDescription('lock a channel')
       .addChannelOption(o => o.setName('channel').setDescription('channel (blank = this one)').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement))
       .addStringOption(o => o.setName('reason').setDescription('reason').setMaxLength(200)))
@@ -274,35 +270,30 @@ module.exports = {
       return interaction.editReply({ components: [okBox(`note added to case \`${id}\`.`)], flags: V2_E });
     }
 
-    /* ── history / notes / warns / unwarn ── */
+    /* ── history (with optional notes) ── */
     if (sub === 'history') {
       const user = interaction.options.getUser('user');
-      const list = store.listCases(guildId, { targetId: user.id, limit: 20 });
-      if (!list.length) return interaction.editReply({ components: [okBox(`${user.username} has no cases.`)], flags: V2_E });
-      const lines = list.map(c => `\`${c.id}\` · **${c.type}** · <t:${Math.floor(c.createdAt / 1000)}:R> · *${c.reason.slice(0, 50)}*`);
+      const showNotes = interaction.options.getBoolean('show_notes');
+      const caseList = store.listCases(guildId, { targetId: user.id, limit: 20 });
+      const noteList = showNotes ? store.listNotes(guildId, user.id) : [];
+      if (!caseList.length && !noteList.length) {
+        return interaction.editReply({ components: [okBox(`${user.username} has no cases or notes.`)], flags: V2_E });
+      }
+      const caseLines = caseList.map(c => `\`${c.id}\` · **${c.type}** · <t:${Math.floor(c.createdAt / 1000)}:R> · *${c.reason.slice(0, 50)}*`);
+      const noteLines = noteList.map(n => `\`${n.id}\` · <@${n.modId}> · <t:${Math.floor(n.at / 1000)}:R>\n  *${n.note}*`);
       const watched = store.isWatched(guildId, user.id);
-      return interaction.editReply({
-        components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.file} ${user.username} — history`))
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# id \`${user.id}\`${watched ? ' · watched' : ''}`))
-          .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')))],
-        flags: V2_E,
-      });
-    }
-
-    if (sub === 'notes') {
-      const user = interaction.options.getUser('user');
-      const list = store.listNotes(guildId, user.id);
-      if (!list.length) return interaction.editReply({ components: [okBox(`${user.username} has no notes.`)], flags: V2_E });
-      const lines = list.map(n => `\`${n.id}\` · <@${n.modId}> · <t:${Math.floor(n.at / 1000)}:R>\n  *${n.note}*`);
-      return interaction.editReply({
-        components: [new ContainerBuilder().setAccentColor(0x5b7fd4)
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.file} ${user.username} — notes`))
-          .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n\n')))],
-        flags: V2_E,
-      });
+      const c = new ContainerBuilder().setAccentColor(0x5b7fd4);
+      c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.file} ${user.username} — history`));
+      c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# id \`${user.id}\`${watched ? ' · watched' : ''}`));
+      if (caseLines.length) {
+        c.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+        c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**cases (${caseList.length}):**\n${caseLines.join('\n')}`));
+      }
+      if (noteLines.length) {
+        c.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+        c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`**notes (${noteList.length}):**\n${noteLines.join('\n\n')}`));
+      }
+      return interaction.editReply({ components: [c], flags: V2_E });
     }
 
     if (sub === 'warns') {
@@ -365,14 +356,8 @@ module.exports = {
       if (filterUser) filter.user = filterUser.id;
       if (contains) filter.contains = contains;
       const res = await engine.purge(interaction.channel, count, modId, filter);
-      return interaction.editReply({ components: [okBox(`purged **${res.deleted}** message(s).`)], flags: V2_E });
-    }
-
-    if (sub === 'purge-user') {
-      const user = interaction.options.getUser('user');
-      const count = interaction.options.getInteger('count');
-      const res = await engine.purge(interaction.channel, count, modId, { user: user.id });
-      return interaction.editReply({ components: [okBox(`purged **${res.deleted}** message(s) from ${user.username}.`)], flags: V2_E });
+      const label = filterUser ? ` from ${filterUser.username}` : '';
+      return interaction.editReply({ components: [okBox(`purged **${res.deleted}** message(s)${label}.`)], flags: V2_E });
     }
 
     /* ── lock / unlock / slowmode ── */
