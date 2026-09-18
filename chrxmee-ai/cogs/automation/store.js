@@ -1,11 +1,17 @@
 /* cogs/automation/store.js — postgres-backed */
 let pool = null;
-function setPool(p) { pool = p; }
+function setPool(p) {
+  pool = p;
+  console.log('[automation] pool attached:', !!pool);
+}
+function requirePool() {
+  if (!pool) throw new Error('automation store: pool not attached');
+}
 
 function rowToFlow(r) {
   return {
     id: r.id,
-    guildId: Number(r.guild_id),
+    guildId: r.guild_id,
     name: r.name,
     enabled: r.enabled,
     trigger: r.trigger,
@@ -13,7 +19,7 @@ function rowToFlow(r) {
     conditionMode: r.condition_mode,
     actions: r.actions || [],
     cooldownSeconds: r.cooldown_seconds,
-    createdBy: r.created_by ? Number(r.created_by) : null,
+    createdBy: r.created_by || null,
     createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
     errorCount: r.error_count || 0,
     fireCount: r.fire_count || 0,
@@ -23,6 +29,7 @@ function rowToFlow(r) {
 module.exports = {
   setPool,
   async create(guildId, data) {
+    requirePool();
     const r = await pool.query(
       `INSERT INTO automation_flows (guild_id, name, enabled, trigger, conditions, condition_mode, actions, cooldown_seconds, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
@@ -31,14 +38,17 @@ module.exports = {
     return rowToFlow(r.rows[0]);
   },
   async get(id) {
+    requirePool();
     const r = await pool.query(`SELECT * FROM automation_flows WHERE id = $1`, [id]);
     return r.rows[0] ? rowToFlow(r.rows[0]) : null;
   },
   async listForGuild(guildId) {
+    requirePool();
     const r = await pool.query(`SELECT * FROM automation_flows WHERE guild_id = $1 ORDER BY id ASC`, [guildId]);
     return r.rows.map(rowToFlow);
   },
   async listEnabledFor(guildId, triggerType) {
+    requirePool();
     const r = await pool.query(
       `SELECT * FROM automation_flows WHERE guild_id = $1 AND enabled = true AND trigger->>'type' = $2 ORDER BY id ASC`,
       [guildId, triggerType]
@@ -46,10 +56,12 @@ module.exports = {
     return r.rows.map(rowToFlow);
   },
   async allScheduled() {
+    requirePool();
     const r = await pool.query(`SELECT * FROM automation_flows WHERE enabled = true AND trigger->>'type' = 'scheduled' ORDER BY id ASC`);
     return r.rows.map(rowToFlow);
   },
   async update(id, patch) {
+    requirePool();
     const r = await pool.query(
       `UPDATE automation_flows SET
         name = COALESCE($1, name),
@@ -75,13 +87,16 @@ module.exports = {
     return r.rows[0] ? rowToFlow(r.rows[0]) : null;
   },
   async remove(id) {
+    requirePool();
     const r = await pool.query(`DELETE FROM automation_flows WHERE id = $1`, [id]);
     return r.rowCount > 0;
   },
   async bumpError(id) {
+    requirePool();
     await pool.query(`UPDATE automation_flows SET error_count = error_count + 1 WHERE id = $1`, [id]);
   },
   async recordFire(id, entry) {
+    requirePool();
     await pool.query(
       `INSERT INTO automation_fires (flow_id, user_id, ok, error) VALUES ($1,$2,$3,$4)`,
       [id, entry.userId, entry.ok === true, entry.error || null]
@@ -95,10 +110,12 @@ module.exports = {
     }
   },
   async setEnabledAll(guildId, enabled) {
+    requirePool();
     const r = await pool.query(`UPDATE automation_flows SET enabled = $1 WHERE guild_id = $2`, [enabled, guildId]);
     return r.rowCount;
   },
   async getRecentFires(guildId, limit = 20) {
+    requirePool();
     const r = await pool.query(
       `SELECT f.*, a.name AS flow_name FROM automation_fires f
        JOIN automation_flows a ON a.id = f.flow_id
