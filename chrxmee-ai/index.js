@@ -645,6 +645,33 @@ console.log("gamble_wallet table ready");
    await pgClient.query(`CREATE TABLE IF NOT EXISTS pets (id SERIAL PRIMARY KEY, user_id TEXT UNIQUE NOT NULL, name TEXT NOT NULL, species TEXT NOT NULL, hunger INTEGER DEFAULT 100, thirst INTEGER DEFAULT 100, happiness INTEGER DEFAULT 100, energy INTEGER DEFAULT 100, hygiene INTEGER DEFAULT 100, health INTEGER DEFAULT 100, asleep BOOLEAN DEFAULT false, sick BOOLEAN DEFAULT false, poops INTEGER DEFAULT 0, meals_since_poop INTEGER DEFAULT 0, critical_ticks INTEGER DEFAULT 0, alive BOOLEAN DEFAULT true, last_tick_at TIMESTAMP DEFAULT NOW(), last_fed_at TIMESTAMP, last_drank_at TIMESTAMP, last_played_at TIMESTAMP, last_washed_at TIMESTAMP, last_slept_at TIMESTAMP, last_medicine_at TIMESTAMP, adopted_at TIMESTAMP DEFAULT NOW(), died_at TIMESTAMP, cause_of_death TEXT, created_at TIMESTAMP DEFAULT NOW())`);
 console.log("pets table ready"); 
 
+    await pgClient.query(`ALTER TABLE gamble_wallet ADD COLUMN IF NOT EXISTS sheckles INTEGER DEFAULT 0`);
+console.log("gamble_wallet sheckles column ready");
+
+await pgClient.query(`CREATE TABLE IF NOT EXISTS economy_transactions (id SERIAL PRIMARY KEY, user_id TEXT, counterparty_id TEXT, type TEXT NOT NULL, amount INTEGER NOT NULL, tax INTEGER DEFAULT 0, note TEXT, created_at TIMESTAMP DEFAULT NOW())`);
+console.log("economy_transactions table ready");
+
+await pgClient.query(`CREATE TABLE IF NOT EXISTS economy_streaks (user_id TEXT PRIMARY KEY, streak INTEGER DEFAULT 0, last_daily_at TIMESTAMP, total_dailies INTEGER DEFAULT 0)`);
+console.log("economy_streaks table ready");
+
+await pgClient.query(`CREATE TABLE IF NOT EXISTS economy_prestige (user_id TEXT PRIMARY KEY, level INTEGER DEFAULT 1, total_earned BIGINT DEFAULT 0, total_spent BIGINT DEFAULT 0, total_given BIGINT DEFAULT 0, total_received BIGINT DEFAULT 0)`);
+console.log("economy_prestige table ready");
+
+await pgClient.query(`CREATE TABLE IF NOT EXISTS economy_achievements (user_id TEXT NOT NULL, achievement_id TEXT NOT NULL, unlocked_at TIMESTAMP DEFAULT NOW(), PRIMARY KEY (user_id, achievement_id))`);
+console.log("economy_achievements table ready");
+
+await pgClient.query(`CREATE TABLE IF NOT EXISTS economy_jobs (user_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, set_at TIMESTAMP DEFAULT NOW())`);
+console.log("economy_jobs table ready");
+
+await pgClient.query(`CREATE TABLE IF NOT EXISTS economy_items (user_id TEXT NOT NULL, item_id TEXT NOT NULL, quantity INTEGER DEFAULT 1, bought_at TIMESTAMP DEFAULT NOW(), PRIMARY KEY (user_id, item_id))`);
+console.log("economy_items table ready");
+
+await pgClient.query(`CREATE TABLE IF NOT EXISTS economy_pool (guild_id TEXT PRIMARY KEY, tax_pool BIGINT DEFAULT 0, global_multiplier NUMERIC(4,2) DEFAULT 1.0, multiplier_expires_at TIMESTAMP)`);
+console.log("economy_pool table ready");
+
+await pgClient.query(`CREATE TABLE IF NOT EXISTS economy_bank (user_id TEXT PRIMARY KEY, balance BIGINT DEFAULT 0, last_interest_at TIMESTAMP DEFAULT NOW())`);
+console.log("economy_bank table ready");
+
     await pgClient.query(`
   CREATE TABLE IF NOT EXISTS user_stats (
     user_id BIGINT,
