@@ -6,13 +6,14 @@ function requirePool() { if (!pool) throw new Error('economy store: pool not att
 
 const STARTING_CASH = 1000;
 
-/* ── wallet (shares gamble_wallet) ── */
+/* ═══════════ wallet ═══════════ */
 async function getWallet(userId) {
   requirePool();
   let r = await pool.query(`SELECT balance, sheckles FROM gamble_wallet WHERE user_id = $1`, [userId]);
   if (!r.rows[0]) {
     r = await pool.query(
-      `INSERT INTO gamble_wallet (user_id, balance, sheckles) VALUES ($1, $2, 0) ON CONFLICT (user_id) DO UPDATE SET user_id = $1 RETURNING balance, sheckles`,
+      `INSERT INTO gamble_wallet (user_id, balance, sheckles) VALUES ($1, $2, 0)
+       ON CONFLICT (user_id) DO UPDATE SET user_id = $1 RETURNING balance, sheckles`,
       [userId, STARTING_CASH]
     );
   }
@@ -32,7 +33,6 @@ async function setWallet(userId, cash, sheckles) {
   return { cash: c, sheckles: s };
 }
 
-/* spend dollars — auto drains sheckles first, then dollars */
 async function spendValue(userId, dollars) {
   const cost = Math.round(Number(dollars) * 100);
   const w = await getWallet(userId);
@@ -43,7 +43,6 @@ async function spendValue(userId, dollars) {
   return { ok: true, wallet: nw, spent: cost };
 }
 
-/* add dollars */
 async function addValue(userId, dollars) {
   const add = Math.round(Number(dollars) * 100);
   const w = await getWallet(userId);
@@ -51,14 +50,13 @@ async function addValue(userId, dollars) {
   return setWallet(userId, Math.floor(total / 100), total % 100);
 }
 
-/* add sheckles only */
 async function addSheckles(userId, n) {
   const w = await getWallet(userId);
   const total = w.cash * 100 + w.sheckles + (Number(n) || 0);
   return setWallet(userId, Math.floor(total / 100), total % 100);
 }
 
-/* ── transactions ── */
+/* ═══════════ transactions ═══════════ */
 async function logTransaction(userId, type, amount, opts = {}) {
   requirePool();
   await pool.query(
@@ -76,7 +74,7 @@ async function getHistory(userId, limit = 15) {
   return r.rows;
 }
 
-/* ── streaks ── */
+/* ═══════════ streaks ═══════════ */
 async function getStreak(userId) {
   requirePool();
   const r = await pool.query(`SELECT * FROM economy_streaks WHERE user_id = $1`, [userId]);
@@ -92,7 +90,7 @@ async function setStreak(userId, streak, totalDailies) {
   );
 }
 
-/* ── prestige ── */
+/* ═══════════ prestige ═══════════ */
 async function getPrestige(userId) {
   requirePool();
   const r = await pool.query(`SELECT * FROM economy_prestige WHERE user_id = $1`, [userId]);
@@ -139,28 +137,31 @@ async function trackReceived(userId, dollars) {
   );
 }
 
-/* ── achievements ── */
+/* ═══════════ achievements ═══════════ */
 async function hasAchievement(userId, id) {
   requirePool();
   const r = await pool.query(`SELECT 1 FROM economy_achievements WHERE user_id = $1 AND achievement_id = $2`, [userId, id]);
   return r.rows.length > 0;
 }
+
 async function grantAchievement(userId, id) {
   requirePool();
   await pool.query(`INSERT INTO economy_achievements (user_id, achievement_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [userId, id]);
 }
+
 async function listAchievements(userId) {
   requirePool();
   const r = await pool.query(`SELECT achievement_id, unlocked_at FROM economy_achievements WHERE user_id = $1 ORDER BY unlocked_at ASC`, [userId]);
   return r.rows;
 }
 
-/* ── jobs ── */
+/* ═══════════ jobs ═══════════ */
 async function getJob(userId) {
   requirePool();
   const r = await pool.query(`SELECT * FROM economy_jobs WHERE user_id = $1`, [userId]);
   return r.rows[0] || null;
 }
+
 async function setJob(userId, jobId) {
   requirePool();
   await pool.query(
@@ -169,12 +170,13 @@ async function setJob(userId, jobId) {
   );
 }
 
-/* ── items ── */
+/* ═══════════ items ═══════════ */
 async function getItems(userId) {
   requirePool();
   const r = await pool.query(`SELECT item_id, quantity, bought_at FROM economy_items WHERE user_id = $1`, [userId]);
   return r.rows;
 }
+
 async function addItem(userId, itemId, qty = 1) {
   requirePool();
   await pool.query(
@@ -183,21 +185,23 @@ async function addItem(userId, itemId, qty = 1) {
     [userId, itemId, qty]
   );
 }
+
 async function hasItem(userId, itemId) {
   const items = await getItems(userId);
   return items.some(i => i.item_id === itemId && i.quantity > 0);
 }
 
-/* ── pool + multiplier ── */
+/* ═══════════ pool + multiplier ═══════════ */
 async function getPool(guildId) {
   requirePool();
-  let r = await pool.query(`SELECT * FROM economy_pool WHERE guild_id = $1`, [guildId]);
+  const r = await pool.query(`SELECT * FROM economy_pool WHERE guild_id = $1`, [guildId]);
   if (!r.rows[0]) {
     await pool.query(`INSERT INTO economy_pool (guild_id) VALUES ($1) ON CONFLICT DO NOTHING`, [guildId]);
     return { guild_id: guildId, tax_pool: 0, global_multiplier: 1.0, multiplier_expires_at: null };
   }
   return r.rows[0];
 }
+
 async function addToPool(guildId, amount) {
   requirePool();
   await pool.query(
@@ -206,12 +210,14 @@ async function addToPool(guildId, amount) {
     [guildId, amount]
   );
 }
+
 async function drainPool(guildId) {
   const p = await getPool(guildId);
   const amt = Number(p.tax_pool) || 0;
   await pool.query(`UPDATE economy_pool SET tax_pool = 0 WHERE guild_id = $1`, [guildId]);
   return amt;
 }
+
 async function setMultiplier(guildId, mult, hours) {
   requirePool();
   const expires = new Date(Date.now() + hours * 60 * 60 * 1000);
@@ -221,6 +227,7 @@ async function setMultiplier(guildId, mult, hours) {
     [guildId, mult, expires]
   );
 }
+
 async function getMultiplier(guildId) {
   const p = await getPool(guildId);
   const m = Number(p.global_multiplier) || 1;
@@ -228,16 +235,17 @@ async function getMultiplier(guildId) {
   return m;
 }
 
-/* ── bank ── */
+/* ═══════════ bank ═══════════ */
 async function getBank(userId) {
   requirePool();
-  let r = await pool.query(`SELECT * FROM economy_bank WHERE user_id = $1`, [userId]);
+  const r = await pool.query(`SELECT * FROM economy_bank WHERE user_id = $1`, [userId]);
   if (!r.rows[0]) {
     await pool.query(`INSERT INTO economy_bank (user_id) VALUES ($1) ON CONFLICT DO NOTHING`, [userId]);
     return { user_id: userId, balance: 0, last_interest_at: new Date() };
   }
   return { user_id: userId, balance: Number(r.rows[0].balance), last_interest_at: r.rows[0].last_interest_at };
 }
+
 async function setBank(userId, balance) {
   requirePool();
   await pool.query(
@@ -246,12 +254,13 @@ async function setBank(userId, balance) {
     [userId, Math.max(0, Math.round(balance))]
   );
 }
+
 async function setBankInterestTime(userId, date) {
   requirePool();
   await pool.query(`UPDATE economy_bank SET last_interest_at = $2 WHERE user_id = $1`, [userId, date]);
 }
 
-/* ── leaderboard ── */
+/* ═══════════ leaderboard ═══════════ */
 async function getLeaderboard(limit = 10, offset = 0) {
   requirePool();
   const r = await pool.query(
@@ -261,6 +270,17 @@ async function getLeaderboard(limit = 10, offset = 0) {
   return r.rows.map(x => ({ userId: x.user_id, totalSheckles: Number(x.total) }));
 }
 
+async function listBankUsers() {
+  requirePool();
+  const r = await pool.query(`SELECT user_id, balance, last_interest_at FROM economy_bank WHERE balance > 0`);
+  return r.rows.map(x => ({
+    userId: x.user_id,
+    balance: Number(x.balance),
+    lastInterestAt: x.last_interest_at ? new Date(x.last_interest_at).getTime() : 0,
+  }));
+}
+
+/* ═══════════ exports ═══════════ */
 module.exports = {
   setPool,
   getWallet, setWallet, spendValue, addValue, addSheckles,
@@ -272,5 +292,5 @@ module.exports = {
   getItems, addItem, hasItem,
   getPool, addToPool, drainPool, setMultiplier, getMultiplier,
   getBank, setBank, setBankInterestTime,
-  getLeaderboard,
+  getLeaderboard, listBankUsers,
 };
