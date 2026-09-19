@@ -642,6 +642,9 @@ console.log("automation_fires table ready");
     await pgClient.query(`CREATE TABLE IF NOT EXISTS gamble_wallet (user_id TEXT PRIMARY KEY, balance BIGINT DEFAULT 1000, wins INTEGER DEFAULT 0, losses INTEGER DEFAULT 0, wagered BIGINT DEFAULT 0, biggest_win BIGINT DEFAULT 0, last_bet_at TIMESTAMP, last_daily_at TIMESTAMP)`);
 console.log("gamble_wallet table ready");
 
+   await pgClient.query(`CREATE TABLE IF NOT EXISTS pets (id SERIAL PRIMARY KEY, user_id TEXT UNIQUE NOT NULL, name TEXT NOT NULL, species TEXT NOT NULL, hunger INTEGER DEFAULT 100, thirst INTEGER DEFAULT 100, happiness INTEGER DEFAULT 100, energy INTEGER DEFAULT 100, hygiene INTEGER DEFAULT 100, health INTEGER DEFAULT 100, asleep BOOLEAN DEFAULT false, sick BOOLEAN DEFAULT false, poops INTEGER DEFAULT 0, meals_since_poop INTEGER DEFAULT 0, critical_ticks INTEGER DEFAULT 0, alive BOOLEAN DEFAULT true, last_tick_at TIMESTAMP DEFAULT NOW(), last_fed_at TIMESTAMP, last_drank_at TIMESTAMP, last_played_at TIMESTAMP, last_washed_at TIMESTAMP, last_slept_at TIMESTAMP, last_medicine_at TIMESTAMP, adopted_at TIMESTAMP DEFAULT NOW(), died_at TIMESTAMP, cause_of_death TEXT, created_at TIMESTAMP DEFAULT NOW())`);
+console.log("pets table ready"); 
+
     await pgClient.query(`
   CREATE TABLE IF NOT EXISTS user_stats (
     user_id BIGINT,
