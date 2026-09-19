@@ -639,6 +639,9 @@ console.log("automation_flows table ready");
 await pgClient.query(`CREATE TABLE IF NOT EXISTS automation_fires (id SERIAL PRIMARY KEY, flow_id INTEGER, user_id TEXT, ok BOOLEAN, error TEXT, fired_at TIMESTAMP DEFAULT NOW())`);
 console.log("automation_fires table ready");
 
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS gamble_wallet (user_id TEXT PRIMARY KEY, balance BIGINT DEFAULT 1000, wins INTEGER DEFAULT 0, losses INTEGER DEFAULT 0, wagered BIGINT DEFAULT 0, biggest_win BIGINT DEFAULT 0, last_bet_at TIMESTAMP, last_daily_at TIMESTAMP)`);
+console.log("gamble_wallet table ready");
+
     await pgClient.query(`
   CREATE TABLE IF NOT EXISTS user_stats (
     user_id BIGINT,
