@@ -1,6 +1,6 @@
 /* cogs/economy/constants.js */
 
-const OWNER_ID = 'YOUR_DISCORD_ID_HERE'; // replace with yours
+const OWNER_ID = process.env.OWNER_ID || '';
 
 const EMOJI = {
   success:      "<:Verified_Icon:1527194184841167010>",
