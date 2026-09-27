@@ -1,4 +1,4 @@
-/* cogs/verification/config.js — config helpers */
+/* cogs/verification/config.js — async wrappers around store */
 
 const store = require('./store');
 
@@ -7,13 +7,13 @@ module.exports = {
   set: (guildId, patch) => store.updateConfig(guildId, patch),
   reset: (guildId) => store.resetConfig(guildId),
 
-  isReady(guildId) {
-    const c = store.getConfig(guildId);
+  async isReady(guildId) {
+    const c = await store.getConfig(guildId);
     return c.enabled && c.roleVerified && c.roleUnverified && c.methods.length > 0;
   },
 
-  missingSetup(guildId) {
-    const c = store.getConfig(guildId);
+  async missingSetup(guildId) {
+    const c = await store.getConfig(guildId);
     const missing = [];
     if (!c.roleVerified) missing.push('verified role');
     if (!c.roleUnverified) missing.push('unverified role');
