@@ -1,4 +1,4 @@
-/* cogs/verification/log.js — verification logging */
+/* cogs/verification/log.js */
 
 const { ContainerBuilder, TextDisplayBuilder, MessageFlags } = require('discord.js');
 const config = require('./config');
@@ -12,7 +12,7 @@ const E = {
 };
 
 async function log(client, guildId, payload) {
-  const cfg = config.get(guildId);
+  const cfg = await config.get(guildId);
   if (!cfg.logChannel) return;
   const ch = client.channels.cache.get(cfg.logChannel);
   if (!ch) return;
@@ -33,9 +33,9 @@ async function log(client, guildId, payload) {
 }
 
 async function logAttempt(client, guildId, userId, method, result, reason) {
-  const cfg = config.get(guildId);
+  const cfg = await config.get(guildId);
   if (!cfg.logAttempts) return;
-  store.recordAttempt(guildId, userId, method, result, reason);
+  await store.recordAttempt(guildId, userId, method, result, reason);
 
   const icon = result === 'success' ? E.success : E.error;
   const color = result === 'success' ? 0x57f287 : 0xff3b3b;
