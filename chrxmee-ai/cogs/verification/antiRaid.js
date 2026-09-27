@@ -1,9 +1,10 @@
-/* cogs/verification/antiRaid.js — raid detection */
+/* cogs/verification/antiRaid.js */
 
-const config = require('./config');
+const configMod = require('./config');
+const log = require('./log');
 
-const joinBuckets = new Map();      // guildId -> [timestamps]
-const raidMode = new Map();         // guildId -> expiresAt
+const joinBuckets = new Map();
+const raidState = new Map();
 
 function recordJoin(guildId) {
   const now = Date.now();
@@ -13,45 +14,46 @@ function recordJoin(guildId) {
   return arr;
 }
 
-function isRaidActive(guildId) {
-  const exp = raidMode.get(guildId);
-  if (!exp) return false;
-  if (Date.now() > exp) {
-    raidMode.delete(guildId);
-    return false;
-  }
+function isActive(guildId) {
+  const s = raidState.get(guildId);
+  if (!s) return false;
+  if (Date.now() > s.expiresAt) { raidState.delete(guildId); return false; }
   return true;
 }
 
-function triggerRaid(guildId, durationMinutes) {
-  const exp = Date.now() + durationMinutes * 60000;
-  raidMode.set(guildId, exp);
-  return exp;
+function trigger(guildId, durationMinutes) {
+  const expiresAt = Date.now() + durationMinutes * 60000;
+  raidState.set(guildId, { expiresAt, locked: false });
+  return expiresAt;
 }
 
-function checkOnJoin(guildId) {
-  const cfg = config.get(guildId);
+async function checkOnJoin(guild, client) {
+  const cfg = await configMod.get(guild.id);
   if (!cfg.antiraidEnabled) return false;
 
-  const joins = recordJoin(guildId);
-  const window = cfg.antiraidWindowSeconds || 60;
-  const threshold = cfg.antiraidThreshold || 15;
+  const joins = recordJoin(guild.id);
   const now = Date.now();
-  const inWindow = joins.filter(t => now - t < window * 1000).length;
+  const inWindow = joins.filter(t => now - t < cfg.antiraidWindowSeconds * 1000).length;
 
-  if (inWindow >= threshold && !isRaidActive(guildId)) {
-    triggerRaid(guildId, cfg.antiraidDurationMinutes || 10);
+  if (inWindow >= cfg.antiraidThreshold && !isActive(guild.id)) {
+    trigger(guild.id, cfg.antiraidDurationMinutes);
+    await log.log(client, guild.id, {
+      color: 0xff3b3b,
+      title: 'raid mode activated',
+      body: `${inWindow} joins in ${cfg.antiraidWindowSeconds}s\n-# raid mode for ${cfg.antiraidDurationMinutes} minutes`,
+    });
     return true;
   }
   return false;
 }
 
-function raidStatus(guildId) {
+function status(guildId) {
+  const s = raidState.get(guildId);
   return {
-    active: isRaidActive(guildId),
-    expiresAt: raidMode.get(guildId) || null,
+    active: isActive(guildId),
+    expiresAt: s?.expiresAt || null,
     recentJoins: (joinBuckets.get(guildId) || []).length,
   };
 }
 
-module.exports = { recordJoin, checkOnJoin, isRaidActive, triggerRaid, raidStatus };
+module.exports = { recordJoin, isActive, trigger, checkOnJoin, status };
