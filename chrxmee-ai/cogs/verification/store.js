@@ -1,23 +1,17 @@
-/* cogs/verification/store.js — in-memory config + user state + attempts */
+/* cogs/verification/store.js — postgres-backed */
 
-const configs = new Map();       // guildId -> config object
-const userState = new Map();     // `${guildId}:${userId}` -> user state
-const attempts = [];             // flat attempt log
-let attemptId = 1;
+let pool = null;
+function setPool(p) { pool = p; console.log('[verify] pool attached:', !!p); }
+function requirePool() { if (!pool) throw new Error('verification store: pool not attached'); }
 
-function logSQL(sql, params) {
-  console.log(`[SQL:verify] ${sql}`);
-  if (params) console.log(`[SQL:verify] params:`, JSON.stringify(params));
-}
-
-/* ───── default config ───── */
+/* ── default config (used when no row exists yet) ── */
 function defaultConfig(guildId) {
   return {
     guildId,
     enabled: false,
     preset: null,
-
-    /* panel */
+    methods: ['button'],
+    methodPrimary: 'button',
     panelChannel: null,
     panelMessage: null,
     panelTitle: 'verify to enter',
@@ -25,178 +19,346 @@ function defaultConfig(guildId) {
     panelImage: null,
     panelButtonLabel: 'verify',
     panelButtonColor: 0x5b7fd4,
-
-    /* roles */
     roleUnverified: null,
     rolePending: null,
     roleVerified: null,
     roleQuarantine: null,
     roleBloxlink: null,
     roleModOverride: null,
-
-    /* methods */
-    methods: ['button'],
-    methodPrimary: 'button',
-
-    /* captcha */
     captchaStyle: 'text',
     captchaLength: 5,
     captchaCaseSensitive: false,
     captchaExpirySeconds: 300,
     captchaMaxAttempts: 3,
     captchaBrandColor: '#5b7fd4',
-
-    /* dmcode */
     dmCodeLength: 6,
     dmCodeExpiryMinutes: 10,
-
-    /* quiz */
-    quizQuestions: [],          // [{q, choices, answer}]
-
-    /* bloxlink */
+    quizQuestions: [],
     bloxlinkTrap: false,
     bloxlinkAutoDm: true,
     bloxlinkStripOnDetect: false,
     bloxlinkStripOnVerify: true,
-
-    /* antiraid */
     antiraidEnabled: true,
     antiraidThreshold: 15,
     antiraidWindowSeconds: 60,
     antiraidForceCaptcha: true,
     antiraidDurationMinutes: 10,
-
-    /* age gate */
     ageGateEnabled: false,
     ageGateDays: 7,
     ageGateAction: 'captcha',
-
-    /* alt signals */
     altSignals: ['new_account', 'no_mutual', 'default_avatar'],
     altThreshold: 4,
     altSignalAction: 'captcha',
-
-    /* punishment */
     failAction: 'quarantine',
-    failQuarantineHours: 0,     // 0 = permanent
-
-    /* rejoin */
-    rememberDays: 7,            // 0 = never remember
-
-    /* dm messages */
+    failQuarantineHours: 0,
+    rememberDays: 7,
     dmOnJoin: 'welcome to **{server}**! verify here → {channel}',
     dmBloxlinkDetected: 'we detected you linked roblox via bloxlink. finish verification with chromed to unlock the server.',
     dmVerifySuccess: "you're verified in **{server}**. welcome!",
     dmVerifyFail: 'verification failed: {reason}. try again → {channel}',
     dmQuarantine: "you've been quarantined in **{server}**. staff will review.",
     dmAppeal: 'file an appeal here → {channel}',
-
-    /* logging */
     logChannel: null,
     logAttempts: true,
-
-    /* verify in dm */
     verifyInDm: false,
-
-    /* post-verify welcome */
     verifiedWelcomeChannel: null,
     verifiedWelcomeMessage: 'welcome {user} to {server}!',
-
-    updatedAt: Date.now(),
   };
 }
 
+/* ── row → config object (db columns are snake_case, js uses camelCase) ── */
+function rowToConfig(r) {
+  if (!r) return null;
+  return {
+    guildId: r.guild_id,
+    enabled: r.enabled,
+    preset: r.preset,
+    methods: r.methods || ['button'],
+    methodPrimary: r.method_primary,
+    panelChannel: r.panel_channel,
+    panelMessage: r.panel_message,
+    panelTitle: r.panel_title,
+    panelDescription: r.panel_description,
+    panelImage: r.panel_image,
+    panelButtonLabel: r.panel_button_label,
+    panelButtonColor: r.panel_button_color,
+    roleUnverified: r.role_unverified,
+    rolePending: r.role_pending,
+    roleVerified: r.role_verified,
+    roleQuarantine: r.role_quarantine,
+    roleBloxlink: r.role_bloxlink,
+    roleModOverride: r.role_mod_override,
+    captchaStyle: r.captcha_style,
+    captchaLength: r.captcha_length,
+    captchaCaseSensitive: r.captcha_case_sensitive,
+    captchaExpirySeconds: r.captcha_expiry_seconds,
+    captchaMaxAttempts: r.captcha_max_attempts,
+    captchaBrandColor: r.captcha_brand_color,
+    dmCodeLength: r.dm_code_length,
+    dmCodeExpiryMinutes: r.dm_code_expiry_minutes,
+    quizQuestions: r.quiz_questions || [],
+    bloxlinkTrap: r.bloxlink_trap,
+    bloxlinkAutoDm: r.bloxlink_auto_dm,
+    bloxlinkStripOnDetect: r.bloxlink_strip_on_detect,
+    bloxlinkStripOnVerify: r.bloxlink_strip_on_verify,
+    antiraidEnabled: r.antiraid_enabled,
+    antiraidThreshold: r.antiraid_threshold,
+    antiraidWindowSeconds: r.antiraid_window_seconds,
+    antiraidForceCaptcha: r.antiraid_force_captcha,
+    antiraidDurationMinutes: r.antiraid_duration_minutes,
+    ageGateEnabled: r.age_gate_enabled,
+    ageGateDays: r.age_gate_days,
+    ageGateAction: r.age_gate_action,
+    altSignals: r.alt_signals || [],
+    altThreshold: r.alt_threshold,
+    altSignalAction: r.alt_signal_action,
+    failAction: r.fail_action,
+    failQuarantineHours: r.fail_quarantine_hours,
+    rememberDays: r.remember_days,
+    dmOnJoin: r.dm_on_join,
+    dmBloxlinkDetected: r.dm_bloxlink_detected,
+    dmVerifySuccess: r.dm_verify_success,
+    dmVerifyFail: r.dm_verify_fail,
+    dmQuarantine: r.dm_quarantine,
+    dmAppeal: r.dm_appeal,
+    logChannel: r.log_channel,
+    logAttempts: r.log_attempts,
+    verifyInDm: r.verify_in_dm,
+    verifiedWelcomeChannel: r.verified_welcome_channel,
+    verifiedWelcomeMessage: r.verified_welcome_message,
+    updatedAt: r.updated_at ? new Date(r.updated_at).getTime() : Date.now(),
+  };
+}
+
+/* ── partial config patch → sql column map ── */
+const COL_MAP = {
+  enabled: 'enabled',
+  preset: 'preset',
+  methods: 'methods',
+  methodPrimary: 'method_primary',
+  panelChannel: 'panel_channel',
+  panelMessage: 'panel_message',
+  panelTitle: 'panel_title',
+  panelDescription: 'panel_description',
+  panelImage: 'panel_image',
+  panelButtonLabel: 'panel_button_label',
+  panelButtonColor: 'panel_button_color',
+  roleUnverified: 'role_unverified',
+  rolePending: 'role_pending',
+  roleVerified: 'role_verified',
+  roleQuarantine: 'role_quarantine',
+  roleBloxlink: 'role_bloxlink',
+  roleModOverride: 'role_mod_override',
+  captchaStyle: 'captcha_style',
+  captchaLength: 'captcha_length',
+  captchaCaseSensitive: 'captcha_case_sensitive',
+  captchaExpirySeconds: 'captcha_expiry_seconds',
+  captchaMaxAttempts: 'captcha_max_attempts',
+  captchaBrandColor: 'captcha_brand_color',
+  dmCodeLength: 'dm_code_length',
+  dmCodeExpiryMinutes: 'dm_code_expiry_minutes',
+  quizQuestions: 'quiz_questions',
+  bloxlinkTrap: 'bloxlink_trap',
+  bloxlinkAutoDm: 'bloxlink_auto_dm',
+  bloxlinkStripOnDetect: 'bloxlink_strip_on_detect',
+  bloxlinkStripOnVerify: 'bloxlink_strip_on_verify',
+  antiraidEnabled: 'antiraid_enabled',
+  antiraidThreshold: 'antiraid_threshold',
+  antiraidWindowSeconds: 'antiraid_window_seconds',
+  antiraidForceCaptcha: 'antiraid_force_captcha',
+  antiraidDurationMinutes: 'antiraid_duration_minutes',
+  ageGateEnabled: 'age_gate_enabled',
+  ageGateDays: 'age_gate_days',
+  ageGateAction: 'age_gate_action',
+  altSignals: 'alt_signals',
+  altThreshold: 'alt_threshold',
+  altSignalAction: 'alt_signal_action',
+  failAction: 'fail_action',
+  failQuarantineHours: 'fail_quarantine_hours',
+  rememberDays: 'remember_days',
+  dmOnJoin: 'dm_on_join',
+  dmBloxlinkDetected: 'dm_bloxlink_detected',
+  dmVerifySuccess: 'dm_verify_success',
+  dmVerifyFail: 'dm_verify_fail',
+  dmQuarantine: 'dm_quarantine',
+  dmAppeal: 'dm_appeal',
+  logChannel: 'log_channel',
+  logAttempts: 'log_attempts',
+  verifyInDm: 'verify_in_dm',
+  verifiedWelcomeChannel: 'verified_welcome_channel',
+  verifiedWelcomeMessage: 'verified_welcome_message',
+};
+
+const JSON_COLS = new Set(['methods', 'quizQuestions', 'altSignals']);
+
 module.exports = {
-  /* ───── config ───── */
-  getConfig(guildId) {
-    if (!configs.has(guildId)) {
-      logSQL(`SELECT * FROM verification_config WHERE guild_id = $1`, [guildId]);
-      configs.set(guildId, defaultConfig(guildId));
+  setPool,
+
+  /* ═══════════ CONFIG ═══════════ */
+  async getConfig(guildId) {
+    requirePool();
+    const r = await pool.query(`SELECT * FROM verification_config WHERE guild_id = $1`, [guildId]);
+    if (!r.rows[0]) {
+      // create default row lazily
+      const def = defaultConfig(guildId);
+      await pool.query(
+        `INSERT INTO verification_config (guild_id, methods, method_primary, dm_on_join, dm_bloxlink_detected, dm_verify_success, dm_verify_fail, dm_quarantine, dm_appeal, quiz_questions, alt_signals, verified_welcome_message)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         ON CONFLICT (guild_id) DO NOTHING`,
+        [guildId, JSON.stringify(def.methods), def.methodPrimary, def.dmOnJoin, def.dmBloxlinkDetected, def.dmVerifySuccess, def.dmVerifyFail, def.dmQuarantine, def.dmAppeal, JSON.stringify(def.quizQuestions), JSON.stringify(def.altSignals), def.verifiedWelcomeMessage]
+      );
+      return def;
     }
-    return configs.get(guildId);
+    return rowToConfig(r.rows[0]);
   },
 
-  updateConfig(guildId, patch) {
-    const cfg = this.getConfig(guildId);
-    Object.assign(cfg, patch, { updatedAt: Date.now() });
-    logSQL(
-      `UPDATE verification_config SET enabled=$1, methods=$2, method_primary=$3, role_verified=$4, role_unverified=$5, role_quarantine=$6, remember_days=$7, fail_action=$8 WHERE guild_id=$9`,
-      [cfg.enabled, JSON.stringify(cfg.methods), cfg.methodPrimary, cfg.roleVerified, cfg.roleUnverified, cfg.roleQuarantine, cfg.rememberDays, cfg.failAction, guildId]
+  async updateConfig(guildId, patch) {
+    requirePool();
+    const sets = [];
+    const values = [];
+    let i = 1;
+
+    for (const [key, val] of Object.entries(patch)) {
+      const col = COL_MAP[key];
+      if (!col) continue;
+      sets.push(`${col} = $${i}`);
+      values.push(JSON_COLS.has(key) ? JSON.stringify(val) : val);
+      i++;
+    }
+
+    if (!sets.length) return this.getConfig(guildId);
+
+    sets.push(`updated_at = NOW()`);
+    values.push(guildId);
+
+    await pool.query(
+      `UPDATE verification_config SET ${sets.join(', ')} WHERE guild_id = $${i}`,
+      values
     );
-    return cfg;
+    return this.getConfig(guildId);
   },
 
-  resetConfig(guildId) {
-    logSQL(`DELETE FROM verification_config WHERE guild_id = $1`, [guildId]);
-    configs.set(guildId, defaultConfig(guildId));
-    return configs.get(guildId);
+  async resetConfig(guildId) {
+    requirePool();
+    await pool.query(`DELETE FROM verification_config WHERE guild_id = $1`, [guildId]);
+    await pool.query(`DELETE FROM verification_users WHERE guild_id = $1`, [guildId]);
+    await pool.query(`DELETE FROM verification_attempts WHERE guild_id = $1`, [guildId]);
+    return this.getConfig(guildId);
   },
 
-  /* ───── user state ───── */
-  getUser(guildId, userId) {
-    const key = `${guildId}:${userId}`;
-    if (!userState.has(key)) {
-      logSQL(`SELECT * FROM verification_users WHERE guild_id=$1 AND user_id=$2`, [guildId, userId]);
-      userState.set(key, {
+  /* ═══════════ USER STATE ═══════════ */
+  async getUser(guildId, userId) {
+    requirePool();
+    const r = await pool.query(`SELECT * FROM verification_users WHERE guild_id = $1 AND user_id = $2`, [guildId, userId]);
+    if (!r.rows[0]) {
+      return {
         guildId, userId,
-        status: 'unverified',      // unverified | pending | verified | quarantined | failed
-        method: null,
-        attempts: 0,
-        bloxlinkDetected: false,
-        verifiedAt: null,
-        quarantinedAt: null,
-        expiresAt: null,
-        suspiciousScore: 0,
-        lastAttemptAt: 0,
-      });
+        status: 'unverified', method: null, attempts: 0,
+        bloxlinkDetected: false, verifiedAt: null, expiresAt: null,
+        quarantinedAt: null, suspiciousScore: 0, lastAttemptAt: 0,
+      };
     }
-    return userState.get(key);
+    const row = r.rows[0];
+    return {
+      guildId: row.guild_id,
+      userId: row.user_id,
+      status: row.status,
+      method: row.method,
+      attempts: row.attempts || 0,
+      bloxlinkDetected: row.bloxlink_detected,
+      verifiedAt: row.verified_at ? new Date(row.verified_at).getTime() : null,
+      expiresAt: row.expires_at ? new Date(row.expires_at).getTime() : null,
+      quarantinedAt: row.quarantined_at ? new Date(row.quarantined_at).getTime() : null,
+      suspiciousScore: row.suspicious_score || 0,
+      lastAttemptAt: row.last_attempt_at ? new Date(row.last_attempt_at).getTime() : 0,
+    };
   },
 
-  setUser(guildId, userId, patch) {
-    const user = this.getUser(guildId, userId);
-    Object.assign(user, patch);
-    logSQL(
-      `UPDATE verification_users SET status=$1, method=$2, attempts=$3, verified_at=$4, expires_at=$5 WHERE guild_id=$6 AND user_id=$7`,
-      [user.status, user.method, user.attempts, user.verifiedAt, user.expiresAt, guildId, userId]
+  async setUser(guildId, userId, patch) {
+    requirePool();
+    // ensure row exists
+    await pool.query(
+      `INSERT INTO verification_users (guild_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+      [guildId, userId]
     );
-    return user;
+
+    const current = await this.getUser(guildId, userId);
+    const merged = { ...current, ...patch };
+
+    await pool.query(
+      `UPDATE verification_users SET
+        status = $1,
+        method = $2,
+        attempts = $3,
+        bloxlink_detected = $4,
+        verified_at = $5,
+        expires_at = $6,
+        quarantined_at = $7,
+        suspicious_score = $8,
+        last_attempt_at = $9
+       WHERE guild_id = $10 AND user_id = $11`,
+      [
+        merged.status,
+        merged.method,
+        merged.attempts,
+        merged.bloxlinkDetected,
+        merged.verifiedAt ? new Date(merged.verifiedAt) : null,
+        merged.expiresAt ? new Date(merged.expiresAt) : null,
+        merged.quarantinedAt ? new Date(merged.quarantinedAt) : null,
+        merged.suspiciousScore || 0,
+        merged.lastAttemptAt ? new Date(merged.lastAttemptAt) : null,
+        guildId, userId,
+      ]
+    );
+    return merged;
   },
 
-  /* ───── attempts ───── */
-  recordAttempt(guildId, userId, method, result, reason) {
-    const entry = { id: attemptId++, guildId, userId, method, result, reason, at: Date.now() };
-    attempts.push(entry);
-    if (attempts.length > 10000) attempts.shift();
-    logSQL(
+  /* ═══════════ ATTEMPTS ═══════════ */
+  async recordAttempt(guildId, userId, method, result, reason) {
+    requirePool();
+    await pool.query(
       `INSERT INTO verification_attempts (guild_id, user_id, method, result, reason) VALUES ($1,$2,$3,$4,$5)`,
       [guildId, userId, method, result, reason || null]
     );
-    return entry;
   },
 
-  getAttempts(guildId, limit = 20) {
-    logSQL(`SELECT * FROM verification_attempts WHERE guild_id=$1 ORDER BY attempted_at DESC LIMIT $2`, [guildId, limit]);
-    return attempts.filter(a => a.guildId === guildId).slice(-limit).reverse();
+  async getAttempts(guildId, limit = 20) {
+    requirePool();
+    const r = await pool.query(
+      `SELECT * FROM verification_attempts WHERE guild_id = $1 ORDER BY attempted_at DESC LIMIT $2`,
+      [guildId, limit]
+    );
+    return r.rows.map(row => ({
+      id: row.id,
+      guildId: row.guild_id,
+      userId: row.user_id,
+      method: row.method,
+      result: row.result,
+      reason: row.reason,
+      at: new Date(row.attempted_at).getTime(),
+    }));
   },
 
-  getStats(guildId) {
-    logSQL(`SELECT result, count(*) FROM verification_attempts WHERE guild_id=$1 GROUP BY result`, [guildId]);
-    const rows = attempts.filter(a => a.guildId === guildId);
+  async getStats(guildId) {
+    requirePool();
+    const r = await pool.query(
+      `SELECT result, reason, COUNT(*)::int AS count FROM verification_attempts WHERE guild_id = $1 GROUP BY result, reason`,
+      [guildId]
+    );
     const stats = { verified: 0, failed: 0, expired: 0, bloxlink: 0, quarantined: 0 };
-    for (const r of rows) {
-      if (r.result === 'success') stats.verified++;
-      else if (r.result === 'wrong') stats.failed++;
-      else if (r.result === 'expired') stats.expired++;
-      else if (r.reason === 'bloxlink_trap') stats.bloxlink++;
-      else if (r.result === 'quarantine') stats.quarantined++;
+    for (const row of r.rows) {
+      if (row.result === 'success') stats.verified += row.count;
+      else if (row.result === 'wrong') stats.failed += row.count;
+      else if (row.result === 'expired') stats.expired += row.count;
+      else if (row.reason === 'bloxlink_trap') stats.bloxlink += row.count;
+      else if (row.result === 'quarantine') stats.quarantined += row.count;
     }
     return stats;
   },
 
-  /* ───── helpers ───── */
-  isVerifiedRemembered(guildId, userId) {
-    const u = this.getUser(guildId, userId);
+  /* ═══════════ HELPERS ═══════════ */
+  async isVerifiedRemembered(guildId, userId) {
+    const u = await this.getUser(guildId, userId);
     if (u.status !== 'verified') return false;
     if (!u.expiresAt) return true;
     return Date.now() < u.expiresAt;
