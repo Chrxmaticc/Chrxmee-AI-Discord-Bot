@@ -1,24 +1,16 @@
-/* cogs/verification/panel.js — panel post/edit/delete/preview */
+/* cogs/verification/panel.js */
 
 const {
-  ContainerBuilder,
-  TextDisplayBuilder,
-  SectionBuilder,
-  ThumbnailBuilder,
-  MediaGalleryBuilder,
-  MediaGalleryItemBuilder,
-  SeparatorBuilder,
-  SeparatorSpacingSize,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  MessageFlags,
+  ContainerBuilder, TextDisplayBuilder, SectionBuilder, ThumbnailBuilder,
+  MediaGalleryBuilder, MediaGalleryItemBuilder, SeparatorBuilder, SeparatorSpacingSize,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags,
 } = require('discord.js');
 
 const config = require('./config');
 const store = require('./store');
 
-function buildPanel(cfg, guild) {
+/* buildPreview + buildPanel are pure — take cfg as arg, no async needed */
+function buildPanel(cfg) {
   const c = new ContainerBuilder().setAccentColor(cfg.panelButtonColor || 0x5b7fd4);
 
   if (cfg.panelTitle) {
@@ -41,11 +33,9 @@ function buildPanel(cfg, guild) {
 
   c.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
-  /* status line */
   const methods = (cfg.methods || []).map(m => `\`${m}\``).join(' · ');
   c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# methods: ${methods || 'none'}`));
 
-  /* verify button */
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('verify_start')
@@ -57,43 +47,42 @@ function buildPanel(cfg, guild) {
   return c;
 }
 
+function buildPreview(cfg) {
+  return buildPanel(cfg);
+}
+
 async function post(client, guildId, channelId) {
-  const cfg = config.get(guildId);
+  const cfg = await config.get(guildId);
   const ch = client.channels.cache.get(channelId);
   if (!ch) return null;
 
-  const container = buildPanel(cfg, ch.guild);
+  const container = buildPanel(cfg);
   const msg = await ch.send({ components: [container], flags: MessageFlags.IsComponentsV2 });
-
-  config.set(guildId, { panelChannel: channelId, panelMessage: msg.id });
+  await config.set(guildId, { panelChannel: channelId, panelMessage: msg.id });
   return msg;
 }
 
 async function edit(client, guildId) {
-  const cfg = config.get(guildId);
+  const cfg = await config.get(guildId);
   if (!cfg.panelChannel || !cfg.panelMessage) return false;
   const ch = client.channels.cache.get(cfg.panelChannel);
   if (!ch) return false;
   const msg = await ch.messages.fetch(cfg.panelMessage).catch(() => null);
   if (!msg) return false;
-  const container = buildPanel(cfg, ch.guild);
+  const container = buildPanel(cfg);
   await msg.edit({ components: [container], flags: MessageFlags.IsComponentsV2 }).catch(() => {});
   return true;
 }
 
 async function remove(client, guildId) {
-  const cfg = config.get(guildId);
+  const cfg = await config.get(guildId);
   if (!cfg.panelChannel || !cfg.panelMessage) return false;
   const ch = client.channels.cache.get(cfg.panelChannel);
   if (!ch) return false;
   const msg = await ch.messages.fetch(cfg.panelMessage).catch(() => null);
   if (msg) await msg.delete().catch(() => {});
-  config.set(guildId, { panelChannel: null, panelMessage: null });
+  await config.set(guildId, { panelChannel: null, panelMessage: null });
   return true;
-}
-
-function buildPreview(cfg) {
-  return buildPanel(cfg);
 }
 
 module.exports = { post, edit, remove, buildPreview, buildPanel };
