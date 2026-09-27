@@ -1,20 +1,9 @@
-/* cogs/verification/engine.js — the verify flow */
+/* cogs/verification/engine.js — full async rewrite */
 
 const {
-  ContainerBuilder,
-  TextDisplayBuilder,
-  MediaGalleryBuilder,
-  MediaGalleryItemBuilder,
-  SeparatorBuilder,
-  SeparatorSpacingSize,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
-  MessageFlags,
-  PermissionFlagsBits,
+  ContainerBuilder, TextDisplayBuilder, MediaGalleryBuilder, MediaGalleryItemBuilder,
+  SeparatorBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags,
 } = require('discord.js');
 
 const config = require('./config');
@@ -38,10 +27,8 @@ const E = {
   off:      "<:off:1545571608897265726>",
 };
 
-/* pending DM codes: `${guildId}:${userId}` -> { code, expiresAt } */
 const dmCodes = new Map();
 
-/* ───── helpers ───── */
 function errBox(msg) {
   return new ContainerBuilder().setAccentColor(0xff3b3b)
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.error} ${msg}`));
@@ -51,16 +38,13 @@ function okBox(msg) {
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.success} ${msg}`));
 }
 
+/* ═══════════ grant + punish ═══════════ */
 async function grantVerified(member, method) {
-  const cfg = config.get(member.guild.id);
+  const cfg = await config.get(member.guild.id);
   const guildId = member.guild.id;
   const userId = member.id;
 
-  const remove = [
-    cfg.roleUnverified,
-    cfg.rolePending,
-    cfg.roleQuarantine,
-  ].filter(Boolean);
+  const remove = [cfg.roleUnverified, cfg.rolePending, cfg.roleQuarantine].filter(Boolean);
   if (cfg.bloxlinkStripOnVerify && cfg.roleBloxlink) remove.push(cfg.roleBloxlink);
 
   for (const rid of remove) {
@@ -71,7 +55,7 @@ async function grantVerified(member, method) {
   }
 
   const expiresAt = cfg.rememberDays > 0 ? Date.now() + cfg.rememberDays * 86400000 : null;
-  store.setUser(guildId, userId, {
+  await store.setUser(guildId, userId, {
     status: 'verified',
     method,
     verifiedAt: Date.now(),
@@ -79,7 +63,6 @@ async function grantVerified(member, method) {
     attempts: 0,
   });
 
-  /* welcome */
   if (cfg.verifiedWelcomeChannel && cfg.verifiedWelcomeMessage) {
     const ch = member.guild.channels.cache.get(cfg.verifiedWelcomeChannel);
     if (ch) {
@@ -90,7 +73,6 @@ async function grantVerified(member, method) {
     }
   }
 
-  /* dm */
   if (cfg.dmVerifySuccess) {
     const msg = cfg.dmVerifySuccess
       .replace(/\{user\}/g, member.user.username)
@@ -107,11 +89,11 @@ async function grantVerified(member, method) {
 }
 
 async function punishFail(member, reason) {
-  const cfg = config.get(member.guild.id);
+  const cfg = await config.get(member.guild.id);
   const guildId = member.guild.id;
   const userId = member.id;
 
-  store.setUser(guildId, userId, {
+  await store.setUser(guildId, userId, {
     status: cfg.failAction === 'quarantine' ? 'quarantined' : 'failed',
     quarantinedAt: Date.now(),
   });
@@ -138,7 +120,6 @@ async function punishFail(member, reason) {
       body: `<@${userId}> failed verification — waiting for staff`,
     });
   } else {
-    /* none — send fail dm, let them retry */
     if (cfg.dmVerifyFail) {
       const msg = cfg.dmVerifyFail
         .replace(/\{reason\}/g, reason)
@@ -150,9 +131,9 @@ async function punishFail(member, reason) {
   await log.logAttempt(member.client, guildId, userId, 'unknown', 'failed', reason);
 }
 
-/* ───── entry point ───── */
+/* ═══════════ entry ═══════════ */
 async function startVerify(interaction) {
-  const cfg = config.get(interaction.guildId);
+  const cfg = await config.get(interaction.guildId);
   if (!cfg.enabled) {
     return interaction.reply({ components: [errBox('verification is not enabled in this server.')], flags: V2_E }).catch(() => {});
   }
@@ -164,22 +145,19 @@ async function startVerify(interaction) {
   const guildId = interaction.guildId;
   const userId = interaction.user.id;
 
-  /* already remembered as verified? */
-  if (store.isVerifiedRemembered(guildId, userId)) {
+  if (await store.isVerifiedRemembered(guildId, userId)) {
     return interaction.reply({ components: [okBox("you're already verified.")], flags: V2_E }).catch(() => {});
   }
   if (member.roles.cache.has(cfg.roleVerified)) {
     return interaction.reply({ components: [okBox("you're already verified.")], flags: V2_E }).catch(() => {});
   }
 
-  /* raid mode check */
-  if (antiRaid.isRaidActive(guildId) && cfg.antiraidForceCaptcha) {
+  if (antiRaid.isActive(guildId) && cfg.antiraidForceCaptcha) {
     return runMethod(interaction, 'captcha', 'raid_mode');
   }
 
-  /* suspicious score */
-  const score = await altDetect.scoreMember(member, cfg, { raidMode: antiRaid.isRaidActive(guildId) });
-  store.setUser(guildId, userId, { suspiciousScore: score.total });
+  const score = await altDetect.scoreMember(member, cfg, { raidMode: antiRaid.isActive(guildId) });
+  await store.setUser(guildId, userId, { suspiciousScore: score.total });
 
   const forced = altDetect.shouldForceStronger(score.total, cfg);
   const method = forced || cfg.methodPrimary || cfg.methods[0] || 'button';
@@ -207,7 +185,7 @@ async function runMethod(interaction, method, triggerReason) {
   }
 }
 
-/* ───── method: button ───── */
+/* ═══════════ methods ═══════════ */
 async function methodButton(interaction) {
   const member = interaction.member;
   await interaction.reply({ components: [okBox('verifying...')], flags: V2_E }).catch(() => {});
@@ -215,9 +193,8 @@ async function methodButton(interaction) {
   await interaction.editReply({ components: [okBox("you're verified. welcome!")] }).catch(() => {});
 }
 
-/* ───── method: captcha ───── */
 async function methodCaptcha(interaction) {
-  const cfg = config.get(interaction.guildId);
+  const cfg = await config.get(interaction.guildId);
   const result = await captcha.createCaptcha(cfg.captchaStyle || 'text', {
     length: cfg.captchaLength || 5,
     caseSensitive: cfg.captchaCaseSensitive,
@@ -247,9 +224,8 @@ async function methodCaptcha(interaction) {
   }).catch(() => {});
 }
 
-/* ───── method: math ───── */
 async function methodMath(interaction) {
-  const cfg = config.get(interaction.guildId);
+  const cfg = await config.get(interaction.guildId);
   const result = await captcha.createCaptcha('math', {
     difficulty: 'medium',
     expirySeconds: cfg.captchaExpirySeconds,
@@ -276,11 +252,9 @@ async function methodMath(interaction) {
   }).catch(() => {});
 }
 
-/* ───── method: quiz (placeholder — falls back to captcha if no questions) ───── */
 async function methodQuiz(interaction) {
-  const cfg = config.get(interaction.guildId);
+  const cfg = await config.get(interaction.guildId);
   if (!cfg.quizQuestions || !cfg.quizQuestions.length) return methodCaptcha(interaction);
-  /* simple: post first question as modal placeholder */
   const modal = new ModalBuilder().setCustomId('verify_quiz_modal').setTitle('rules quiz');
   modal.addComponents(new ActionRowBuilder().addComponents(
     new TextInputBuilder().setCustomId('a1').setLabel(cfg.quizQuestions[0].q.slice(0, 45)).setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(100)
@@ -288,7 +262,6 @@ async function methodQuiz(interaction) {
   await interaction.showModal(modal).catch(() => {});
 }
 
-/* ───── method: dm code ───── */
 async function methodDmCode(interaction) {
   const member = interaction.member;
   const key = `${interaction.guildId}:${member.id}`;
@@ -310,12 +283,11 @@ async function methodDmCode(interaction) {
   await interaction.showModal(modal).catch(() => {});
 }
 
-/* ───── method: manual ───── */
 async function methodManual(interaction) {
-  const cfg = config.get(interaction.guildId);
+  const cfg = await config.get(interaction.guildId);
   const member = interaction.member;
-  const user = store.getUser(interaction.guildId, member.id);
-  store.setUser(interaction.guildId, member.id, { status: 'pending' });
+  const user = await store.getUser(interaction.guildId, member.id);
+  await store.setUser(interaction.guildId, member.id, { status: 'pending' });
 
   const c = new ContainerBuilder().setAccentColor(0x5b7fd4);
   c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`## ${E.settings} awaiting staff approval`));
@@ -332,7 +304,7 @@ async function methodManual(interaction) {
   });
 }
 
-/* ───── captcha modal submit handler ───── */
+/* ═══════════ modal handlers ═══════════ */
 async function handleCaptchaModal(interaction, token) {
   const submitted = interaction.fields.getTextInputValue('code');
   const res = captcha.checkCaptcha(token, submitted);
@@ -357,7 +329,6 @@ async function handleCaptchaModal(interaction, token) {
   await interaction.reply({ components: [errBox(msg)], flags: V2_E }).catch(() => {});
 }
 
-/* ───── dm code modal submit ───── */
 async function handleDmCodeModal(interaction) {
   const key = `${interaction.guildId}:${interaction.user.id}`;
   const entry = dmCodes.get(key);
@@ -376,20 +347,17 @@ async function handleDmCodeModal(interaction) {
   await interaction.editReply({ components: [okBox("you're verified.")] }).catch(() => {});
 }
 
-/* ───── first-join handler ───── */
+/* ═══════════ join / rejoin ═══════════ */
 async function onJoin(member) {
-  const cfg = config.get(member.guild.id);
+  const cfg = await config.get(member.guild.id);
   if (!cfg.enabled) return;
 
-  /* antiraid check */
-  const raidTriggered = antiRaid.checkOnJoin(member.guild.id);
+  const raidTriggered = await antiRaid.checkOnJoin(member.guild, member.client);
 
-  /* assign unverified */
   if (cfg.roleUnverified && !member.roles.cache.has(cfg.roleUnverified)) {
     await member.roles.add(cfg.roleUnverified).catch(() => {});
   }
 
-  /* dm on join */
   if (cfg.dmOnJoin) {
     const msg = cfg.dmOnJoin
       .replace(/\{user\}/g, member.user.username)
@@ -403,7 +371,7 @@ async function onJoin(member) {
     color: 0x5b7fd4,
     title: 'member joined',
     body: `<@${member.id}> · ${member.user.username}`,
-    footer: raidTriggered ? '🚨 raid mode activated' : undefined,
+    footer: raidTriggered ? 'raid mode activated' : undefined,
   });
 
   if (raidTriggered) {
@@ -416,12 +384,10 @@ async function onJoin(member) {
   }
 }
 
-/* ───── rejoin check ───── */
 async function onRejoin(member) {
-  const cfg = config.get(member.guild.id);
+  const cfg = await config.get(member.guild.id);
   if (!cfg.enabled) return;
-  if (store.isVerifiedRemembered(member.guild.id, member.id)) {
-    /* re-grant verified role */
+  if (await store.isVerifiedRemembered(member.guild.id, member.id)) {
     if (cfg.roleVerified && !member.roles.cache.has(cfg.roleVerified)) {
       await member.roles.add(cfg.roleVerified).catch(() => {});
     }
