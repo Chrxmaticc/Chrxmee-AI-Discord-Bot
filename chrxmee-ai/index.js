@@ -672,6 +672,15 @@ console.log("economy_pool table ready");
 await pgClient.query(`CREATE TABLE IF NOT EXISTS economy_bank (user_id TEXT PRIMARY KEY, balance BIGINT DEFAULT 0, last_interest_at TIMESTAMP DEFAULT NOW())`);
 console.log("economy_bank table ready");
 
+    await pgClient.query(`CREATE TABLE IF NOT EXISTS verification_config (guild_id TEXT PRIMARY KEY, enabled BOOLEAN DEFAULT false, preset TEXT, methods JSONB DEFAULT '["button"]'::jsonb, method_primary TEXT DEFAULT 'button', panel_channel TEXT, panel_message TEXT, panel_title TEXT, panel_description TEXT, panel_image TEXT, panel_button_label TEXT DEFAULT 'verify', panel_button_color INTEGER DEFAULT 5996500, role_unverified TEXT, role_pending TEXT, role_verified TEXT, role_quarantine TEXT, role_bloxlink TEXT, role_mod_override TEXT, captcha_style TEXT DEFAULT 'text', captcha_length INTEGER DEFAULT 5, captcha_case_sensitive BOOLEAN DEFAULT false, captcha_expiry_seconds INTEGER DEFAULT 300, captcha_max_attempts INTEGER DEFAULT 3, captcha_brand_color TEXT DEFAULT '#5b7fd4', dm_code_length INTEGER DEFAULT 6, dm_code_expiry_minutes INTEGER DEFAULT 10, quiz_questions JSONB DEFAULT '[]'::jsonb, bloxlink_trap BOOLEAN DEFAULT false, bloxlink_auto_dm BOOLEAN DEFAULT true, bloxlink_strip_on_detect BOOLEAN DEFAULT false, bloxlink_strip_on_verify BOOLEAN DEFAULT true, antiraid_enabled BOOLEAN DEFAULT true, antiraid_threshold INTEGER DEFAULT 15, antiraid_window_seconds INTEGER DEFAULT 60, antiraid_force_captcha BOOLEAN DEFAULT true, antiraid_duration_minutes INTEGER DEFAULT 10, age_gate_enabled BOOLEAN DEFAULT false, age_gate_days INTEGER DEFAULT 7, age_gate_action TEXT DEFAULT 'captcha', alt_signals JSONB DEFAULT '["new_account","no_mutual","default_avatar"]'::jsonb, alt_threshold INTEGER DEFAULT 4, alt_signal_action TEXT DEFAULT 'captcha', fail_action TEXT DEFAULT 'quarantine', fail_quarantine_hours INTEGER DEFAULT 0, remember_days INTEGER DEFAULT 7, dm_on_join TEXT, dm_bloxlink_detected TEXT, dm_verify_success TEXT, dm_verify_fail TEXT, dm_quarantine TEXT, dm_appeal TEXT, log_channel TEXT, log_attempts BOOLEAN DEFAULT true, verify_in_dm BOOLEAN DEFAULT false, verified_welcome_channel TEXT, verified_welcome_message TEXT, updated_at TIMESTAMP DEFAULT NOW())`);
+console.log("verification_config table ready");
+
+await pgClient.query(`CREATE TABLE IF NOT EXISTS verification_users (guild_id TEXT NOT NULL, user_id TEXT NOT NULL, status TEXT DEFAULT 'unverified', method TEXT, attempts INTEGER DEFAULT 0, bloxlink_detected BOOLEAN DEFAULT false, verified_at TIMESTAMP, expires_at TIMESTAMP, quarantined_at TIMESTAMP, suspicious_score INTEGER DEFAULT 0, last_attempt_at TIMESTAMP, PRIMARY KEY (guild_id, user_id))`);
+console.log("verification_users table ready");
+
+await pgClient.query(`CREATE TABLE IF NOT EXISTS verification_attempts (id SERIAL PRIMARY KEY, guild_id TEXT NOT NULL, user_id TEXT NOT NULL, method TEXT, result TEXT, reason TEXT, attempted_at TIMESTAMP DEFAULT NOW())`);
+console.log("verification_attempts table ready");
+
     await pgClient.query(`
   CREATE TABLE IF NOT EXISTS user_stats (
     user_id BIGINT,
