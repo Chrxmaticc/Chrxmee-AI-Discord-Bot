@@ -80,6 +80,7 @@ const COLORS = {
 };
 
 const NAMED_COLORS = Object.keys(COLORS);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ═══════════════ helpers ═══════════════ */
 function generateEmbedId() {
@@ -95,10 +96,6 @@ function parseColor(val) {
   const hex = lower.replace('#', '').replace('0x', '');
   if (!/^[0-9a-f]{6}$/i.test(hex)) return null;
   return parseInt(hex, 16);
-}
-
-function hexToInt(hex) {
-  return parseInt(String(hex).replace('#', ''), 16);
 }
 
 function intToHex(int) {
@@ -124,9 +121,14 @@ function defaultState() {
 }
 
 /* ═══════════════ display container ═══════════════ */
-function buildDisplayContainer(state) {
+function buildDisplayContainer(state, opts = {}) {
   const c = new ContainerBuilder();
   c.setAccentColor(state.color || COLORS.default);
+
+  if (opts.topContent) {
+    c.addTextDisplayComponents(new TextDisplayBuilder().setContent(opts.topContent));
+    c.addSeparatorComponents(new SeparatorBuilder().setDivider(false).setSpacing(SeparatorSpacingSize.Small));
+  }
 
   if (state.author) {
     if (state.authorIcon) {
@@ -333,7 +335,7 @@ function stateToKeyValue(state) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('embed')
-    .setDescription('create and manage embeds (mod only)')
+    .setDescription('create and manage embeds')
 
     .addSubcommand(s => s.setName('builder').setDescription('interactive embed builder with live preview'))
 
@@ -423,10 +425,47 @@ module.exports = {
       .addStringOption(o => o.setName('query').setDescription('embed name or id').setRequired(true))
     )
 
-    .addSubcommand(s => s.setName('clear').setDescription('delete ALL your saved embeds')),
+    .addSubcommand(s => s.setName('clear').setDescription('delete ALL your saved embeds'))
+
+    /* ─────── ADMIN-ONLY ─────── */
+
+    .addSubcommand(s => s.setName('dm').setDescription('[admin] DM an embed to a user')
+      .addUserOption(o => o.setName('user').setDescription('user to DM').setRequired(true))
+      .addStringOption(o => o.setName('title').setDescription('title'))
+      .addStringOption(o => o.setName('description').setDescription('description'))
+      .addStringOption(o => o.setName('color').setDescription('color name or hex'))
+      .addStringOption(o => o.setName('image').setDescription('image url'))
+      .addStringOption(o => o.setName('thumbnail').setDescription('thumbnail url'))
+      .addStringOption(o => o.setName('footer').setDescription('footer'))
+      .addStringOption(o => o.setName('author').setDescription('author'))
+    )
+
+    .addSubcommand(s => s.setName('dm-role').setDescription('[admin] DM an embed to everyone with a role')
+      .addRoleOption(o => o.setName('role').setDescription('role to DM').setRequired(true))
+      .addStringOption(o => o.setName('title').setDescription('title'))
+      .addStringOption(o => o.setName('description').setDescription('description'))
+      .addStringOption(o => o.setName('color').setDescription('color name or hex'))
+      .addStringOption(o => o.setName('image').setDescription('image url'))
+      .addStringOption(o => o.setName('thumbnail').setDescription('thumbnail url'))
+      .addStringOption(o => o.setName('footer').setDescription('footer'))
+      .addStringOption(o => o.setName('author').setDescription('author'))
+    )
+
+    .addSubcommand(s => s.setName('announce').setDescription('[admin] send an embed to every text channel')
+      .addStringOption(o => o.setName('title').setDescription('title'))
+      .addStringOption(o => o.setName('description').setDescription('description'))
+      .addStringOption(o => o.setName('color').setDescription('color name or hex'))
+      .addStringOption(o => o.setName('image').setDescription('image url'))
+      .addStringOption(o => o.setName('thumbnail').setDescription('thumbnail url'))
+      .addStringOption(o => o.setName('footer').setDescription('footer'))
+      .addStringOption(o => o.setName('author').setDescription('author'))
+      .addBooleanOption(o => o.setName('include_nsfw').setDescription('also send in age-restricted channels').setRequired(false))
+    ),
 
   async execute(interaction, client) {
     /* ───────── permission gate ───────── */
+    const isAdmin = interaction.member.permissions.has(PermissionsBitField.Flags.Administrator);
+
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
       return interaction.reply({
         components: [new ContainerBuilder()
@@ -437,6 +476,17 @@ module.exports = {
     }
 
     const sub = interaction.options.getSubcommand();
+    const ADMIN_SUBS = ['dm', 'dm-role', 'announce'];
+
+    if (ADMIN_SUBS.includes(sub) && !isAdmin) {
+      return interaction.reply({
+        components: [new ContainerBuilder()
+          .setAccentColor(COLORS.red)
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.error} **${sub}** is admin-only.`))],
+        flags: V2_E,
+      });
+    }
+
     const userId = interaction.user.id;
     const guildId = interaction.guild.id;
     const storageKey = `embeds_${guildId}_${userId}`;
@@ -523,7 +573,6 @@ module.exports = {
           }).catch(() => {});
         }
 
-        /* ──── quick toggle / simple buttons ──── */
         if (btn.customId === 'eb_timestamp') {
           pushUndo();
           await btn.deferUpdate().catch(() => {});
@@ -566,7 +615,6 @@ module.exports = {
           return btn.followUp({ components: [buildDisplayContainer(state)], flags: V2_E }).catch(() => {});
         }
 
-        /* ──── save without sending ──── */
         if (btn.customId === 'eb_save') {
           const modal = new ModalBuilder().setCustomId('eb_save_modal').setTitle('save embed');
           const nameInput = new TextInputBuilder().setCustomId('name').setLabel('name').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(50);
@@ -596,7 +644,6 @@ module.exports = {
           return builderMsg.edit({ components: [wrapContainer()] }).catch(() => {});
         }
 
-        /* ──── send ──── */
         if (btn.customId === 'eb_send') {
           await btn.deferUpdate().catch(() => {});
           try {
@@ -641,7 +688,6 @@ module.exports = {
           return;
         }
 
-        /* ──── manage fields ──── */
         if (btn.customId === 'eb_manage_fields') {
           await btn.deferUpdate().catch(() => {});
 
@@ -700,7 +746,6 @@ module.exports = {
           return builderMsg.edit({ components: [wrapContainer()] }).catch(() => {});
         }
 
-        /* ──── add link button ──── */
         if (btn.customId === 'eb_add_button') {
           if (state.buttons.length >= 5) {
             return btn.reply({ components: [errBox('max 5 buttons.')], flags: V2_E }).catch(() => {});
@@ -726,7 +771,6 @@ module.exports = {
           return builderMsg.edit({ components: [wrapContainer()] }).catch(() => {});
         }
 
-        /* ──── manage buttons ──── */
         if (btn.customId === 'eb_manage_buttons') {
           await btn.deferUpdate().catch(() => {});
 
@@ -785,7 +829,6 @@ module.exports = {
           return builderMsg.edit({ components: [wrapContainer()] }).catch(() => {});
         }
 
-        /* ──── standard modals ──── */
         const modalMap = {
           eb_title: {
             id: 'ebm_title', title: 'set title',
@@ -1294,6 +1337,171 @@ module.exports = {
           .setAccentColor(COLORS.default)
           .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.success} cancelled.`))], flags: V2_E });
       }
+    }
+
+    /* ═══════════════ dm (admin) ═══════════════ */
+    if (sub === 'dm') {
+      await interaction.deferReply({ flags: V2_E });
+      const target = interaction.options.getUser('user');
+
+      const state = defaultState();
+      state.title = interaction.options.getString('title');
+      state.description = interaction.options.getString('description');
+      const colorVal = interaction.options.getString('color');
+      if (colorVal) {
+        const parsed = parseColor(colorVal);
+        if (parsed !== null) { state.color = parsed; state.colorName = colorVal; }
+      }
+      state.image = interaction.options.getString('image');
+      state.thumbnail = interaction.options.getString('thumbnail');
+      state.footer = interaction.options.getString('footer');
+      state.author = interaction.options.getString('author');
+
+      if (!state.title && !state.description && !state.image && !state.thumbnail) {
+        return interaction.editReply({ components: [errBox('give me at least a title, description, image, or thumbnail.')], flags: V2_E });
+      }
+
+      try {
+        await target.send({ components: [buildDisplayContainer(state)], flags: V2 });
+        return interaction.editReply({ components: [okBox(`embed DMed to **${target.username}**.`)], flags: V2_E });
+      } catch {
+        return interaction.editReply({ components: [errBox(`couldn't DM **${target.username}** — they may have DMs closed.`)], flags: V2_E });
+      }
+    }
+
+    /* ═══════════════ dm-role (admin) ═══════════════ */
+    if (sub === 'dm-role') {
+      await interaction.deferReply({ flags: V2_E });
+      const role = interaction.options.getRole('role');
+      const members = role.members.filter(m => !m.user.bot);
+
+      if (members.size === 0) {
+        return interaction.editReply({ components: [errBox(`**${role.name}** has no human members.`)], flags: V2_E });
+      }
+
+      const state = defaultState();
+      state.title = interaction.options.getString('title');
+      state.description = interaction.options.getString('description');
+      const colorVal = interaction.options.getString('color');
+      if (colorVal) {
+        const parsed = parseColor(colorVal);
+        if (parsed !== null) { state.color = parsed; state.colorName = colorVal; }
+      }
+      state.image = interaction.options.getString('image');
+      state.thumbnail = interaction.options.getString('thumbnail');
+      state.footer = interaction.options.getString('footer');
+      state.author = interaction.options.getString('author');
+
+      if (!state.title && !state.description && !state.image && !state.thumbnail) {
+        return interaction.editReply({ components: [errBox('give me at least a title, description, image, or thumbnail.')], flags: V2_E });
+      }
+
+      const confirmRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('eb_dmrole_yes').setLabel(`DM ${members.size} members`).setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('eb_dmrole_no').setLabel('cancel').setStyle(ButtonStyle.Secondary),
+      );
+      const confirmC = new ContainerBuilder()
+        .setAccentColor(COLORS.orange)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+          `${E.sneaky} this will DM **${members.size}** members with role **${role.name}**.\n` +
+          `-# users with DMs closed will be skipped. this cannot be undone.`
+        ))
+        .addActionRowComponents(confirmRow);
+
+      await interaction.editReply({ components: [confirmC], flags: V2_E });
+      const msg = await interaction.fetchReply();
+      const pick = await msg.awaitMessageComponent({ time: 60000, filter: i => i.user.id === userId }).catch(() => null);
+      if (!pick) return;
+      await pick.deferUpdate().catch(() => {});
+
+      if (pick.customId === 'eb_dmrole_no') {
+        return interaction.editReply({ components: [new ContainerBuilder()
+          .setAccentColor(COLORS.default)
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.success} cancelled.`))], flags: V2_E });
+      }
+
+      let sent = 0, failed = 0;
+      for (const m of members.values()) {
+        try {
+          await m.send({ components: [buildDisplayContainer(state)], flags: V2 });
+          sent++;
+        } catch {
+          failed++;
+        }
+        await sleep(400);
+      }
+
+      return interaction.editReply({ components: [okBox(`DMed **${sent}** members · **${failed}** failed (DMs closed)` + ` · role: **${role.name}**`)], flags: V2_E });
+    }
+
+    /* ═══════════════ announce (admin) ═══════════════ */
+    if (sub === 'announce') {
+      await interaction.deferReply({ flags: V2_E });
+      const includeNsfw = interaction.options.getBoolean('include_nsfw') || false;
+
+      const channels = interaction.guild.channels.cache.filter(c =>
+        (c.type === ChannelType.GuildText || c.type === ChannelType.GuildAnnouncement) &&
+        (includeNsfw || !c.nsfw) &&
+        c.permissionsFor(interaction.guild.members.me).has(PermissionsBitField.Flags.SendMessages)
+      );
+
+      if (channels.size === 0) {
+        return interaction.editReply({ components: [errBox('no channels i can send in.')], flags: V2_E });
+      }
+
+      const state = defaultState();
+      state.title = interaction.options.getString('title');
+      state.description = interaction.options.getString('description');
+      const colorVal = interaction.options.getString('color');
+      if (colorVal) {
+        const parsed = parseColor(colorVal);
+        if (parsed !== null) { state.color = parsed; state.colorName = colorVal; }
+      }
+      state.image = interaction.options.getString('image');
+      state.thumbnail = interaction.options.getString('thumbnail');
+      state.footer = interaction.options.getString('footer');
+      state.author = interaction.options.getString('author');
+
+      if (!state.title && !state.description && !state.image && !state.thumbnail) {
+        return interaction.editReply({ components: [errBox('give me at least a title, description, image, or thumbnail.')], flags: V2_E });
+      }
+
+      const confirmRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('eb_announce_yes').setLabel(`send to ${channels.size} channels`).setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('eb_announce_no').setLabel('cancel').setStyle(ButtonStyle.Secondary),
+      );
+      const confirmC = new ContainerBuilder()
+        .setAccentColor(COLORS.orange)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+          `${E.announce} this will send your embed to **${channels.size}** text channels.\n` +
+          `-# age-restricted channels: ${includeNsfw ? 'included' : 'skipped'}. this cannot be undone.`
+        ))
+        .addActionRowComponents(confirmRow);
+
+      await interaction.editReply({ components: [confirmC], flags: V2_E });
+      const msg = await interaction.fetchReply();
+      const pick = await msg.awaitMessageComponent({ time: 60000, filter: i => i.user.id === userId }).catch(() => null);
+      if (!pick) return;
+      await pick.deferUpdate().catch(() => {});
+
+      if (pick.customId === 'eb_announce_no') {
+        return interaction.editReply({ components: [new ContainerBuilder()
+          .setAccentColor(COLORS.default)
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${E.success} cancelled.`))], flags: V2_E });
+      }
+
+      let sent = 0, failed = 0;
+      for (const ch of channels.values()) {
+        try {
+          await ch.send({ components: [buildDisplayContainer(state)], flags: V2 });
+          sent++;
+        } catch {
+          failed++;
+        }
+        await sleep(450);
+      }
+
+      return interaction.editReply({ components: [okBox(`announced in **${sent}** channels · **${failed}** failed`)], flags: V2_E });
     }
   },
 };
