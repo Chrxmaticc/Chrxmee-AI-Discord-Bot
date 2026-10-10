@@ -3,18 +3,14 @@ const {
   PermissionFlagsBits,
   ChannelType,
   EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
 } = require('discord.js');
 
-// in-memory state — swap for your db if you persist across restarts
-// { [guildId]: { active: boolean, saved: { [channelId]: overwriteJSON|null } } }
+// { [guildId]: { active: boolean, saved: { [channelId]: serializedOverwrite|null } } }
 const state = new Map();
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Turn overwrite object → plain object we can save, or null if it was "no overwrite" */
+/** Save an existing @everyone overwrite as plain JSON, or null if none existed */
 function serialize(overwrite) {
   if (!overwrite) return null;
   return {
@@ -25,46 +21,49 @@ function serialize(overwrite) {
   };
 }
 
-/** Plain object → @discordjs/builders-friendly overwrite */
-function deserialize(obj) {
-  if (!obj) return null;
-  return {
-    id: obj.id,
-    type: obj.type,
-    allow: BigInt(obj.allow),
-    deny: BigInt(obj.deny),
-  };
-}
+/** Which perms we force-deny on each channel type */
+function lockPayload(channel) {
+  const payload = { ViewChannel: false };
 
-/** Apply the current @everyone overwrite to a channel, forcing view_channel=false */
-async function hideFromEveryone(channel, everyoneId) {
-  const current = channel.permissionOverwrites.cache.get(everyoneId);
+  switch (channel.type) {
+    case ChannelType.GuildText:
+    case ChannelType.GuildAnnouncement:
+    case ChannelType.GuildForum:
+      payload.SendMessages = false;
+      payload.SendMessagesInThreads = false;
+      payload.CreatePublicThreads = false;
+      payload.CreatePrivateThreads = false;
+      payload.AddReactions = false;
+      break;
 
-  // copy existing allow/deny, then force view off
-  let allow = current ? current.allow.bitfield : 0n;
-  let deny  = current ? current.deny.bitfield  : 0n;
+    case ChannelType.GuildVoice:
+    case ChannelType.GuildStageVoice:
+      payload.Connect = false;
+      payload.Speak = false;
+      payload.Stream = false;
+      break;
 
-  // remove VIEW_CHANNEL from allow, add to deny
-  allow &= ~PermissionFlagsBits.ViewChannel;
-  deny  |= PermissionFlagsBits.ViewChannel;
+    case ChannelType.GuildCategory:
+      // categories only carry ViewChannel
+      break;
 
-  await channel.permissionOverwrites.edit(
-    everyoneId,
-    { ViewChannel: false, SendMessages: null, Connect: null },
-    { reason: 'maintenance: ON' }
-  );
+    default:
+      break;
+  }
+
+  return payload;
 }
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('maintenance')
-    .setDescription('Lock or unlock the whole server')
+    .setDescription('Hide and lock every channel from @everyone')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .setDMPermission(false)
     .addStringOption((o) =>
       o
         .setName('state')
-        .setDescription('on = hide all channels · off = restore')
+        .setDescription('on = hide + lock · off = restore')
         .setRequired(true)
         .addChoices(
           { name: 'on', value: 'on' },
@@ -75,12 +74,8 @@ module.exports = {
   async execute(interaction) {
     const { guild, member } = interaction;
 
-    // hard admin check (belt + suspenders)
     if (!member.permissions.has(PermissionFlagsBits.Administrator)) {
-      return interaction.reply({
-        content: 'admins only.',
-        ephemeral: true,
-      });
+      return interaction.reply({ content: 'admins only.', ephemeral: true });
     }
 
     const me = guild.members.me;
@@ -92,11 +87,11 @@ module.exports = {
     }
 
     const mode = interaction.options.getString('state', true);
+    const everyone = guild.roles.everyone;
 
-    // ─── TURN ON ─────────────────────────────
+    // ─────────── ON ───────────
     if (mode === 'on') {
-      const existing = state.get(guild.id);
-      if (existing?.active) {
+      if (state.get(guild.id)?.active) {
         return interaction.reply({
           content: '🔧 maintenance is already on.',
           ephemeral: true,
@@ -105,54 +100,52 @@ module.exports = {
 
       await interaction.deferReply();
 
-      const everyone = guild.roles.everyone;
       const saved = {};
       let done = 0;
       let skipped = 0;
 
       for (const channel of guild.channels.cache.values()) {
-        // skip threads — they inherit
         if (
           channel.type === ChannelType.PublicThread ||
           channel.type === ChannelType.PrivateThread ||
           channel.type === ChannelType.AnnouncementThread
-        ) {
-          continue;
-        }
+        ) continue;
 
-        // save current state
+        // snapshot the pre-maintenance overwrite
         const current = channel.permissionOverwrites.cache.get(everyone.id);
         saved[channel.id] = serialize(current);
 
         try {
           await channel.permissionOverwrites.edit(
             everyone.id,
-            { ViewChannel: false },
+            lockPayload(channel),
             { reason: 'maintenance: ON' }
           );
           done++;
-          await sleep(350); // be nice to the rate limiter
+          await sleep(350);
         } catch (err) {
           skipped++;
-          console.warn(`[maintenance] skipped #${channel.name}:`, err.message);
+          console.warn(`[maintenance] skipped #${channel.name}: ${err.message}`);
         }
       }
 
       state.set(guild.id, { active: true, saved });
 
-      const embed = new EmbedBuilder()
-        .setColor(0x7590dc)
-        .setTitle('🔧 Maintenance Mode: ON')
-        .setDescription(
-          `**${done}** channels hidden from @everyone.` +
-            (skipped ? `\n**${skipped}** skipped (missing perms).` : '')
-        )
-        .setFooter({ text: 'run /maintenance off to restore' });
-
-      return interaction.editReply({ embeds: [embed] });
+      return interaction.editReply({
+        embeds: [
+          new EmbedBuilder()
+            .setColor(0x7590dc)
+            .setTitle('🔧 Maintenance Mode: ON')
+            .setDescription(
+              `**${done}** channels hidden + locked from @everyone.` +
+                (skipped ? `\n**${skipped}** skipped (missing perms).` : '')
+            )
+            .setFooter({ text: 'run /maintenance off to restore' }),
+        ],
+      });
     }
 
-    // ─── TURN OFF ────────────────────────────
+    // ─────────── OFF ───────────
     const entry = state.get(guild.id);
     if (!entry?.active) {
       return interaction.reply({
@@ -163,7 +156,6 @@ module.exports = {
 
     await interaction.deferReply();
 
-    const everyone = guild.roles.everyone;
     const { saved } = entry;
     let done = 0;
     let skipped = 0;
@@ -173,43 +165,35 @@ module.exports = {
         channel.type === ChannelType.PublicThread ||
         channel.type === ChannelType.PrivateThread ||
         channel.type === ChannelType.AnnouncementThread
-      ) {
-        continue;
-      }
+      ) continue;
 
-      const prev = deserialize(saved[channel.id]);
+      const prev = saved[channel.id];
 
       try {
         if (prev) {
-          // restore saved overwrite exactly
-          await channel.permissionOverwrites.edit(
-            everyone.id,
-            {
-              ViewChannel: null,
-              ...Object.fromEntries(
-                // apply prev allow/deny directly
-                []
-              ),
-            },
-            { reason: 'maintenance: OFF' }
-          );
+          // keep every other role's overwrite, restore @everyone's exactly
+          const others = channel.permissionOverwrites.cache
+            .filter((o) => o.id !== everyone.id)
+            .map((o) => ({
+              id: o.id,
+              allow: o.allow.bitfield,
+              deny: o.deny.bitfield,
+            }));
 
-          // safer: set the raw overwrite object
           await channel.permissionOverwrites.set(
             [
-              ...channel.permissionOverwrites.cache
-                .filter((o) => o.id !== everyone.id)
-                .map((o) => ({
-                  id: o.id,
-                  allow: o.allow.bitfield,
-                  deny: o.deny.bitfield,
-                })),
-              prev,
+              ...others,
+              {
+                id: prev.id,
+                type: prev.type,
+                allow: BigInt(prev.allow),
+                deny: BigInt(prev.deny),
+              },
             ],
             'maintenance: OFF'
           );
         } else {
-          // no overwrite existed before — remove the @everyone one
+          // no overwrite existed before → remove the one we added
           await channel.permissionOverwrites.delete(
             everyone.id,
             'maintenance: OFF'
@@ -219,20 +203,22 @@ module.exports = {
         await sleep(350);
       } catch (err) {
         skipped++;
-        console.warn(`[maintenance] restore failed on #${channel.name}:`, err.message);
+        console.warn(`[maintenance] restore failed on #${channel.name}: ${err.message}`);
       }
     }
 
     state.delete(guild.id);
 
-    const embed = new EmbedBuilder()
-      .setColor(0xd092c6)
-      .setTitle('✅ Maintenance Mode: OFF')
-      .setDescription(
-        `**${done}** channels restored.` +
-          (skipped ? `\n**${skipped}** skipped (missing perms).` : '')
-      );
-
-    return interaction.editReply({ embeds: [embed] });
+    return interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(0xd092c6)
+          .setTitle('✅ Maintenance Mode: OFF')
+          .setDescription(
+            `**${done}** channels restored.` +
+              (skipped ? `\n**${skipped}** skipped (missing perms).` : '')
+          ),
+      ],
+    });
   },
 };
