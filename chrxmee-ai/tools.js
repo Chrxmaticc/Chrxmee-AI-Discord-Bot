@@ -197,9 +197,9 @@ async function callAI(modelKey, messages, temperature, maxTokens = 1024) {
    1b · VISION — image understanding
    ═══════════════════════════════════════════════════════════════ */
 const VISION_MODELS = [
-  { name: "groq", id: "meta-llama/llama-4-scout-17b-16e-instruct",
+  { name: "groq", id: "qwen/qwen3.8-27b",
     url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
-  { name: "navy", id: "gpt-4.1",
+  { name: "navy", id: "command-a-vision",
     url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
 ];
 
