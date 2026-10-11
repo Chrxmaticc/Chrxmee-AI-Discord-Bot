@@ -105,8 +105,6 @@ function applyFontStyle(text, style) {
 
 /* ═══════════════════════════════════════════════════════════════
    SAFETY HEADER STRIPPER
-   Some routed models emit "User Safety: safe / Response Safety: safe"
-   headers as the entire completion. This kills them.
    ═══════════════════════════════════════════════════════════════ */
 function stripSafetyHeader(text) {
   if (!text || typeof text !== "string") return "";
@@ -122,9 +120,50 @@ function stripSafetyHeader(text) {
   return out.replace(/^\s*\n+/, "").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   TOKEN ESTIMATOR + PROMPT TRIMMER FOR KILO
+   Free Kilo routes often have 4k-8k context. Our prompts hit 10k+.
+   This trims the smart context + history for Kilo only.
+   ═══════════════════════════════════════════════════════════════ */
+function estimateTokens(str) {
+  if (!str) return 0;
+  return Math.ceil(String(str).length / 4);
+}
+
+function trimForKilo(messages, maxTokens = 6000) {
+  if (!messages.length) return messages;
+  const sys = messages[0];
+  let sysContent = String(sys.content || "");
+
+  // If system prompt alone is huge, drop the smart-context sections first
+  if (estimateTokens(sysContent) > 2000) {
+    // chop everything from # RECENT CHANNEL CONTEXT onwards
+    const marker = sysContent.indexOf("# RECENT CHANNEL CONTEXT");
+    if (marker > 0) sysContent = sysContent.slice(0, marker).trim();
+    // still too big? hard-cap
+    if (estimateTokens(sysContent) > 2200) {
+      sysContent = sysContent.slice(0, 8800) + "\n\n[context truncated for length]";
+    }
+  }
+
+  const kept = [{ role: sys.role || "system", content: sysContent }];
+  let total = estimateTokens(sysContent);
+
+  // walk history from newest backwards
+  const history = messages.slice(1);
+  const newKept = [];
+  for (let i = history.length - 1; i >= 0; i--) {
+    const m = history[i];
+    const t = estimateTokens(m.content);
+    if (total + t > maxTokens) break;
+    total += t;
+    newKept.unshift(m);
+  }
+
+  return [kept[0], ...newKept];
+}
+
 // ─── HYBRID MODELS (Kilo primary → Groq → Navy fallback) ────
-// NOTE: groq/compound and groq/compound-mini were removed — they emit
-// safety classifier headers as the assistant message. Plain models only.
 const MODELS = {
   genius:    { label: "Genius",    providers: [
     { name: "groq", id: "openai/gpt-oss-120b", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
@@ -157,9 +196,20 @@ const MODELS = {
 };
 const DEFAULT_MODEL = "genius";
 
-// Kilo gateway (keyless) — primary provider
+/* ═══════════════════════════════════════════════════════════════
+   KILO GATEWAY — pinned model chain, real retries on empty
+   ═══════════════════════════════════════════════════════════════ */
 const KILO_URL = "https://api.kilo.ai/api/gateway/chat/completions";
-const KILO_MODEL = "openrouter/free";
+
+// Pinned models tried in order. openrouter/free is last (chaotic).
+const KILO_MODEL_CHAIN = [
+  "meta-llama/llama-3.3-70b-instruct",
+  "mistralai/mistral-nemo",
+  "qwen/qwen-2.5-72b-instruct",
+  "google/gemini-flash-1.5",
+  "openrouter/free",
+];
+
 const KILO_HEADERS = {
   "accept": "application/json",
   "content-type": "application/json",
@@ -169,30 +219,83 @@ const KILO_HEADERS = {
 };
 
 async function kiloCall(messages, temperature, maxTokens) {
-  const payload = {
-    model: KILO_MODEL,
-    messages,
-    stream: false,
-    temperature,
-    max_tokens: maxTokens,
-    reasoning: { enabled: false },
-  };
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await fetch(KILO_URL, { method: "POST", headers: KILO_HEADERS, body: JSON.stringify(payload) });
-    if (res.status === 400) {
-      if (payload.reasoning) { delete payload.reasoning; continue; }
+  const attempts = [];
+  const trimmed = trimForKilo(messages, 6000);
+
+  // enforce a minimum — some models return empty below 512 with think blocks
+  const safeMax = Math.max(512, Math.min(maxTokens || 1024, 4096));
+
+  for (const model of KILO_MODEL_CHAIN) {
+    // 2 attempts per model — transient empties often fix themselves
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const payload = {
+        model,
+        messages: trimmed,
+        stream: false,
+        temperature,
+        max_tokens: safeMax,
+      };
+
+      let res;
+      try {
+        res = await fetch(KILO_URL, {
+          method: "POST",
+          headers: KILO_HEADERS,
+          body: JSON.stringify(payload),
+        });
+      } catch (err) {
+        attempts.push(`${model}: network ${err.name}`);
+        break;
+      }
+
+      if (res.status === 429) {
+        attempts.push(`${model}: rate-limited`);
+        break;
+      }
+      if (res.status === 400) {
+        attempts.push(`${model}: 400 ${(await res.text()).slice(0, 120)}`);
+        break;
+      }
+      if (!res.ok) {
+        attempts.push(`${model}: http ${res.status}`);
+        break;
+      }
+
+      let data;
+      try { data = await res.json(); }
+      catch { attempts.push(`${model}: bad json`); break; }
+
+      const choice = (data.choices || [{}])[0];
+      const message = choice.message || {};
+      const rawContent = typeof message.content === "string" ? message.content : "";
+      const toolCalls = message.tool_calls || [];
+
+      const noThink = rawContent.replace(/<think>[\s\S]*?<\/think>/g, "");
+      const content = stripSafetyHeader(noThink);
+
+      if (content) return content;
+
+      if (toolCalls.length) {
+        attempts.push(`${model}: only tool_calls (${toolCalls.map(t => t.function?.name).join(",")})`);
+        break;
+      }
+
+      const reason = choice.finish_reason || "unknown";
+      attempts.push(`${model}: empty (finish=${reason}, raw_len=${rawContent.length})`);
+
+      if (attempt === 0) {
+        // brief pause before retry on same model
+        await new Promise(r => setTimeout(r, 300));
+      }
     }
-    if (!res.ok) throw new Error(`kilo http ${res.status}`);
-    const data = await res.json();
-    const choice = (data.choices || [{}])[0];
-    const raw = (choice.message?.content || "").replace(/<think>[\s\S]*?<\/think>/g, "");
-    const content = stripSafetyHeader(raw);
-    if (content) return content;
-    throw new Error("kilo empty response");
   }
-  throw new Error("kilo exhausted retries");
+
+  throw new Error(`kilo exhausted — ${attempts.join(" | ")}`);
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   CALL AI — Kilo primary, Groq/Navy fallback
+   ═══════════════════════════════════════════════════════════════ */
 async function callAI(modelKey, messages, temperature, maxTokens = 1024) {
   const model = MODELS[modelKey] || MODELS[DEFAULT_MODEL];
   let lastError;
@@ -201,20 +304,29 @@ async function callAI(modelKey, messages, temperature, maxTokens = 1024) {
   try {
     const content = await kiloCall(messages, temperature, maxTokens);
     if (content) return content;
+    console.warn("kilo returned empty across all models — falling back");
   } catch (err) {
-    console.error(`kilo (primary) failed:`, err.message);
+    console.error(`kilo (primary) failed: ${err.message}`);
     lastError = err;
   }
 
   // 2. Groq / Navy fallback
   for (const provider of model.providers) {
     const apiKey = process.env[provider.keyEnv];
-    if (!apiKey) continue;
+    if (!apiKey) {
+      console.warn(`${provider.name}: skipped (no ${provider.keyEnv})`);
+      continue;
+    }
     try {
       const response = await fetch(provider.url, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: provider.id, messages, temperature, max_tokens: maxTokens }),
+        body: JSON.stringify({
+          model: provider.id,
+          messages,
+          temperature,
+          max_tokens: Math.max(512, maxTokens),
+        }),
       });
       if (!response.ok) {
         const err = await response.text();
@@ -225,10 +337,11 @@ async function callAI(modelKey, messages, temperature, maxTokens = 1024) {
       if (content) return content;
       throw new Error(`no content from ${provider.name}`);
     } catch (err) {
-      console.error(`${provider.name} (fallback) failed:`, err.message);
+      console.error(`${provider.name} (fallback) failed: ${err.message}`);
       lastError = err;
     }
   }
+
   throw new Error(`all providers failed — ${lastError?.message || "unknown"}`);
 }
 
@@ -388,7 +501,6 @@ async function unfurlUrls(text) {
       const content = await fetch_url(url);
       results.push({ url, content: String(content || "").slice(0, SMART.urlContentMax) });
     } catch (err) {
-      // record the failure so the AI knows
       results.push({ url, content: `[fetch failed: ${err.message}]`, failed: true });
     }
   }
@@ -478,7 +590,7 @@ async function extractAndSaveFacts(conversation, userId, client) {
     const raw = await callAI("speedster", [
       { role: "system", content: `extract durable facts about the USER from this conversation. return ONLY a JSON array of short factual strings. max 5 facts. only stable facts (name, age, location, pets, job, skills, major preferences). return [] if nothing worth remembering.` },
       { role: "user", content: text },
-    ], 0.3, 200);
+    ], 0.3, 256);
     const match = raw.match(/\[[\s\S]*\]/);
     if (!match) return;
     let facts;
@@ -1119,6 +1231,8 @@ module.exports.E = E;
 module.exports.CUSTOM_EMOJI_LIST = CUSTOM_EMOJI_LIST;
 module.exports.callAI = callAI;
 module.exports.stripSafetyHeader = stripSafetyHeader;
+module.exports.estimateTokens = estimateTokens;
+module.exports.trimForKilo = trimForKilo;
 module.exports.SMART = SMART;
 module.exports.detectLanguage = detectLanguage;
 module.exports.detectComplexity = detectComplexity;
