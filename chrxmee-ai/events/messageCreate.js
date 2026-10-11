@@ -3,7 +3,7 @@ const path = require("path");
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 const { handleKeywords } = require("../commands/keyword-responder");
 const { handleMessage: handleUwuify } = require("../commands/uwuify");
-const { detectTool, executeTool, fetch_url, unfurl } = require("../tools");
+const { detectTool, executeTool, fetch_url, unfurl, getKiloFreeModels, getKiloCap, WEB_TOOLS_SCHEMA, cleanModelOutput } = require("../tools");
 
 // ─── CUSTOM EMOJIS (Chromed Server) ──────────────────────────
 const E = {
@@ -162,13 +162,7 @@ function trimForKilo(messages, maxTokens = 6000) {
    KILO GATEWAY (primary) — pinned chain, retries on empty
    ═══════════════════════════════════════════════════════════════ */
 const KILO_URL = "https://api.kilo.ai/api/gateway/chat/completions";
-const KILO_MODEL_CHAIN = [
-  "meta-llama/llama-3.3-70b-instruct",
-  "mistralai/mistral-nemo",
-  "qwen/qwen-2.5-72b-instruct",
-  "google/gemini-flash-1.5",
-  "openrouter/free",
-];
+const KILO_FALLBACK = ["kilo-auto/free"];
 
 const KILO_HEADERS = {
   "accept": "application/json",
@@ -181,11 +175,14 @@ const KILO_HEADERS = {
 async function kiloCall(messages, temperature, maxTokens) {
   const attempts = [];
   const trimmed = trimForKilo(messages, 6000);
-  const safeMax = Math.max(512, Math.min(maxTokens || 1024, 4096));
+  let chain = KILO_FALLBACK;
+  try { chain = await getKiloFreeModels(); } catch {}
 
-  for (const model of KILO_MODEL_CHAIN) {
+  for (const model of chain) {
+    const cap = getKiloCap(model);
+    const safeMax = Math.max(512, Math.min(maxTokens || 1024, cap));
     for (let attempt = 0; attempt < 2; attempt++) {
-      const payload = { model, messages: trimmed, stream: false, temperature, max_tokens: safeMax };
+      const payload = { model, messages: trimmed, stream: false, temperature, max_tokens: safeMax, tools: WEB_TOOLS_SCHEMA };
       let res;
       try {
         res = await fetch(KILO_URL, { method: "POST", headers: KILO_HEADERS, body: JSON.stringify(payload) });
@@ -196,11 +193,31 @@ async function kiloCall(messages, temperature, maxTokens) {
       try { data = await res.json(); } catch { attempts.push(`${model}: bad json`); break; }
       const choice = (data.choices || [{}])[0];
       const message = choice.message || {};
+      if (message.tool_calls?.length) {
+        try {
+          const toolResults = [];
+          for (const tc of message.tool_calls.slice(0, 3)) {
+            const name = tc.function?.name;
+            let args = {};
+            try { args = JSON.parse(tc.function?.arguments || "{}"); } catch {}
+            const out = name === "web_search" ? await executeTool("web_search", args.query, {})
+              : name === "fetch_url" ? String(await executeTool("fetch_url", args.url, {})).slice(0, 4000)
+              : `unknown tool: ${name}`;
+            toolResults.push({ role: "tool", tool_call_id: tc.id, content: String(out).slice(0, 4000) });
+          }
+          const follow = await fetch(KILO_URL, { method: "POST", headers: KILO_HEADERS, body: JSON.stringify({ model, messages: [...trimmed, message, ...toolResults], stream: false, temperature, max_tokens: Math.min(100000, cap) }) });
+          if (follow.ok) {
+            const fraw = (await follow.json()).choices?.[0]?.message?.content || "";
+            const fcontent = cleanModelOutput(fraw.replace(/<think>[\s\S]*?<\/think>/g, ""));
+            if (fcontent) return fcontent;
+          }
+        } catch (err) { attempts.push(`${model}: tool-exec ${err.message.slice(0, 80)}`); }
+        break;
+      }
       const raw = typeof message.content === "string" ? message.content : "";
       const noThink = raw.replace(/<think>[\s\S]*?<\/think>/g, "");
-      const content = stripSafetyHeader(noThink);
+      const content = cleanModelOutput(noThink);
       if (content) return content;
-      if (message.tool_calls?.length) break;
       attempts.push(`${model}: empty (finish=${choice.finish_reason})`);
       if (attempt === 0) await new Promise(r => setTimeout(r, 300));
     }
@@ -274,7 +291,7 @@ async function callAI(modelKey, messages, temperature, maxTokens = 1024) {
         throw new Error(`${provider.name} ${response.status}: ${err.slice(0, 200)}`);
       }
       const data = await response.json();
-      const content = stripSafetyHeader(data.choices?.[0]?.message?.content);
+      const content = cleanModelOutput(data.choices?.[0]?.message?.content);
       if (content) return content;
       throw new Error(`no content from ${provider.name}`);
     } catch (err) {
