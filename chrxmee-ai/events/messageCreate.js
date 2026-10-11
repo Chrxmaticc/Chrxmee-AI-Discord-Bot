@@ -3,11 +3,12 @@ const path = require("path");
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 const { handleKeywords } = require("../commands/keyword-responder");
 const { handleMessage: handleUwuify } = require("../commands/uwuify");
-const { detectTool, executeTool, fetch_url, unfurl, getKiloFreeModels, getKiloCap, WEB_TOOLS_SCHEMA, cleanModelOutput } = require("../tools");
 const {
   detectTool, executeTool, fetch_url, unfurl,
   looksLikeLarp, buildUrlFallbackReply,
+  getKiloFreeModels, getKiloCap, WEB_TOOLS_SCHEMA,
 } = require("../tools");
+
 
 // ─── CUSTOM EMOJIS ──────────────────────────────────────────
 const E = {
