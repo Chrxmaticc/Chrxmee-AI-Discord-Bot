@@ -17,8 +17,10 @@ const {
   KILO_MODELS,
   getKiloFreeModels,
   getKiloCap,
+  callVision,
+  extractImageUrls,
+  VISION_MODELS,
 } = require("../tools");
-
 
 // ─── CUSTOM EMOJIS ──────────────────────────────────────────
 const E = {
@@ -119,7 +121,7 @@ function applyFontStyle(text, style) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   ⚡ LARP INTERCEPTOR
+   LARP INTERCEPTOR
    ═══════════════════════════════════════════════════════════════ */
 const LARP_PATTERNS = [
   /can'?t\s+(?:actually\s+)?vis(?:it|iting)/i,
@@ -149,34 +151,25 @@ function buildFallbackReplyLocal(ctx) {
   const good = urls.filter(u => !u.failed);
   const bad = urls.filter(u => u.failed);
 
-  if (good.length === 1) {
-    return `ight, here's what i pulled from that link:\n\n${good[0].content}`;
-  }
-  if (good.length > 1) {
-    return good.map(u => `**${u.url}**\n${u.content}`).join("\n\n---\n\n");
-  }
+  if (good.length === 1) return `ight, here's what i pulled from that link:\n\n${good[0].content}`;
+  if (good.length > 1) return good.map(u => `**${u.url}**\n${u.content}`).join("\n\n---\n\n");
   if (bad.length === 1) {
     const reason = (bad[0].content || "").replace(/^\[fetch failed:\s*/, "").replace(/\]$/, "");
     return `couldn't reach **${bad[0].url}** — \`${reason}\``;
   }
-  if (bad.length > 1) {
-    return `couldn't reach any of those:\n${bad.map(b => `-# ${b.url}`).join("\n")}`;
-  }
+  if (bad.length > 1) return `couldn't reach any of those:\n${bad.map(b => `-# ${b.url}`).join("\n")}`;
   return "";
 }
 
 function finalizeAiReply(answer, smartCtx) {
   if (!answer) return answer;
-
   const hasUrlData = (smartCtx?.urlContents?.length || 0) > 0;
   const isLarp = looksLikeLarpLocal(answer) || (typeof looksLikeLarp === "function" && looksLikeLarp(answer));
-
   if (hasUrlData && isLarp) {
     console.warn("[larp] intercepted — swapping for url data");
     const fallback = buildFallbackReplyLocal(smartCtx);
     if (fallback) return fallback;
   }
-
   return answer;
 }
 
@@ -218,7 +211,7 @@ function trimForKilo(messages, maxTokens = 6000) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   KILO GATEWAY (primary) — dynamic chain via getKiloFreeModels()
+   KILO GATEWAY (primary) — dynamic chain
    ═══════════════════════════════════════════════════════════════ */
 const KILO_URL = "https://api.kilo.ai/api/gateway/chat/completions";
 const KILO_FALLBACK = ["kilo-auto/free"];
@@ -236,6 +229,7 @@ async function kiloCall(messages, temperature, maxTokens) {
   const trimmed = trimForKilo(messages, 6000);
   let chain = KILO_FALLBACK;
   try { chain = await getKiloFreeModels(); } catch {}
+  if (!chain || !chain.length) chain = KILO_FALLBACK;
 
   for (const model of chain) {
     const cap = getKiloCap(model) || 4096;
@@ -308,7 +302,7 @@ const MODELS = {
     { name: "navy", id: "gpt-4.1-mini", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
   ]},
   vision: { label: "Vision", providers: [
-    { name: "groq", id: "qwen/qwen3.6-27b", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+    { name: "groq", id: "meta-llama/llama-4-scout-17b-16e-instruct", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
     { name: "navy", id: "gpt-4.1", url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
   ]},
   agent: { label: "Agent", providers: [
@@ -684,6 +678,9 @@ NEVER say ANY of these phrases, ever:
 
 If you catch yourself about to type one — STOP. Check your context. The data IS there. Use it. If the fetch actually failed, the failure note is in your context — say the specific error ("couldn't reach that, dns error"), not "i can't browse."
 
+# VISION — YOU CAN SEE IMAGES
+If a user sends an image, the system sends it to a vision model and the description is in your context. You CAN see images. NEVER say "i can't see images" or "i can't view that." Just talk about what's in the picture like a friend would.
+
 # WHO YOU ARE
 - 19-year-old chronically online coder gremlin
 - you grew up in discord, you know the culture
@@ -932,7 +929,64 @@ module.exports = {
 
     await new Promise(resolve => setTimeout(resolve, Math.random() * 200 + 100));
 
-    // 5. Tool detection
+    // 5a. VISION — images take priority over text tools
+    const imageUrls = extractImageUrls(message);
+    if (imageUrls.length > 0) {
+      // also grab images from replied-to message
+      if (message.reference?.message_id) {
+        try {
+          const ref = message.reference.resolved
+            || message.reference.cachedMessage
+            || await message.channel.messages.fetch(message.reference.message_id);
+          if (ref) {
+            const refUrls = extractImageUrls(ref);
+            if (refUrls.length) imageUrls.push(...refUrls);
+          }
+        } catch {}
+      }
+
+      const cleanVisionContent = message.content.replace(/<@!?[0-9]+>/g, "").trim();
+      const visionPrompt = cleanVisionContent || "describe what's in this image";
+
+      if (checkSmartRateLimit(userId)) {
+        try {
+          message.channel.sendTyping();
+
+          const visionSystem = buildSystemPrompt(
+            "vision",
+            (client.memory.get(userId)?.mode) || DEFAULT_MODE,
+            "",
+            "",
+            false,
+            null
+          );
+
+          const visionAnswer = await callVision({
+            system: visionSystem,
+            text: visionPrompt,
+            imageUrls: imageUrls.slice(0, 4),
+            temperature: 0.75,
+            maxTokens: 1024,
+          });
+
+          if (visionAnswer && visionAnswer.length > 1) {
+            const s = client.memory.get(userId);
+            if (s) {
+              s.history = s.history || [];
+              s.history.push({ role: "user", content: `[image] ${visionPrompt}` });
+              s.history.push({ role: "assistant", content: visionAnswer });
+              if (s.history.length > 30) s.history = s.history.slice(-30);
+              client.memory.set(userId, s);
+            }
+            return sendAiReply(message, visionAnswer, userId, client);
+          }
+        } catch (err) {
+          console.warn("Vision failed, falling back to text:", err.message);
+        }
+      }
+    }
+
+    // 5b. Tool detection
     let toolFailureNote = "";
     const tool = detectTool(message.content);
     if (tool) {
@@ -1054,7 +1108,7 @@ module.exports = {
               1024
             );
 
-            // ⚡ LARP INTERCEPTOR
+            // LARP INTERCEPTOR
             const answer = finalizeAiReply(rawAnswer, smartCtx);
 
             userData.history.push({ role: "assistant", content: answer });
@@ -1172,7 +1226,7 @@ module.exports = {
         1024
       );
 
-      // ⚡ LARP INTERCEPTOR
+      // LARP INTERCEPTOR
       const answer = finalizeAiReply(rawAnswer, smartCtx);
 
       userData.history.push({ role: "assistant", content: answer });
