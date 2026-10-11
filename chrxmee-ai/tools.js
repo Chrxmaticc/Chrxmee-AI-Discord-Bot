@@ -856,11 +856,11 @@ async function rss(url) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   9 · VIDEO → AUDIO  (NEW)
+   9 · VIDEO → AUDIO
    ═══════════════════════════════════════════════════════════════ */
 const VIDEO_EXT_RE = /\.(mp4|webm|mov|mkv|avi|m4v|flv|wmv|mpeg|mpg)$/i;
-const MAX_VIDEO_BYTES = 25 * 1024 * 1024; // 25MB discord attachment ceiling
-const MAX_AUDIO_BYTES = 8 * 1024 * 1024; // keep the mp3 under discord's free limit
+const MAX_VIDEO_BYTES = 25 * 1024 * 1024;
+const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 
 function isVideoAttachment(att) {
   if (!att) return false;
@@ -870,14 +870,12 @@ function isVideoAttachment(att) {
 }
 
 async function findVideoInMessage(message) {
-  // 1. attachment on this message
   if (message.attachments?.size) {
     for (const a of message.attachments.values()) {
       if (isVideoAttachment(a)) return { attachment: a, source: "message" };
     }
   }
 
-  // 2. attachment on the message this one is replying to
   if (message.reference?.message_id) {
     try {
       const ref = message.reference.resolved
@@ -891,7 +889,6 @@ async function findVideoInMessage(message) {
     } catch {}
   }
 
-  // 3. url in the message that looks like a video file
   const urlMatch = message.content.match(/https?:\/\/\S+\.(mp4|webm|mov|mkv|m4v)(\?\S*)?/i);
   if (urlMatch) return { url: urlMatch[0], source: "url" };
 
@@ -911,7 +908,6 @@ async function video_to_audio(context) {
     throw new WebError("couldn't find a video. attach one, or reply to a message with a video, or paste a direct video url.");
   }
 
-  // ── download ──
   let videoBuf = null;
   let sourceName = "video";
 
@@ -936,14 +932,12 @@ async function video_to_audio(context) {
 
   if (!videoBuf || videoBuf.length === 0) throw new WebError("no video data to convert.");
 
-  // ── temp files ──
   const inExt = found.attachment ? (VIDEO_EXT_RE.exec(found.attachment.name || "")?.[1] || "mp4") : "mp4";
   const inPath = path.join(os.tmpdir(), `chromed-in-${randomUUID()}.${inExt}`);
   const outPath = path.join(os.tmpdir(), `chromed-out-${randomUUID()}.mp3`);
 
   fs.writeFileSync(inPath, videoBuf);
 
-  // ── convert ──
   try {
     await new Promise((resolve, reject) => {
       ffmpeg(inPath)
@@ -979,12 +973,12 @@ async function video_to_audio(context) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   10 · TOOL DETECTION
+   10 · TOOL DETECTION (URLs anywhere — fixed)
    ═══════════════════════════════════════════════════════════════ */
 function detectTool(content) {
   const text = content.trim().toLowerCase();
 
-  // ─── video → audio (highest priority since it's phrase-specific) ───
+  // ─── video → audio ───
   if (
     /(convert|turn|change)\s+(this|it|that|the\s+video)\s+(in)?to\s+audio/i.test(text) ||
     /(extract|get|grab|pull)\s+(the\s+)?audio\s+from\s+(this|it|that|the\s+video)/i.test(text) ||
@@ -1047,7 +1041,7 @@ function detectTool(content) {
   if (/^(dice|roll a dice)/.test(text)) return { tool: "dice", args: null };
   if (/^(coinflip|flip a coin)/.test(text)) return { tool: "coinflip", args: null };
 
-  // site-aware
+  // explicit site-aware commands
   if (/^(site\s*info|url\s*info|check\s*url|check\s*site)\s+(https?:\/\/\S+)/.test(text)) {
     return { tool: "site_info", args: text.match(/^(?:site\s*info|url\s*info|check\s*url|check\s*site)\s+(https?:\/\/\S+)/)[1] };
   }
@@ -1061,13 +1055,21 @@ function detectTool(content) {
     return { tool: "rss", args: text.match(/^(?:rss|feed)\s+(https?:\/\/\S+)/)[1] };
   }
 
-  // bare URL → smart unfurl
-  if (/^https?:\/\/\S+$/.test(text)) return { tool: "unfurl_url", args: text };
-
-  // search / fetch
-  if (/^(search|google)\s+(.+)/.test(text)) return { tool: "web_search", args: text.match(/^(?:search|google)\s+(.+)/)[1].trim() };
+  // explicit fetch
   if (/^(fetch|open|read|visit)\s+(https?:\/\/\S+)/.test(text)) {
     return { tool: "fetch_url", args: text.match(/^(?:fetch|open|read|visit)\s+(https?:\/\/\S+)/)[1].trim() };
+  }
+
+  // ─── URL ANYWHERE in the message → smart unfurl ───
+  // this is the fix — no anchors, uses original `content` for correct casing
+  const urlAnywhere = content.match(/https?:\/\/[^\s<>"'`]+/i);
+  if (urlAnywhere) {
+    return { tool: "unfurl_url", args: urlAnywhere[0] };
+  }
+
+  // ─── explicit search (after URL detection so "search https://x" still works right) ───
+  if (/^(search|google)\s+(.+)/.test(text)) {
+    return { tool: "web_search", args: text.match(/^(?:search|google)\s+(.+)/)[1].trim() };
   }
 
   return null;
