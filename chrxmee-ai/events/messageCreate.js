@@ -119,43 +119,7 @@ function applyFontStyle(text, style) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SAFETY + TOKEN STRIPPERS
-   ═══════════════════════════════════════════════════════════════ */
-function stripSafetyHeader(text) {
-  if (!text || typeof text !== "string") return "";
-  let out = text;
-  for (let i = 0; i < 5; i++) {
-    const before = out;
-    out = out
-      .replace(/^\s*(?:user|response|assistant|content|request|input|output)\s*(?:safety|moderation|eval|guard|filter|rating|classification)\s*[:=]\s*\S+\s*$/gim, "")
-      .replace(/^\s*(?:safety|moderation|classification|rating|guard)\s*[:=]\s*\S+\s*$/gim, "")
-      .replace(/^\s*(?:unsafe|safe)\s*$/gim, "");
-    if (out === before) break;
-  }
-  return out.replace(/^\s*\n+/, "").replace(/\n{3,}/g, "\n\n").trim();
-}
-
-function stripSpecialTokens(text) {
-  if (!text || typeof text !== "string") return "";
-  let out = text;
-  out = out.replace(/<\|[^|>]*\|>/g, "");
-  out = out.replace(/<\|tool_calls_section_begin\|>[\s\S]*?<\|tool_calls_section_end\|>/g, "");
-  out = out.replace(/<\|tool_call_begin\|>[\s\S]*?<\|tool_call_end\|>/g, "");
-  out = out.replace(/<\|tool_call_start\|>[\s\S]*?<\|tool_call_end\|>/g, "");
-  out = out.replace(/\[\s*(?:functions\.)?\w+\s*\([^)]*\)\s*\]/g, "");
-  out = out.replace(/^\s*assistant\s*$/gim, "");
-  out = out.replace(/\{\s*"?(?:tool|function|name)"?\s*:\s*"[^"]+"\s*,\s*"?(?:arguments|parameters)"?\s*:[\s\S]*?\}/g, "");
-  return out.replace(/^\s*\n+/, "").replace(/\n{3,}/g, "\n\n").trim();
-}
-
-function cleanModelOutput(text) {
-  return stripSpecialTokens(stripSafetyHeader(text || ""));
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   ⚡ LARP INTERCEPTOR — the fix that actually matters
-   Runs on EVERY AI reply. If the model claims it can't browse AND
-   we have URL data, we throw out the reply and inject real data.
+   ⚡ LARP INTERCEPTOR
    ═══════════════════════════════════════════════════════════════ */
 const LARP_PATTERNS = [
   /can'?t\s+(?:actually\s+)?vis(?:it|iting)/i,
@@ -217,24 +181,8 @@ function finalizeAiReply(answer, smartCtx) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   KILO CHAIN (primary)
+   TOKEN ESTIMATION + PROMPT TRIMMER
    ═══════════════════════════════════════════════════════════════ */
-const KILO_URL = "https://api.kilo.ai/api/gateway/chat/completions";
-const KILO_MODEL_CHAIN = [
-  "meta-llama/llama-3.3-70b-instruct",
-  "mistralai/mistral-nemo",
-  "qwen/qwen-2.5-72b-instruct",
-  "google/gemini-flash-1.5",
-  "openrouter/free",
-];
-const KILO_HEADERS = {
-  "accept": "application/json",
-  "content-type": "application/json",
-  "origin": "https://api.kilo.ai",
-  "referer": "https://api.kilo.ai/",
-  "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
-};
-
 function estimateTokens(str) {
   if (!str) return 0;
   return Math.ceil(String(str).length / 4);
@@ -270,7 +218,7 @@ function trimForKilo(messages, maxTokens = 6000) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   KILO GATEWAY (primary) — pinned chain, retries on empty
+   KILO GATEWAY (primary) — dynamic chain via getKiloFreeModels()
    ═══════════════════════════════════════════════════════════════ */
 const KILO_URL = "https://api.kilo.ai/api/gateway/chat/completions";
 const KILO_FALLBACK = ["kilo-auto/free"];
@@ -290,7 +238,7 @@ async function kiloCall(messages, temperature, maxTokens) {
   try { chain = await getKiloFreeModels(); } catch {}
 
   for (const model of chain) {
-    const cap = getKiloCap(model);
+    const cap = getKiloCap(model) || 4096;
     const safeMax = Math.max(512, Math.min(maxTokens || 1024, cap));
     for (let attempt = 0; attempt < 2; attempt++) {
       const payload = { model, messages: trimmed, stream: false, temperature, max_tokens: safeMax, tools: WEB_TOOLS_SCHEMA };
@@ -609,7 +557,6 @@ async function gatherSmartContext(message, client) {
   const language = detectLanguage(message.content);
   const complexity = detectComplexity(message.content);
 
-  // debug
   if (urlContents.length) {
     console.log("[smartCtx]", urlContents.map(u => ({ url: u.url, failed: !!u.failed, len: u.content.length })));
   }
@@ -1254,9 +1201,6 @@ module.exports.DEFAULT_MODE = DEFAULT_MODE;
 module.exports.E = E;
 module.exports.CUSTOM_EMOJI_LIST = CUSTOM_EMOJI_LIST;
 module.exports.callAI = callAI;
-module.exports.stripSafetyHeader = stripSafetyHeader;
-module.exports.stripSpecialTokens = stripSpecialTokens;
-module.exports.cleanModelOutput = cleanModelOutput;
 module.exports.looksLikeLarpLocal = looksLikeLarpLocal;
 module.exports.finalizeAiReply = finalizeAiReply;
 module.exports.SMART = SMART;
