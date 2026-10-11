@@ -3,6 +3,7 @@ const path = require("path");
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 const { handleKeywords } = require("../commands/keyword-responder");
 const { handleMessage: handleUwuify } = require("../commands/uwuify");
+const { detectTool, executeTool, fetch_url, unfurl, getKiloFreeModels, getKiloCap, WEB_TOOLS_SCHEMA, cleanModelOutput } = require("../tools");
 const {
   detectTool, executeTool, fetch_url, unfurl,
   looksLikeLarp, buildUrlFallbackReply,
@@ -257,14 +258,31 @@ function trimForKilo(messages, maxTokens = 6000) {
   return [kept[0], ...newKept];
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   KILO GATEWAY (primary) — pinned chain, retries on empty
+   ═══════════════════════════════════════════════════════════════ */
+const KILO_URL = "https://api.kilo.ai/api/gateway/chat/completions";
+const KILO_FALLBACK = ["kilo-auto/free"];
+
+const KILO_HEADERS = {
+  "accept": "application/json",
+  "content-type": "application/json",
+  "origin": "https://api.kilo.ai",
+  "referer": "https://api.kilo.ai/",
+  "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
+};
+
 async function kiloCall(messages, temperature, maxTokens) {
   const attempts = [];
   const trimmed = trimForKilo(messages, 6000);
-  const safeMax = Math.max(512, Math.min(maxTokens || 1024, 4096));
+  let chain = KILO_FALLBACK;
+  try { chain = await getKiloFreeModels(); } catch {}
 
-  for (const model of KILO_MODEL_CHAIN) {
+  for (const model of chain) {
+    const cap = getKiloCap(model);
+    const safeMax = Math.max(512, Math.min(maxTokens || 1024, cap));
     for (let attempt = 0; attempt < 2; attempt++) {
-      const payload = { model, messages: trimmed, stream: false, temperature, max_tokens: safeMax };
+      const payload = { model, messages: trimmed, stream: false, temperature, max_tokens: safeMax, tools: WEB_TOOLS_SCHEMA };
       let res;
       try {
         res = await fetch(KILO_URL, { method: "POST", headers: KILO_HEADERS, body: JSON.stringify(payload) });
@@ -275,6 +293,27 @@ async function kiloCall(messages, temperature, maxTokens) {
       try { data = await res.json(); } catch { attempts.push(`${model}: bad json`); break; }
       const choice = (data.choices || [{}])[0];
       const message = choice.message || {};
+      if (message.tool_calls?.length) {
+        try {
+          const toolResults = [];
+          for (const tc of message.tool_calls.slice(0, 3)) {
+            const name = tc.function?.name;
+            let args = {};
+            try { args = JSON.parse(tc.function?.arguments || "{}"); } catch {}
+            const out = name === "web_search" ? await executeTool("web_search", args.query, {})
+              : name === "fetch_url" ? String(await executeTool("fetch_url", args.url, {})).slice(0, 4000)
+              : `unknown tool: ${name}`;
+            toolResults.push({ role: "tool", tool_call_id: tc.id, content: String(out).slice(0, 4000) });
+          }
+          const follow = await fetch(KILO_URL, { method: "POST", headers: KILO_HEADERS, body: JSON.stringify({ model, messages: [...trimmed, message, ...toolResults], stream: false, temperature, max_tokens: Math.min(100000, cap) }) });
+          if (follow.ok) {
+            const fraw = (await follow.json()).choices?.[0]?.message?.content || "";
+            const fcontent = cleanModelOutput(fraw.replace(/<think>[\s\S]*?<\/think>/g, ""));
+            if (fcontent) return fcontent;
+          }
+        } catch (err) { attempts.push(`${model}: tool-exec ${err.message.slice(0, 80)}`); }
+        break;
+      }
       const raw = typeof message.content === "string" ? message.content : "";
       const noThink = raw.replace(/<think>[\s\S]*?<\/think>/g, "");
       const content = cleanModelOutput(noThink);

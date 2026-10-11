@@ -13,6 +13,14 @@ const dnsPromises = require("node:dns").promises;
 
 let ffmpeg = null;
 let ffmpegStaticPath = null;
+let Turndown = null;
+try { Turndown = require("turndown"); } catch (e) {
+  console.warn("turndown not installed — fetch_url falls back to regex text");
+}
+let JSDOM = null;
+try { JSDOM = require("jsdom").JSDOM; } catch (e) {
+  console.warn("jsdom not installed — meta/cleanup falls back to regex");
+}
 try {
   ffmpeg = require("fluent-ffmpeg");
   ffmpegStaticPath = require("ffmpeg-static");
@@ -311,7 +319,45 @@ function stripTags(v) {
   return decodeHtml(String(v).replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 }
 
-function htmlToText(raw) {
+function htmlToText(raw, baseUrl) {
+  if (JSDOM) {
+    try {
+      const dom = new JSDOM(raw, { url: baseUrl || "https://example.com/" });
+      const doc = dom.window.document;
+      const title = (doc.querySelector("title")?.textContent || "").trim();
+      doc.querySelectorAll("script, style, noscript, svg").forEach((el) => el.remove());
+      const textLen = (el) => (el?.textContent || "").replace(/\s+/g, " ").trim().length;
+      let root = doc.querySelector("main, article, [role='main']");
+      if (!root || textLen(root) < 200) {
+        root = doc.body || doc;
+        const clone = root.cloneNode(true);
+        clone.querySelectorAll("nav, footer, header, aside").forEach((el) => el.remove());
+        if (textLen(clone) >= 200) root = clone;
+      } else {
+        root = root.cloneNode(true);
+      }
+      root.querySelectorAll("a[href], img[src]").forEach((el) => {
+        const attr = el.hasAttribute("href") ? "href" : "src";
+        try { el.setAttribute(attr, new URL(el.getAttribute(attr), dom.window.location.href).href); } catch {}
+      });
+      if (Turndown) {
+        const md = new Turndown({ headingStyle: "atx", codeBlockStyle: "fenced" })
+          .turndown(root.innerHTML).replace(/\n{3,}/g, "\n\n").trim().slice(0, 6000);
+        return title ? `Title: ${title}\n\n${md}` : md;
+      }
+      const text = decodeHtml((root.textContent || "")).replace(/\s+/g, " ").trim().slice(0, 6000);
+      return title ? `Title: ${title}\n\n${text}` : text;
+    } catch {}
+  }
+  if (Turndown) {
+    try {
+      const tMatch = raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+      const title = tMatch ? decodeHtml(tMatch[1]).trim() : "";
+      const md = new Turndown({ headingStyle: "atx", codeBlockStyle: "fenced" })
+        .turndown(raw.replace(/<(script|style|noscript|svg|head)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")).replace(/\n{3,}/g, "\n\n").trim().slice(0, 6000);
+      return title ? `Title: ${title}\n\n${md}` : md;
+    } catch {}
+  }
   const tMatch = raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = tMatch ? decodeHtml(tMatch[1]).trim() : "";
   let text = raw.replace(/<(script|style|noscript|svg|head)\b[^>]*>[\s\S]*?<\/\1>/gi, " ");
@@ -369,12 +415,12 @@ async function safeFetch(url, { maxBytes = MAX_PAGE_BYTES, timeout = 15000, head
 }
 
 async function fetch_url(url) {
-  const { body, contentType } = await safeFetch(url, { maxBytes: MAX_PAGE_BYTES });
+  const { body, contentType, finalUrl } = await safeFetch(url, { maxBytes: MAX_PAGE_BYTES });
   const lower = (contentType || "").toLowerCase();
   const isText = ["text/", "json", "xml"].some(t => lower.includes(t));
   if (!isText) throw new WebError(`unsupported content type: ${contentType || "unknown"}`);
   const raw = body.toString("utf8");
-  if (lower.includes("html") || raw.trimStart().startsWith("<")) return htmlToText(raw);
+  if (lower.includes("html") || raw.trimStart().startsWith("<")) return htmlToText(raw, finalUrl || url);
   return raw.trim();
 }
 
@@ -421,6 +467,26 @@ async function extractMeta(url) {
     return { url, finalUrl, title: null, description: null, image: null, siteName: null, favicon: null, themeColor: null, lang: null, canonical: null, words: 0, isText: false };
   }
   const html = body.toString("utf8");
+  if (JSDOM) {
+    try {
+      const doc = new JSDOM(html, { url: finalUrl || url }).window.document;
+      const meta = (sel) => doc.querySelector(sel)?.getAttribute("content")?.trim() || null;
+      const title = doc.querySelector("title")?.textContent?.trim() || null;
+      const description = meta("meta[name='description']") || meta("meta[property='og:description']") || meta("meta[name='twitter:description']");
+      const ogTitle = meta("meta[property='og:title']");
+      const image = meta("meta[property='og:image']") || meta("meta[name='twitter:image']");
+      const siteName = meta("meta[property='og:site_name']");
+      const themeColor = meta("meta[name='theme-color']");
+      const lang = doc.documentElement?.getAttribute("lang") || null;
+      const canonical = doc.querySelector("link[rel='canonical']")?.getAttribute("href") || null;
+      const generator = meta("meta[name='generator']");
+      let favicon = null;
+      const favHref = doc.querySelector("link[rel='icon'], link[rel='shortcut icon'], link[rel='apple-touch-icon']")?.getAttribute("href");
+      if (favHref) { try { favicon = new URL(favHref, url).href; } catch {} }
+      const words = (doc.body?.textContent || "").trim().split(/\s+/).filter(Boolean).length;
+      return { url, finalUrl, title, ogTitle, description, image, siteName, favicon, themeColor, lang, canonical, generator, words, isText: true };
+    } catch {}
+  }
   const get = (re) => { const m = html.match(re); return m ? m[1].trim() : null; };
   const title = get(/<title[^>]*>([^<]*)<\/title>/i);
   const description =
@@ -625,12 +691,43 @@ async function web_search(query) {
    6 · KILO GATEWAY
    ═══════════════════════════════════════════════════════════════ */
 const KILO_URL = "https://api.kilo.ai/api/gateway/chat/completions";
-const KILO_MODELS = [
-  "meta-llama/llama-3.3-70b-instruct",
-  "mistralai/mistral-nemo",
-  "qwen/qwen-2.5-72b-instruct",
-  "openrouter/free",
+const KILO_MODELS_URL = "https://kilo.ai/api/gateway/models";
+const KILO_MODELS_TTL = 3600000;
+const KILO_FALLBACK = [
+  "stepfun/step-5-preview-free",
+  "kilo-auto/free",
 ];
+const WEB_TOOLS_SCHEMA = [
+  { type: "function", function: { name: "web_search", description: "Search the web.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
+  { type: "function", function: { name: "fetch_url",  description: "Fetch a URL.",   parameters: { type: "object", properties: { url:   { type: "string" } }, required: ["url"] } } },
+];
+
+let kiloModelCache = { ids: KILO_FALLBACK, caps: { "stepfun/step-5-preview-free": 64000, "kilo-auto/free": 32768 }, fetchedAt: 0 };
+function getKiloCap(id) { return kiloModelCache.caps[id] || 32768; }
+async function getKiloFreeModels() {
+  if (Date.now() - kiloModelCache.fetchedAt < KILO_MODELS_TTL && kiloModelCache.ids.length) return kiloModelCache.ids;
+  try {
+    const res = await fetch(KILO_MODELS_URL, { headers: KILO_HEADERS });
+    if (!res.ok) throw new Error(`http ${res.status}`);
+    const json = await res.json();
+    const list = Array.isArray(json) ? json : json.data || json.models || [];
+    const free = list
+      .filter((m) => m?.isFree === true && (!m.supported_parameters || m.supported_parameters.includes("tools")))
+      .sort((a, b) => (a.preferredIndex ?? 99) - (b.preferredIndex ?? 99));
+    const ids = free.map((m) => m.id || m.canonical_slug).filter(Boolean);
+    if (ids.length) {
+      const caps = { ...kiloModelCache.caps };
+      for (const m of free) {
+        const id = m.id || m.canonical_slug;
+        const cap = m.top_provider?.max_completion_tokens || m.max_completion_tokens;
+        if (id && cap) caps[id] = cap;
+      }
+      kiloModelCache = { ids: ids.slice(0, 8), caps, fetchedAt: Date.now() };
+    }
+  } catch (err) { console.error(`[kilo-models] refresh failed: ${err.message}`); }
+  return kiloModelCache.ids;
+}
+const KILO_MODELS = KILO_FALLBACK;
 const KILO_HEADERS = {
   "accept": "application/json",
   "content-type": "application/json",
@@ -638,14 +735,18 @@ const KILO_HEADERS = {
   "referer": "https://api.kilo.ai/",
   "user-agent": WEB_UA,
 };
+setInterval(() => getKiloFreeModels().catch(() => {}), KILO_MODELS_TTL).unref?.();
+getKiloFreeModels().catch(() => {});
 
 class KiloError extends Error {}
 
-async function kiloChat(messages, { tools = null, temperature = 0.7, maxTokens = 1024 } = {}) {
+async function kiloChat(messages, { tools = WEB_TOOLS_SCHEMA, temperature = 0.7, maxTokens = 1024 } = {}) {
   const attempts = [];
-  const safeMax = Math.max(512, Math.min(maxTokens || 1024, 4096));
+  const models = await getKiloFreeModels();
 
-  for (const model of KILO_MODELS) {
+  for (const model of models) {
+    const cap = getKiloCap(model);
+    const safeMax = Math.max(512, Math.min(maxTokens || 1024, cap));
     for (let attempt = 0; attempt < 2; attempt++) {
       const payload = { model, messages, stream: false, temperature, max_tokens: safeMax };
       if (tools) payload.tools = tools;
@@ -659,22 +760,39 @@ async function kiloChat(messages, { tools = null, temperature = 0.7, maxTokens =
       try { data = await res.json(); } catch { attempts.push(`${model}: bad json`); break; }
       const choice = (data.choices || [{}])[0];
       const message = choice.message || {};
+      if (message.tool_calls?.length && tools) {
+        try {
+          const toolResults = [];
+          for (const tc of message.tool_calls.slice(0, 3)) {
+            const name = tc.function?.name;
+            let args = {};
+            try { args = JSON.parse(tc.function?.arguments || "{}"); } catch {}
+            const out = name === "web_search" ? await web_search(args.query)
+              : name === "fetch_url" ? String(await fetch_url(args.url)).slice(0, 4000)
+              : `unknown tool: ${name}`;
+            toolResults.push({ role: "tool", tool_call_id: tc.id, content: String(out).slice(0, 4000) });
+          }
+          const bigMax = Math.min(100000, cap);
+          const follow = await fetch(KILO_URL, { method: "POST", headers: KILO_HEADERS, body: JSON.stringify({ model, messages: [...messages, message, ...toolResults], stream: false, temperature, max_tokens: bigMax }) });
+          if (follow.ok) {
+            const fdata = await follow.json();
+            const fraw = fdata.choices?.[0]?.message?.content || "";
+            const fcontent = cleanModelOutput(fraw.replace(/<think>[\s\S]*?<\/think>/g, ""));
+            if (fcontent && fcontent.length > 2) return { content: fcontent, tool_calls: [] };
+          }
+        } catch (err) { attempts.push(`${model}: tool-exec ${err.message.slice(0, 80)}`); }
+        break;
+      }
       const raw = typeof message.content === "string" ? message.content : "";
       const noThink = raw.replace(/<think>[\s\S]*?<\/think>/g, "");
       const content = cleanModelOutput(noThink);
       if (content && content.length > 2) return { content, tool_calls: message.tool_calls || [] };
-      if (message.tool_calls?.length) break;
       attempts.push(`${model}: empty (finish=${choice.finish_reason})`);
       if (attempt === 0) await new Promise(r => setTimeout(r, 300));
     }
   }
   throw new KiloError(`kilo exhausted — ${attempts.join(" | ")}`);
 }
-
-const WEB_TOOLS_SCHEMA = [
-  { type: "function", function: { name: "web_search", description: "Search the web.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
-  { type: "function", function: { name: "fetch_url",  description: "Fetch a URL.",   parameters: { type: "object", properties: { url:   { type: "string" } }, required: ["url"] } } },
-];
 
 /* ═══════════════════════════════════════════════════════════════
    7 · EXISTING TOOLS
@@ -1210,13 +1328,42 @@ module.exports = {
   cryptoPrice, stockPrice, qr, shorten, serverinfo, userinfo, reminder,
   note_save, note_list, currency, unit, roast, joke, meme, magic8ball, dice, coinflip,
 
-  web_search, fetch_url, safeFetch, htmlToText, validateUrl, isPublicIP, WebError,
+  // SSRF-safe web
+  web_search,
+  fetch_url,
+  safeFetch,
+  htmlToText,
+  validateUrl,
+  isPublicIP,
+  WebError,
 
-  identifySite, extractMeta, extractYouTube, extractTwitter, extractReddit,
-  extractGitHub, extractWikipedia, extractSpotify, extractGeneric,
-  unfurl, site_info, unfurl_url, screenshot, rss, SITE_PROFILES,
+  // site recognition
+  identifySite,
+  extractMeta,
+  extractYouTube,
+  extractTwitter,
+  extractReddit,
+  extractGitHub,
+  extractWikipedia,
+  extractSpotify,
+  extractGeneric,
+  unfurl,
+  site_info,
+  unfurl_url,
+  screenshot,
+  rss,
+  SITE_PROFILES,
 
-  video_to_audio, findVideoInMessage, isVideoAttachment,
+  // video → audio
+  video_to_audio,
+  findVideoInMessage,
+  isVideoAttachment,
 
-  kiloChat, KiloError, KILO_MODELS, WEB_TOOLS_SCHEMA,
+  // kilo
+  kiloChat,
+  KiloError,
+  KILO_MODELS,
+  getKiloFreeModels,
+  getKiloCap,
+  WEB_TOOLS_SCHEMA,
 };
