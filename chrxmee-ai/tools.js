@@ -27,6 +27,54 @@ const pool = new Pool({
 });
 
 /* ═══════════════════════════════════════════════════════════════
+   0 · MODEL OUTPUT CLEANER
+   Strips safety headers + leaked special tokens from free routes
+   ═══════════════════════════════════════════════════════════════ */
+function stripSafety(text) {
+  if (!text || typeof text !== "string") return "";
+  let out = text;
+  for (let i = 0; i < 5; i++) {
+    const before = out;
+    out = out
+      .replace(/^\s*(?:user|response|assistant|content|request|input|output)\s*(?:safety|moderation|eval|guard|filter|rating|classification)\s*[:=]\s*\S+\s*$/gim, "")
+      .replace(/^\s*(?:safety|moderation|classification|rating|guard)\s*[:=]\s*\S+\s*$/gim, "")
+      .replace(/^\s*(?:unsafe|safe)\s*$/gim, "");
+    if (out === before) break;
+  }
+  return out.trim();
+}
+
+function stripSpecialTokens(text) {
+  if (!text || typeof text !== "string") return "";
+  let out = text;
+
+  // 1. <|...|> style tokens (Llama, Qwen, DeepSeek, Mistral)
+  out = out.replace(/<\|[^|>]*\|>/g, "");
+
+  // 2. Tool call section blocks
+  out = out.replace(/<\|tool_calls_section_begin\|>[\s\S]*?<\|tool_calls_section_end\|>/g, "");
+  out = out.replace(/<\|tool_call_begin\|>[\s\S]*?<\|tool_call_end\|>/g, "");
+  out = out.replace(/<\|tool_call_start\|>[\s\S]*?<\|tool_call_end\|>/g, "");
+
+  // 3. Leftover bracketed tool calls: [url_fetch(url='...')], [browse({...})]
+  out = out.replace(/\[\s*(?:functions\.)?\w+\s*\([^)]*\)\s*\]/g, "");
+
+  // 4. "assistant" prefix bleeding at line start
+  out = out.replace(/^\s*assistant\s*$/gim, "");
+
+  // 5. JSON tool-call shape that leaked as text
+  out = out.replace(/\{\s*"?(?:tool|function|name)"?\s*:\s*"[^"]+"\s*,\s*"?(?:arguments|parameters)"?\s*:[\s\S]*?\}/g, "");
+
+  // 6. Clean up
+  out = out.replace(/^\s*\n+/, "").replace(/\n{3,}/g, "\n\n").trim();
+  return out;
+}
+
+function cleanModelOutput(text) {
+  return stripSpecialTokens(stripSafety(text || ""));
+}
+
+/* ═══════════════════════════════════════════════════════════════
    1 · MODELS + AI CALL (Kilo primary → Groq → Navy fallback)
    ═══════════════════════════════════════════════════════════════ */
 const MODELS = {
@@ -65,14 +113,16 @@ async function callAI(modelKey, messages, temperature, maxTokens = 1024) {
   const model = MODELS[modelKey] || MODELS[DEFAULT_MODEL];
   let lastError;
 
+  // 1. Kilo primary
   try {
     const content = await kiloChat(messages, { temperature, maxTokens });
-    if (content?.content) return content.content;
+    if (content?.content && content.content.length > 2) return content.content;
   } catch (err) {
     console.error(`kilo (primary) failed: ${err.message}`);
     lastError = err;
   }
 
+  // 2. Groq / Navy fallback
   for (const provider of model.providers) {
     const apiKey = process.env[provider.keyEnv];
     if (!apiKey) continue;
@@ -92,29 +142,15 @@ async function callAI(modelKey, messages, temperature, maxTokens = 1024) {
         throw new Error(`${provider.name} ${response.status}: ${err.slice(0, 200)}`);
       }
       const data = await response.json();
-      const content = stripSafety(data.choices?.[0]?.message?.content);
-      if (content) return content;
-      throw new Error(`no content from ${provider.name}`);
+      const content = cleanModelOutput(data.choices?.[0]?.message?.content);
+      if (content && content.length > 2) return content;
+      throw new Error(`no usable content from ${provider.name}`);
     } catch (err) {
       console.error(`${provider.name} (fallback) failed: ${err.message}`);
       lastError = err;
     }
   }
   throw new Error(`all providers failed — ${lastError?.message || "unknown"}`);
-}
-
-function stripSafety(text) {
-  if (!text || typeof text !== "string") return "";
-  let out = text;
-  for (let i = 0; i < 5; i++) {
-    const before = out;
-    out = out
-      .replace(/^\s*(?:user|response|assistant|content|request|input|output)\s*(?:safety|moderation|eval|guard|filter|rating|classification)\s*[:=]\s*\S+\s*$/gim, "")
-      .replace(/^\s*(?:safety|moderation|classification|rating|guard)\s*[:=]\s*\S+\s*$/gim, "")
-      .replace(/^\s*(?:unsafe|safe)\s*$/gim, "");
-    if (out === before) break;
-  }
-  return out.replace(/^\s*\n+/, "").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -592,8 +628,8 @@ async function kiloChat(messages, { tools = null, temperature = 0.7, maxTokens =
       const message = choice.message || {};
       const raw = typeof message.content === "string" ? message.content : "";
       const noThink = raw.replace(/<think>[\s\S]*?<\/think>/g, "");
-      const content = stripSafety(noThink);
-      if (content) return { content, tool_calls: message.tool_calls || [] };
+      const content = cleanModelOutput(noThink);
+      if (content && content.length > 2) return { content, tool_calls: message.tool_calls || [] };
       if (message.tool_calls?.length) break;
       attempts.push(`${model}: empty (finish=${choice.finish_reason})`);
       if (attempt === 0) await new Promise(r => setTimeout(r, 300));
@@ -973,16 +1009,13 @@ async function video_to_audio(context) {
 /* ═══════════════════════════════════════════════════════════════
    10 · TOOL DETECTION
    ═══════════════════════════════════════════════════════════════
-   IMPORTANT: URLs are NOT auto-detected here anymore. They flow
-   through messageCreate.js → gatherSmartContext → enrichPrompt so
-   the AI can respond conversationally instead of dumping metadata.
-   Explicit commands (site info, screenshot, preview, fetch, rss)
-   still fire because the user asked for the tool.
+   URLs are NOT auto-detected — they flow through smartCtx so the AI
+   responds conversationally. Explicit commands still fire.
    ═══════════════════════════════════════════════════════════════ */
 function detectTool(content) {
   const text = content.trim().toLowerCase();
 
-  // ─── video → audio ───
+  // video → audio
   if (
     /(convert|turn|change)\s+(this|it|that|the\s+video)\s+(in)?to\s+audio/i.test(text) ||
     /(extract|get|grab|pull)\s+(the\s+)?audio\s+from\s+(this|it|that|the\s+video)/i.test(text) ||
@@ -1045,7 +1078,7 @@ function detectTool(content) {
   if (/^(dice|roll a dice)/.test(text)) return { tool: "dice", args: null };
   if (/^(coinflip|flip a coin)/.test(text)) return { tool: "coinflip", args: null };
 
-  // ─── explicit site commands (user asked for the tool) ───
+  // explicit site commands
   if (/^(site\s*info|url\s*info|check\s*url|check\s*site)\s+(https?:\/\/\S+)/.test(text)) {
     return { tool: "site_info", args: text.match(/^(?:site\s*info|url\s*info|check\s*url|check\s*site)\s+(https?:\/\/\S+)/)[1] };
   }
@@ -1062,14 +1095,10 @@ function detectTool(content) {
     return { tool: "fetch_url", args: text.match(/^(?:fetch|open|read|visit)\s+(https?:\/\/\S+)/)[1].trim() };
   }
 
-  // ─── search ───
+  // search
   if (/^(search|google)\s+(.+)/.test(text)) {
     return { tool: "web_search", args: text.match(/^(?:search|google)\s+(.+)/)[1].trim() };
   }
-
-  // NOTE: bare URLs are NOT detected here on purpose.
-  // messageCreate.js handles URLs through smartCtx so the AI can respond
-  // conversationally instead of dumping raw metadata.
 
   return null;
 }
@@ -1149,6 +1178,8 @@ module.exports = {
   DEFAULT_MODEL,
   callAI,
   stripSafety,
+  stripSpecialTokens,
+  cleanModelOutput,
   summarizeHistory,
   detectMood,
 
