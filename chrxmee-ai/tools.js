@@ -1,6 +1,6 @@
 // ═════════════════════════════════════════════════════════════════
-// tools.js — chromed universal toolbox
-// models · web (SSRF-safe) · site recognition · kilo · video→audio
+// tools.js — chromed universal toolbox (LARP-proof)
+// models · web · site recognition · kilo · video→audio · larp killer
 // ═════════════════════════════════════════════════════════════════
 
 const { Pool } = require("pg");
@@ -35,8 +35,7 @@ const pool = new Pool({
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   0 · MODEL OUTPUT CLEANER
-   Strips safety headers + leaked special tokens from free routes
+   0 · OUTPUT CLEANERS + LARP DETECTOR
    ═══════════════════════════════════════════════════════════════ */
 function stripSafety(text) {
   if (!text || typeof text !== "string") return "";
@@ -55,25 +54,13 @@ function stripSafety(text) {
 function stripSpecialTokens(text) {
   if (!text || typeof text !== "string") return "";
   let out = text;
-
-  // 1. <|...|> style tokens (Llama, Qwen, DeepSeek, Mistral)
   out = out.replace(/<\|[^|>]*\|>/g, "");
-
-  // 2. Tool call section blocks
   out = out.replace(/<\|tool_calls_section_begin\|>[\s\S]*?<\|tool_calls_section_end\|>/g, "");
   out = out.replace(/<\|tool_call_begin\|>[\s\S]*?<\|tool_call_end\|>/g, "");
   out = out.replace(/<\|tool_call_start\|>[\s\S]*?<\|tool_call_end\|>/g, "");
-
-  // 3. Leftover bracketed tool calls: [url_fetch(url='...')], [browse({...})]
   out = out.replace(/\[\s*(?:functions\.)?\w+\s*\([^)]*\)\s*\]/g, "");
-
-  // 4. "assistant" prefix bleeding at line start
   out = out.replace(/^\s*assistant\s*$/gim, "");
-
-  // 5. JSON tool-call shape that leaked as text
   out = out.replace(/\{\s*"?(?:tool|function|name)"?\s*:\s*"[^"]+"\s*,\s*"?(?:arguments|parameters)"?\s*:[\s\S]*?\}/g, "");
-
-  // 6. Clean up
   out = out.replace(/^\s*\n+/, "").replace(/\n{3,}/g, "\n\n").trim();
   return out;
 }
@@ -82,8 +69,56 @@ function cleanModelOutput(text) {
   return stripSpecialTokens(stripSafety(text || ""));
 }
 
+/* ─── LARP detector — catches "i can't browse" lies ─── */
+const LARP_PATTERNS = [
+  /can'?t\s+(?:actually\s+)?vis(?:it|iting)/i,
+  /can'?t\s+(?:actually\s+)?browse/i,
+  /cannot\s+(?:actually\s+)?vis(?:it|iting)/i,
+  /no\s+browser\s+powers/i,
+  /not\s+a\s+browser/i,
+  /text[- ]based\s+gremlin/i,
+  /don'?t\s+have\s+(?:a\s+)?browser/i,
+  /i'?m\s+not\s+able\s+to\s+(?:access|visit|browse)/i,
+  /as\s+an\s+ai[, ]+i\s+can'?t\s+(?:access|visit|browse)/i,
+  /i\s+can'?t\s+access\s+(?:the\s+)?(?:site|website|url|link|page)/i,
+  /i\s+don'?t\s+have\s+access\s+to\s+(?:the\s+)?(?:internet|web|browser)/i,
+  /without\s+(?:the\s+)?(?:ability|browser|access)\s+to\s+(?:browse|visit)/i,
+];
+
+function looksLikeLarp(text) {
+  if (!text || typeof text !== "string") return false;
+  return LARP_PATTERNS.some(re => re.test(text));
+}
+
+function buildUrlFallbackReply(ctx) {
+  const urls = ctx?.urlContents || [];
+  const good = urls.filter(u => !u.failed);
+  const bad = urls.filter(u => u.failed);
+
+  if (good.length === 1) {
+    const u = good[0];
+    return `ight, here's what i pulled from ${u.url}:\n\n${u.content}`;
+  }
+
+  if (good.length > 1) {
+    return good.map(u => `**${u.url}**\n${u.content}`).join("\n\n---\n\n");
+  }
+
+  if (bad.length === 1) {
+    const b = bad[0];
+    const reason = (b.content || "").replace(/^\[fetch failed:\s*/, "").replace(/\]$/, "");
+    return `couldn't reach **${b.url}**\n-# ${reason}\n-# site might be down or blocking bots. try again later.`;
+  }
+
+  if (bad.length > 1) {
+    return `couldn't reach any of those links:\n${bad.map(b => `-# ${b.url}`).join("\n")}`;
+  }
+
+  return "couldn't pull anything from that link twin.";
+}
+
 /* ═══════════════════════════════════════════════════════════════
-   1 · MODELS + AI CALL (Kilo primary → Groq → Navy fallback)
+   1 · MODELS + AI CALL (Kilo → Groq → Navy)
    ═══════════════════════════════════════════════════════════════ */
 const MODELS = {
   genius:    { label: "Genius",    providers: [
@@ -121,7 +156,6 @@ async function callAI(modelKey, messages, temperature, maxTokens = 1024) {
   const model = MODELS[modelKey] || MODELS[DEFAULT_MODEL];
   let lastError;
 
-  // 1. Kilo primary
   try {
     const content = await kiloChat(messages, { temperature, maxTokens });
     if (content?.content && content.content.length > 2) return content.content;
@@ -130,7 +164,6 @@ async function callAI(modelKey, messages, temperature, maxTokens = 1024) {
     lastError = err;
   }
 
-  // 2. Groq / Navy fallback
   for (const provider of model.providers) {
     const apiKey = process.env[provider.keyEnv];
     if (!apiKey) continue;
@@ -392,7 +425,7 @@ async function fetch_url(url) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   4 · SITE RECOGNITION + EXTRACTORS
+   4 · SITE RECOGNITION
    ═══════════════════════════════════════════════════════════════ */
 const SITE_PROFILES = {
   youtube:   { match: /(?:youtube\.com|youtu\.be|m\.youtube\.com)/i,  name: "YouTube",        emoji: "▶️" },
@@ -1126,14 +1159,10 @@ async function video_to_audio(context) {
 
 /* ═══════════════════════════════════════════════════════════════
    10 · TOOL DETECTION
-   ═══════════════════════════════════════════════════════════════
-   URLs are NOT auto-detected — they flow through smartCtx so the AI
-   responds conversationally. Explicit commands still fire.
    ═══════════════════════════════════════════════════════════════ */
 function detectTool(content) {
   const text = content.trim().toLowerCase();
 
-  // video → audio
   if (
     /(convert|turn|change)\s+(this|it|that|the\s+video)\s+(in)?to\s+audio/i.test(text) ||
     /(extract|get|grab|pull)\s+(the\s+)?audio\s+from\s+(this|it|that|the\s+video)/i.test(text) ||
@@ -1143,13 +1172,11 @@ function detectTool(content) {
     return { tool: "video_to_audio", args: null };
   }
 
-  // image gen
   if (/(imagine|generate|create|make|draw)\s+(an?\s+)?(image|pic|picture|art|photo)\s+(of\s+)?(.+)/.test(text)) {
     return { tool: "image", args: text.match(/(imagine|generate|create|make|draw)\s+(an?\s+)?(image|pic|picture|art|photo)\s+(of\s+)?(.+)/)[5] };
   }
   if (/imagine\s+(.+)/.test(text)) return { tool: "image", args: text.match(/imagine\s+(.+)/)[1] };
 
-  // math / weather / time / dictionary / translate
   if (/^(calc|calculate|math)\s+(.+)$/.test(text)) return { tool: "calculator", args: text.match(/^(?:calc|calculate|math)\s+(.+)$/)[1] };
   if (/weather(?:\s+in)?\s+(.+)/.test(text)) return { tool: "weather", args: text.match(/weather(?:\s+in)?\s+(.+)/)[1] };
   if (/time(?:\s+in)?\s+(.+)/.test(text)) return { tool: "time", args: text.match(/time(?:\s+in)?\s+(.+)/)[1] };
@@ -1159,18 +1186,15 @@ function detectTool(content) {
     return { tool: "translate", args: { text: m[1], target: m[2] } };
   }
 
-  // wiki / crypto / stock
   if (/^(wiki|wikipedia)\s+(.+)/.test(text)) return { tool: "wikipedia", args: text.match(/^(?:wiki|wikipedia)\s+(.+)/)[1] };
   if (/(crypto|price of)\s+(.+)/.test(text)) return { tool: "crypto", args: text.match(/(?:crypto|price of)\s+(.+)/)[1] };
   if (/^(stock|stocks)\s+(.+)/.test(text)) return { tool: "stock", args: text.match(/^(?:stock|stocks)\s+(.+)/)[1] };
 
-  // utility
   if (/^qr\s+(.+)/.test(text)) return { tool: "qr", args: text.match(/^qr\s+(.+)/)[1] };
   if (/^shorten\s+(https?:\/\/\S+)/.test(text)) return { tool: "shorten", args: text.match(/^shorten\s+(https?:\/\/\S+)/)[1] };
   if (/server\s*(info|stats)/.test(text)) return { tool: "serverinfo", args: null };
   if (/user\s*info\s*<@!?(\d+)>/.test(text)) return { tool: "userinfo", args: text.match(/<@!?(\d+)>/)[1] };
 
-  // reminders / notes
   if (/remind\s+me\s+to\s+(.+?)\s+in\s+(\d+)\s*(seconds|minutes|hours|days)/i.test(text)) {
     const m = text.match(/remind\s+me\s+to\s+(.+?)\s+in\s+(\d+)\s*(seconds|minutes|hours|days)/i);
     return { tool: "reminder", args: { text: m[1], amount: parseInt(m[2]), unit: m[3] } };
@@ -1178,7 +1202,6 @@ function detectTool(content) {
   if (/note\s+(save|add)\s+(.+)/.test(text)) return { tool: "note_save", args: text.match(/note\s+(?:save|add)\s+(.+)/)[1] };
   if (/note\s+(list|get)\s*/.test(text)) return { tool: "note_list", args: null };
 
-  // currency + unit
   if (/currency\s+convert\s+(\d+)\s+([a-z]{3})\s+to\s+([a-z]{3})/.test(text)) {
     const m = text.match(/currency\s+convert\s+(\d+)\s+([a-z]{3})\s+to\s+([a-z]{3})/);
     return { tool: "currency", args: { amount: m[1], from: m[2], to: m[3] } };
@@ -1188,7 +1211,6 @@ function detectTool(content) {
     return { tool: "unit", args: { value: m[1], from: m[2], to: m[3] } };
   }
 
-  // fun
   if (/^(roast|insult)\s+<@!?(\d+)>/.test(text)) return { tool: "roast", args: text.match(/<@!?(\d+)>/)[1] };
   if (/^(joke|tell me a joke)/.test(text)) return { tool: "joke", args: null };
   if (/^(meme|show me a meme)/.test(text)) return { tool: "meme", args: null };
@@ -1196,7 +1218,6 @@ function detectTool(content) {
   if (/^(dice|roll a dice)/.test(text)) return { tool: "dice", args: null };
   if (/^(coinflip|flip a coin)/.test(text)) return { tool: "coinflip", args: null };
 
-  // explicit site commands
   if (/^(site\s*info|url\s*info|check\s*url|check\s*site)\s+(https?:\/\/\S+)/.test(text)) {
     return { tool: "site_info", args: text.match(/^(?:site\s*info|url\s*info|check\s*url|check\s*site)\s+(https?:\/\/\S+)/)[1] };
   }
@@ -1213,7 +1234,6 @@ function detectTool(content) {
     return { tool: "fetch_url", args: text.match(/^(?:fetch|open|read|visit)\s+(https?:\/\/\S+)/)[1].trim() };
   }
 
-  // search
   if (/^(search|google)\s+(.+)/.test(text)) {
     return { tool: "web_search", args: text.match(/^(?:search|google)\s+(.+)/)[1].trim() };
   }
@@ -1285,27 +1305,25 @@ async function detectMood(text) {
    13 · EXPORTS
    ═══════════════════════════════════════════════════════════════ */
 module.exports = {
-  // connection + DB
   pool,
   ensureTables,
   loadMemory,
   saveMemory,
 
-  // AI
   MODELS,
   DEFAULT_MODEL,
   callAI,
   stripSafety,
   stripSpecialTokens,
   cleanModelOutput,
+  looksLikeLarp,
+  buildUrlFallbackReply,
   summarizeHistory,
   detectMood,
 
-  // tools
   detectTool,
   executeTool,
 
-  // individual tools
   image, calculator, weather, time, dictionary, translate, wikipedia,
   cryptoPrice, stockPrice, qr, shorten, serverinfo, userinfo, reminder,
   note_save, note_list, currency, unit, roast, joke, meme, magic8ball, dice, coinflip,
