@@ -935,24 +935,37 @@ module.exports = {
     await new Promise(resolve => setTimeout(resolve, Math.random() * 200 + 100));
 
     // 5. Tool detection + failure note
-    let toolFailureNote = "";
-    const tool = detectTool(message.content);
-    if (tool) {
-      try {
-        const toolResponse = await executeTool(tool.tool, tool.args, { message, client });
-        if (toolResponse) {
-          if (typeof toolResponse === "string") {
-            return message.reply(toolResponse).catch(() => {});
-          } else if (toolResponse.url) {
-            return message.reply({ files: [{ attachment: toolResponse.url, name: "image.png" }] }).catch(() => {});
-          }
-        }
-      } catch (err) {
-        console.warn("Tool execution failed, falling back to AI:", err.message);
-        toolFailureNote = `\n\n# TOOL FAILURE NOTICE\nThe "${tool.tool}" tool was attempted with args ${JSON.stringify(tool.args).slice(0, 200)} and FAILED with: ${err.message}\nDo NOT make up what the tool would have returned. Tell the user honestly that you couldn't fetch that and why. Do not hallucinate website content.`;
-      }
+let toolFailureNote = "";
+const tool = detectTool(message.content);
+if (tool) {
+  try {
+    const toolResponse = await executeTool(tool.tool, tool.args, { message, client });
+
+    // string reply
+    if (typeof toolResponse === "string") {
+      return message.reply(toolResponse).catch(() => {});
     }
 
+    // url-based image
+    if (toolResponse?.url) {
+      return message.reply({ files: [{ attachment: toolResponse.url, name: toolResponse.name || "image.png" }] }).catch(() => {});
+    }
+
+    // buffer-based file (video→audio, screenshots, etc)
+    if (toolResponse?.type === "audio" && toolResponse.buffer) {
+      return message.reply({
+        content: `🔊 here's your audio — \`${toolResponse.name}\` (${toolResponse.duration_hint})`,
+        files: [{ attachment: toolResponse.buffer, name: toolResponse.name }],
+      }).catch(() => {});
+    }
+    if (toolResponse?.type === "file" && toolResponse.buffer) {
+      return message.reply({ files: [{ attachment: toolResponse.buffer, name: toolResponse.name || "file.bin" }] }).catch(() => {});
+    }
+  } catch (err) {
+    console.warn("Tool execution failed, falling back to AI:", err.message);
+    toolFailureNote = `\n\n# TOOL FAILURE NOTICE\nThe "${tool.tool}" tool was attempted with args ${JSON.stringify(tool.args).slice(0, 200)} and FAILED with: ${err.message}\nDo NOT make up what the tool would have returned. Tell the user honestly that you couldn't fetch that.`;
+  }
+}
     // 6. Wake-up mode & mention handling
     if (guildId) {
       try {
