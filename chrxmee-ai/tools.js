@@ -65,7 +65,6 @@ async function callAI(modelKey, messages, temperature, maxTokens = 1024) {
   const model = MODELS[modelKey] || MODELS[DEFAULT_MODEL];
   let lastError;
 
-  // 1. Kilo primary
   try {
     const content = await kiloChat(messages, { temperature, maxTokens });
     if (content?.content) return content.content;
@@ -74,7 +73,6 @@ async function callAI(modelKey, messages, temperature, maxTokens = 1024) {
     lastError = err;
   }
 
-  // 2. Groq / Navy fallback
   for (const provider of model.providers) {
     const apiKey = process.env[provider.keyEnv];
     if (!apiKey) continue;
@@ -973,7 +971,13 @@ async function video_to_audio(context) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   10 · TOOL DETECTION (URLs anywhere — fixed)
+   10 · TOOL DETECTION
+   ═══════════════════════════════════════════════════════════════
+   IMPORTANT: URLs are NOT auto-detected here anymore. They flow
+   through messageCreate.js → gatherSmartContext → enrichPrompt so
+   the AI can respond conversationally instead of dumping metadata.
+   Explicit commands (site info, screenshot, preview, fetch, rss)
+   still fire because the user asked for the tool.
    ═══════════════════════════════════════════════════════════════ */
 function detectTool(content) {
   const text = content.trim().toLowerCase();
@@ -1041,7 +1045,7 @@ function detectTool(content) {
   if (/^(dice|roll a dice)/.test(text)) return { tool: "dice", args: null };
   if (/^(coinflip|flip a coin)/.test(text)) return { tool: "coinflip", args: null };
 
-  // explicit site-aware commands
+  // ─── explicit site commands (user asked for the tool) ───
   if (/^(site\s*info|url\s*info|check\s*url|check\s*site)\s+(https?:\/\/\S+)/.test(text)) {
     return { tool: "site_info", args: text.match(/^(?:site\s*info|url\s*info|check\s*url|check\s*site)\s+(https?:\/\/\S+)/)[1] };
   }
@@ -1054,23 +1058,18 @@ function detectTool(content) {
   if (/^(rss|feed)\s+(https?:\/\/\S+)/.test(text)) {
     return { tool: "rss", args: text.match(/^(?:rss|feed)\s+(https?:\/\/\S+)/)[1] };
   }
-
-  // explicit fetch
   if (/^(fetch|open|read|visit)\s+(https?:\/\/\S+)/.test(text)) {
     return { tool: "fetch_url", args: text.match(/^(?:fetch|open|read|visit)\s+(https?:\/\/\S+)/)[1].trim() };
   }
 
-  // ─── URL ANYWHERE in the message → smart unfurl ───
-  // this is the fix — no anchors, uses original `content` for correct casing
-  const urlAnywhere = content.match(/https?:\/\/[^\s<>"'`]+/i);
-  if (urlAnywhere) {
-    return { tool: "unfurl_url", args: urlAnywhere[0] };
-  }
-
-  // ─── explicit search (after URL detection so "search https://x" still works right) ───
+  // ─── search ───
   if (/^(search|google)\s+(.+)/.test(text)) {
     return { tool: "web_search", args: text.match(/^(?:search|google)\s+(.+)/)[1].trim() };
   }
+
+  // NOTE: bare URLs are NOT detected here on purpose.
+  // messageCreate.js handles URLs through smartCtx so the AI can respond
+  // conversationally instead of dumping raw metadata.
 
   return null;
 }
