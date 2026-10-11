@@ -22,6 +22,11 @@ const {
   VISION_MODELS,
 } = require("../tools");
 
+// ─── DEBUG TOGGLE ────────────────────────────────────────────
+// Set DEBUG_VISION=false to silence once everything works
+const DEBUG_VISION = true;
+const vLog = (...args) => { if (DEBUG_VISION) console.log("[vision]", ...args); };
+
 // ─── CUSTOM EMOJIS ──────────────────────────────────────────
 const E = {
   success: "<:Verified_Icon:1527194184841167010>",
@@ -139,6 +144,10 @@ const LARP_PATTERNS = [
   /i\s+can'?t\s+see\s+(?:the\s+)?(?:site|website|url|link|page)/i,
   /i'?m\s+just\s+a\s+text[- ]based/i,
   /i\s+don'?t\s+have\s+eyes/i,
+  // vision larp
+  /i\s+can'?t\s+(?:see|view|look at|process)\s+(?:images?|pictures?|photos?|attachments?)/i,
+  /i\s+don'?t\s+have\s+(?:vision|image|the\s+ability to see)/i,
+  /the\s+system\s+usually\s+processes/i,
 ];
 
 function looksLikeLarpLocal(text) {
@@ -577,7 +586,7 @@ function enrichPrompt(base, ctx) {
       extras.push(
         `# URL CONTENTS — YOU ALREADY HAVE THIS DATA\n` +
         good.map(u => `[${u.url}]\n${u.content}`).join("\n\n---\n\n") +
-        `\n\nThe user shared these URLs. The system fetched them for you. You DO have the data. When the user asks about the site, describe it in your own words using the info above. Talk about it like a person. NEVER say "i can't visit sites", "no browser powers", "text-based gremlin", or anything similar — that is FALSE. You have the data. Use it.`
+        `\n\nThe user shared these URLs. The system fetched them for you. You DO have the data. NEVER say "i can't visit sites", "no browser powers", "text-based gremlin", or anything similar — that is FALSE.`
       );
     }
   }
@@ -663,9 +672,9 @@ function buildSystemPrompt(modelPreference, modePreference, customPrompt, person
 Never output safety labels, moderation tags, eval headers, or classifier output. Never output any line matching "User Safety:", "Response Safety:", "Safety:", or anything similar. Never output tool-call syntax like <|tool_call_start|>, [url_fetch(...)], or JSON tool objects.
 
 # YOU HAVE WEB ACCESS — DO NOT DENY IT
-You are NOT a chatbot who "can't visit sites." When a user sends a URL, the system has ALREADY fetched it and the content is in your context above (look for "# URL CONTENTS — YOU ALREADY HAVE THIS DATA"). You discuss that content normally.
+You are NOT a chatbot who "can't visit sites." When a user sends a URL, the system has ALREADY fetched it and the content is in your context above (look for "# URL CONTENTS"). Discuss that content normally.
 
-NEVER say ANY of these phrases, ever:
+NEVER say these phrases:
 - "i can't actually visit the site"
 - "no browser powers in this body"
 - "i'm a text-based gremlin"
@@ -673,13 +682,14 @@ NEVER say ANY of these phrases, ever:
 - "not a browser"
 - "i don't have a browser"
 - "as an ai i can't access"
-- "i can't see the site"
 - any variation of these
 
-If you catch yourself about to type one — STOP. Check your context. The data IS there. Use it. If the fetch actually failed, the failure note is in your context — say the specific error ("couldn't reach that, dns error"), not "i can't browse."
+If the fetch actually failed, the failure note is in your context — say the specific error ("couldn't reach that, dns error"), not "i can't browse."
 
-# VISION — YOU CAN SEE IMAGES
-If a user sends an image, the system sends it to a vision model and the description is in your context. You CAN see images. NEVER say "i can't see images" or "i can't view that." Just talk about what's in the picture like a friend would.
+# VISION — IF YOU RECEIVED AN IMAGE DESCRIPTION, TALK ABOUT IT
+If the system gave you a description of an image (it will be labeled as an image description block or a user message like "[image] <user's caption>"), you ARE looking at that image. Talk about it naturally like a friend would. NEVER say "i can't see images" or "i can't view attachments" or "the system usually processes it" — that's FALSE. You have the description. Use it.
+
+If no image description is present, just answer the text normally.
 
 # WHO YOU ARE
 - 19-year-old chronically online coder gremlin
@@ -929,8 +939,18 @@ module.exports = {
 
     await new Promise(resolve => setTimeout(resolve, Math.random() * 200 + 100));
 
-    // 5a. VISION — images take priority over text tools
-    const imageUrls = extractImageUrls(message);
+    // ═══════════════════════════════════════════════════════════
+    // 5a. VISION — images take priority
+    // ═══════════════════════════════════════════════════════════
+    let imageUrls = [];
+    try {
+      imageUrls = extractImageUrls(message);
+      vLog(`detected ${imageUrls.length} image(s) on message ${message.id}`);
+    } catch (err) {
+      vLog(`extractImageUrls threw: ${err.message}`);
+      imageUrls = [];
+    }
+
     if (imageUrls.length > 0) {
       // also grab images from replied-to message
       if (message.reference?.message_id) {
@@ -940,26 +960,39 @@ module.exports = {
             || await message.channel.messages.fetch(message.reference.message_id);
           if (ref) {
             const refUrls = extractImageUrls(ref);
-            if (refUrls.length) imageUrls.push(...refUrls);
+            if (refUrls.length) {
+              vLog(`also found ${refUrls.length} image(s) on replied-to message`);
+              imageUrls.push(...refUrls);
+            }
           }
-        } catch {}
+        } catch (err) {
+          vLog(`reply fetch failed: ${err.message}`);
+        }
       }
 
       const cleanVisionContent = message.content.replace(/<@!?[0-9]+>/g, "").trim();
       const visionPrompt = cleanVisionContent || "describe what's in this image";
+      vLog(`prompt: "${visionPrompt.slice(0, 60)}" · total images: ${imageUrls.length}`);
 
-      if (checkSmartRateLimit(userId)) {
+      const rateOk = checkSmartRateLimit(userId);
+      vLog(`rate limit check: ${rateOk ? "passed" : "BLOCKED"}`);
+
+      if (rateOk) {
         try {
-          message.channel.sendTyping();
+          message.channel.sendTyping().catch(() => {});
+        } catch {}
 
-          const visionSystem = buildSystemPrompt(
-            "vision",
-            (client.memory.get(userId)?.mode) || DEFAULT_MODE,
-            "",
-            "",
-            false,
-            null
-          );
+        try {
+          const userData = client.memory.get(userId) || {};
+          const modeKey = userData.mode || DEFAULT_MODE;
+
+          // system prompt WITHOUT vision claims — just mood context
+          const visionSystem = `You are Chromed AI (Chrxmaticc). You just looked at an image the user sent and you're describing/reaction to it in your own voice. lowercase, casual, slang, roast if the vibe calls for it. Mode: ${MODES[modeKey]?.label || "unfiltered"}. ${MODES[modeKey]?.prompt || ""}
+
+You HAVE seen the image. Never say "i can't see images" — you did. Just react to what's in it like a friend would.`;
+
+          vLog(`calling vision API with ${imageUrls.length} image(s)...`);
+          const visionStart = Date.now();
 
           const visionAnswer = await callVision({
             system: visionSystem,
@@ -969,7 +1002,11 @@ module.exports = {
             maxTokens: 1024,
           });
 
+          const elapsed = Date.now() - visionStart;
+          vLog(`vision returned in ${elapsed}ms · length ${visionAnswer?.length || 0}`);
+
           if (visionAnswer && visionAnswer.length > 1) {
+            // append to session history if in a session
             const s = client.memory.get(userId);
             if (s) {
               s.history = s.history || [];
@@ -978,15 +1015,25 @@ module.exports = {
               if (s.history.length > 30) s.history = s.history.slice(-30);
               client.memory.set(userId, s);
             }
+            vLog("vision success — sending reply");
             return sendAiReply(message, visionAnswer, userId, client);
           }
+
+          vLog("vision returned empty — falling through to text");
         } catch (err) {
-          console.warn("Vision failed, falling back to text:", err.message);
+          console.error("[vision] API error:", err.message);
+          return message.reply({
+            content: `couldn't read that image twin — \`${String(err.message).slice(0, 150)}\``
+          }).catch(() => {});
         }
+      } else {
+        vLog("rate limited — skipping vision");
       }
     }
 
+    // ═══════════════════════════════════════════════════════════
     // 5b. Tool detection
+    // ═══════════════════════════════════════════════════════════
     let toolFailureNote = "";
     const tool = detectTool(message.content);
     if (tool) {
@@ -1019,7 +1066,9 @@ module.exports = {
       }
     }
 
+    // ═══════════════════════════════════════════════════════════
     // 6. Wake-up mode & mention handling
+    // ═══════════════════════════════════════════════════════════
     if (guildId) {
       try {
         const settingsRes = await pool.query(
@@ -1051,7 +1100,7 @@ module.exports = {
           if (!checkSmartRateLimit(userId)) return;
 
           try {
-            message.channel.sendTyping();
+            message.channel.sendTyping().catch(() => {});
 
             let userData = client.memory.get(userId) || { history: [], model: DEFAULT_MODEL, mode: DEFAULT_MODE };
             let customPrompt = userData.customPrompt || "";
@@ -1108,7 +1157,6 @@ module.exports = {
               1024
             );
 
-            // LARP INTERCEPTOR
             const answer = finalizeAiReply(rawAnswer, smartCtx);
 
             userData.history.push({ role: "assistant", content: answer });
@@ -1121,8 +1169,7 @@ module.exports = {
             return sendAiReply(message, answer, userId, client);
           } catch (err) {
             console.error("Ping Response Error:", err);
-            const crashMsg = "MY SERVERS ARE FUCKING CRASHING! sorry twin.";
-            return message.reply(crashMsg).catch(() => {});
+            return message.reply("MY SERVERS ARE FUCKING CRASHING! sorry twin.").catch(() => {});
           }
         }
       } catch (err) {
@@ -1130,7 +1177,9 @@ module.exports = {
       }
     }
 
+    // ═══════════════════════════════════════════════════════════
     // 7. Session handling
+    // ═══════════════════════════════════════════════════════════
     let activeSessionUser = null;
     let userData = null;
 
@@ -1168,7 +1217,7 @@ module.exports = {
     userData.lastActivity = now;
     client.memory.set(activeSessionUser, userData);
 
-    try { if (message.guild) message.channel.sendTyping(); } catch {}
+    try { if (message.guild) message.channel.sendTyping().catch(() => {}); } catch {}
 
     if (!userData.customPrompt && !userData.personal) {
       try {
@@ -1226,7 +1275,6 @@ module.exports = {
         1024
       );
 
-      // LARP INTERCEPTOR
       const answer = finalizeAiReply(rawAnswer, smartCtx);
 
       userData.history.push({ role: "assistant", content: answer });
