@@ -4,9 +4,19 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("
 const { handleKeywords } = require("../commands/keyword-responder");
 const { handleMessage: handleUwuify } = require("../commands/uwuify");
 const {
-  detectTool, executeTool, fetch_url, unfurl,
-  looksLikeLarp, buildUrlFallbackReply,
-  getKiloFreeModels, getKiloCap, WEB_TOOLS_SCHEMA,
+  detectTool,
+  executeTool,
+  fetch_url,
+  unfurl,
+  looksLikeLarp,
+  buildUrlFallbackReply,
+  WEB_TOOLS_SCHEMA,
+  cleanModelOutput,
+  kiloChat,
+  KiloError,
+  KILO_MODELS,
+  getKiloFreeModels,
+  getKiloCap,
 } = require("../tools");
 
 
