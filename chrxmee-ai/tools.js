@@ -1,6 +1,6 @@
 // ═════════════════════════════════════════════════════════════════
-// tools.js — chromed universal toolbox (LARP-proof)
-// models · web · site recognition · kilo · video→audio · larp killer
+// tools.js — chromed universal toolbox
+// models · web · site recognition · kilo · video→audio · vision · larp
 // ═════════════════════════════════════════════════════════════════
 
 const { Pool } = require("pg");
@@ -69,7 +69,6 @@ function cleanModelOutput(text) {
   return stripSpecialTokens(stripSafety(text || ""));
 }
 
-/* ─── LARP detector — catches "i can't browse" lies ─── */
 const LARP_PATTERNS = [
   /can'?t\s+(?:actually\s+)?vis(?:it|iting)/i,
   /can'?t\s+(?:actually\s+)?browse/i,
@@ -142,8 +141,8 @@ const MODELS = {
     { name: "navy", id: "gpt-4.1-mini",       url: "https://api.navy/v1/chat/completions",            keyEnv: "NAVY_API_KEY" },
   ]},
   vision:    { label: "Vision",    providers: [
-    { name: "groq", id: "qwen/qwen3.6-27b",   url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
-    { name: "navy", id: "gpt-4.1",            url: "https://api.navy/v1/chat/completions",            keyEnv: "NAVY_API_KEY" },
+    { name: "groq", id: "meta-llama/llama-4-scout-17b-16e-instruct", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+    { name: "navy", id: "gpt-4.1",                                    url: "https://api.navy/v1/chat/completions",            keyEnv: "NAVY_API_KEY" },
   ]},
   agent:     { label: "Agent",     providers: [
     { name: "groq", id: "openai/gpt-oss-120b", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
@@ -192,6 +191,74 @@ async function callAI(modelKey, messages, temperature, maxTokens = 1024) {
     }
   }
   throw new Error(`all providers failed — ${lastError?.message || "unknown"}`);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   1b · VISION — image understanding
+   ═══════════════════════════════════════════════════════════════ */
+const VISION_MODELS = [
+  { name: "groq", id: "meta-llama/llama-4-scout-17b-16e-instruct",
+    url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+  { name: "navy", id: "gpt-4.1",
+    url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
+];
+
+async function callVision({ system, text, imageUrls, temperature = 0.7, maxTokens = 1024 }) {
+  if (!imageUrls?.length) throw new Error("callVision: no images provided");
+
+  const userContent = [];
+  if (text) userContent.push({ type: "text", text });
+  for (const url of imageUrls.slice(0, 4)) {
+    userContent.push({ type: "image_url", image_url: { url } });
+  }
+
+  const messages = [
+    ...(system ? [{ role: "system", content: system }] : []),
+    { role: "user", content: userContent },
+  ];
+
+  let lastError;
+  for (const provider of VISION_MODELS) {
+    const apiKey = process.env[provider.keyEnv];
+    if (!apiKey) continue;
+    try {
+      const res = await fetch(provider.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: provider.id,
+          messages,
+          temperature,
+          max_tokens: Math.max(256, maxTokens),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`${provider.name} vision ${res.status}: ${err.slice(0, 200)}`);
+      }
+      const data = await res.json();
+      const content = cleanModelOutput(data.choices?.[0]?.message?.content);
+      if (content && content.length > 1) return content;
+      throw new Error(`empty content from ${provider.name} vision`);
+    } catch (err) {
+      console.error(`${provider.name} vision failed: ${err.message}`);
+      lastError = err;
+    }
+  }
+  throw new Error(`all vision providers failed — ${lastError?.message || "unknown"}`);
+}
+
+function extractImageUrls(message) {
+  const urls = [];
+  if (!message?.attachments?.size) return urls;
+  for (const att of message.attachments.values()) {
+    const ct = (att.contentType || "").toLowerCase();
+    const name = (att.name || "").toLowerCase();
+    if (ct.startsWith("image/") || /\.(png|jpg|jpeg|webp|gif)$/i.test(name)) {
+      urls.push(att.url);
+    }
+  }
+  return urls;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1320,6 +1387,11 @@ module.exports = {
   buildUrlFallbackReply,
   summarizeHistory,
   detectMood,
+
+  // VISION — new
+  VISION_MODELS,
+  callVision,
+  extractImageUrls,
 
   detectTool,
   executeTool,
