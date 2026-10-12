@@ -247,6 +247,10 @@ client.once("ready", async () => {
       }
     }, 30_000);
 
+    require("./cogs/backup").scheduler.startScheduler(client);
+
+    
+
         // ─── AUTO-REGISTER SLASH COMMANDS ─────────────
         const { REST, Routes } = require("discord.js");
     const fs = require("fs");
