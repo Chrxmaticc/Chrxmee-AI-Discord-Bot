@@ -997,7 +997,7 @@ You HAVE seen the image. Never say "i can't see images" — you did. Just react 
           const visionAnswer = await callVision({
             system: visionSystem,
             text: visionPrompt,
-            imageUrls: imageUrls.slice(0, 4),
+            imageUrls: imageUrls.slice(0, 3),
             temperature: 0.75,
             maxTokens: 1024,
           });
