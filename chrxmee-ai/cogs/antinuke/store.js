@@ -10,28 +10,29 @@ const {
 } = require("./constants");
 
 /* ═══════════════════════════════════════════════════════════════
-   SETTINGS
+   SETTINGS — READ
    ═══════════════════════════════════════════════════════════════ */
 async function getSettings(pool, guildId) {
   const { rows } = await pool.query(
     `SELECT enabled, mode, punishment, settings FROM antinuke_settings WHERE guild_id = $1`,
     [guildId]
   );
+
   if (!rows[0]) {
-    // synthesize defaults for guilds that haven't been configured
-    const defaults = defaultSettings();
     return {
       guildId,
       enabled: false,
       mode: "normal",
       punishment: "strip_kick",
-      settings: defaults,
+      settings: defaultSettings(),
       exists: false,
     };
   }
+
   const r = rows[0];
   const merged = { ...defaultSettings(), ...(r.settings || {}) };
-  // deep-merge nested objects
+
+  // deep-merge nested objects with defaults
   merged.thresholds = { ...DEFAULT_THRESHOLDS, ...(merged.thresholds || {}) };
   merged.windows    = { ...DEFAULT_WINDOWS,    ...(merged.windows    || {}) };
   merged.longWindow = { ...DEFAULT_LONG_WINDOW, ...(merged.longWindow || {}) };
@@ -45,37 +46,90 @@ async function getSettings(pool, guildId) {
 
   return {
     guildId,
-    enabled: r.enabled,
-    mode: r.mode,
-    punishment: r.punishment,
+    enabled: !!r.enabled,
+    mode: r.mode || "normal",
+    punishment: r.punishment || "strip_kick",
     settings: merged,
     exists: true,
   };
 }
 
-async function saveSettings(pool, guildId, { enabled, mode, punishment, settings }) {
+/* ═══════════════════════════════════════════════════════════════
+   SETTINGS — WRITE (bulletproof, never inserts null)
+   ═══════════════════════════════════════════════════════════════ */
+async function saveSettings(pool, guildId, partial = {}) {
+  // 1. read current
+  const current = await getSettings(pool, guildId);
+
+  // 2. merge — new wins, otherwise current
+  const merged = {
+    enabled:    partial.enabled    ?? current.enabled,
+    mode:       partial.mode       ?? current.mode,
+    punishment: partial.punishment ?? current.punishment,
+    settings:   partial.settings   ?? current.settings,
+  };
+
+  // 3. defensive: settings must be a plain object
+  if (!merged.settings || typeof merged.settings !== "object" || Array.isArray(merged.settings)) {
+    merged.settings = defaultSettings();
+  }
+
+  // 4. serialize safely
+  let settingsJson;
+  try {
+    settingsJson = JSON.stringify(merged.settings);
+  } catch {
+    settingsJson = JSON.stringify(defaultSettings());
+  }
+  if (!settingsJson || settingsJson === "null" || settingsJson === "undefined") {
+    settingsJson = JSON.stringify(defaultSettings());
+  }
+
+  // 5. full row write
   await pool.query(
     `INSERT INTO antinuke_settings (guild_id, enabled, mode, punishment, settings, updated_at)
      VALUES ($1, $2, $3, $4, $5, NOW())
      ON CONFLICT (guild_id) DO UPDATE SET
-       enabled    = COALESCE($2, antinuke_settings.enabled),
-       mode       = COALESCE($3, antinuke_settings.mode),
-       punishment = COALESCE($4, antinuke_settings.punishment),
-       settings   = COALESCE($5, antinuke_settings.settings),
+       enabled    = $2,
+       mode       = $3,
+       punishment = $4,
+       settings   = $5,
        updated_at = NOW()`,
-    [guildId, enabled ?? null, mode ?? null, punishment ?? null, settings ? JSON.stringify(settings) : null]
+    [
+      guildId,
+      merged.enabled ? true : false,
+      String(merged.mode || "normal"),
+      String(merged.punishment || "strip_kick"),
+      settingsJson,
+    ]
   );
 }
 
 async function ensureSettingsRow(pool, guildId) {
   const cfg = await getSettings(pool, guildId);
-  if (!cfg.exists) {
-    await saveSettings(pool, guildId, {
-      enabled: false, mode: "normal", punishment: "strip_kick",
-      settings: defaultSettings(),
-    });
-  }
-  return cfg;
+  if (cfg.exists) return cfg;
+
+  const fresh = {
+    enabled: false,
+    mode: "normal",
+    punishment: "strip_kick",
+    settings: defaultSettings(),
+  };
+
+  await pool.query(
+    `INSERT INTO antinuke_settings (guild_id, enabled, mode, punishment, settings, updated_at)
+     VALUES ($1, $2, $3, $4, $5, NOW())
+     ON CONFLICT (guild_id) DO NOTHING`,
+    [
+      guildId,
+      fresh.enabled,
+      fresh.mode,
+      fresh.punishment,
+      JSON.stringify(fresh.settings),
+    ]
+  );
+
+  return { guildId, ...fresh, exists: true };
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -137,10 +191,16 @@ async function logEvent(pool, entry) {
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      RETURNING id`,
     [
-      entry.guildId, entry.executorId, entry.action,
-      entry.count, entry.threshold, entry.windowMs,
-      entry.punished || false, entry.punishment || null,
-      entry.escalated || false, entry.snapshotId || null,
+      entry.guildId,
+      entry.executorId || null,
+      entry.action,
+      entry.count ?? 0,
+      entry.threshold ?? 0,
+      entry.windowMs ?? 0,
+      entry.punished || false,
+      entry.punishment || null,
+      entry.escalated || false,
+      entry.snapshotId || null,
       entry.detail || null,
     ]
   );
@@ -177,7 +237,7 @@ async function trustAdd(pool, guildId, trustedGuild, shareBans, acceptBans, adde
      VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT (guild_id, trusted_guild) DO UPDATE SET
        share_bans = $3, accept_bans = $4`,
-    [guildId, trustedGuild, shareBans, acceptBans, addedBy]
+    [guildId, trustedGuild, !!shareBans, !!acceptBans, addedBy]
   );
 }
 
@@ -198,7 +258,6 @@ async function trustList(pool, guildId) {
   return rows;
 }
 
-// guilds this one SHARES bans with (their accept_bans = true)
 async function getTrustedReceivers(pool, guildId) {
   const { rows } = await pool.query(
     `SELECT trusted_guild FROM antinuke_trust
@@ -208,7 +267,6 @@ async function getTrustedReceivers(pool, guildId) {
   return rows.map((r) => r.trusted_guild);
 }
 
-// guilds this one ACCEPTS bans from
 async function getTrustedSources(pool, guildId) {
   const { rows } = await pool.query(
     `SELECT trusted_guild FROM antinuke_trust
@@ -238,16 +296,16 @@ async function isNetworkBanned(pool, userId, fromGuilds) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   BASELINE LEARNING
+   BASELINE
    ═══════════════════════════════════════════════════════════════ */
 async function baselineBump(pool, guildId, action) {
   await pool.query(
     `INSERT INTO antinuke_baseline (guild_id, action, sample_count, total_actions, peak_per_min)
      VALUES ($1, $2, 1, 1, 1)
      ON CONFLICT (guild_id, action) DO UPDATE SET
-       sample_count  = antinuke_baseline.sample_count + 1,
-       total_actions = antinuke_baseline.total_actions + 1,
-       avg_per_min   = (antinuke_baseline.total_actions + 1)::numeric / (antinuke_baseline.sample_count + 1),
+       sample_count   = antinuke_baseline.sample_count + 1,
+       total_actions  = antinuke_baseline.total_actions + 1,
+       avg_per_min    = (antinuke_baseline.total_actions + 1)::numeric / (antinuke_baseline.sample_count + 1),
        last_sample_at = NOW()`,
     [guildId, action]
   );
@@ -272,15 +330,20 @@ async function baselineAll(pool, guildId) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   PENDING ACTIONS (queue for serialization)
+   PENDING QUEUE
    ═══════════════════════════════════════════════════════════════ */
 async function pendingEnqueue(pool, entry) {
   const { rows } = await pool.query(
     `INSERT INTO antinuke_pending (guild_id, channel_id, executor_id, action, payload, reason)
      VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-    [entry.guildId, entry.channelId || null, entry.executorId || null,
-     entry.action, entry.payload ? JSON.stringify(entry.payload) : null,
-     entry.reason || null]
+    [
+      entry.guildId,
+      entry.channelId || null,
+      entry.executorId || null,
+      entry.action,
+      entry.payload ? JSON.stringify(entry.payload) : null,
+      entry.reason || null,
+    ]
   );
   return rows[0].id;
 }
@@ -311,7 +374,7 @@ async function lockdownSet(pool, guildId, { active, reason, startedBy, expiresAt
      ON CONFLICT (guild_id) DO UPDATE SET
        active = $2, reason = $3, started_by = $4,
        started_at = NOW(), expires_at = to_timestamp($5 / 1000.0)`,
-    [guildId, active, reason || null, startedBy || null, expiresAt]
+    [guildId, !!active, reason || null, startedBy || null, expiresAt]
   );
 }
 
