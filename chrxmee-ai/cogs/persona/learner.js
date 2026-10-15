@@ -2,19 +2,29 @@
 // ingests messages → extracts style profiles via LLM → saves.
 
 const { DEFAULTS, emptyProfile, confidenceFromSamples } = require("./constants");
-const store = require("./store");
+const store   = require("./store");
 const blocked = require("./blocked");
 
-// queue for batched re-extraction — guild → Set of scopes that need refresh
-const PENDING_SERVER = new Set();       // guildIds
-const PENDING_USER   = new Map();       // `${userId}:${guildId}` → { userId, guildId }
+/* ═══════════════════════════════════════════════════════════════
+   DEBUG TOGGLE
+   ═══════════════════════════════════════════════════════════════ */
+const DEBUG = true;
+const log = (...a) => { if (DEBUG) console.log("[persona/learner]", ...a); };
+const warn = (...a) => console.warn("[persona/learner]", ...a);
+const err  = (...a) => console.error("[persona/learner]", ...a);
+
+/* ═══════════════════════════════════════════════════════════════
+   STATE
+   ═══════════════════════════════════════════════════════════════ */
+const PENDING_SERVER = new Set();
+const PENDING_USER   = new Map();
 
 const FLUSH_INTERVAL_MS = 30_000;
 let flushTimer = null;
 let clientRef = null;
 
 /* ═══════════════════════════════════════════════════════════════
-   INGEST — called from messageCreate handler
+   INGEST
    ═══════════════════════════════════════════════════════════════ */
 async function ingestMessage(client, message) {
   if (!message.guild) return;
@@ -27,13 +37,22 @@ async function ingestMessage(client, message) {
   const pool    = client.pool;
 
   // skip blocked content
-  const chk = await blocked.shouldSkipLearning(pool, guildId, message.content);
-  if (chk.skip) return;
+  let chk;
+  try {
+    chk = await blocked.shouldSkipLearning(pool, guildId, message.content);
+  } catch (e) {
+    warn(`shouldSkipLearning threw: ${e.message}`);
+    return;
+  }
+  if (chk.skip) {
+    log(`skip (${chk.reason}) guild=${guildId}`);
+    return;
+  }
 
-  // ── SERVER PERSONA ──
-  const serverCfg = await store.getServerSettings(pool, guildId);
-  if (serverCfg.enabled && serverCfg.channels.includes(message.channelId)) {
-    if (!(serverCfg.ignoreBots && message.author.bot)) {
+  // ── SERVER ──
+  try {
+    const cfg = await store.getServerSettings(pool, guildId);
+    if (cfg.enabled && cfg.channels.includes(message.channelId)) {
       await store.addServerMessage(pool, {
         guildId,
         channelId: message.channelId,
@@ -42,118 +61,178 @@ async function ingestMessage(client, message) {
       });
       PENDING_SERVER.add(guildId);
       await store.serverCorpusPrune(pool, guildId, DEFAULTS.corpusMaxPerChannel);
+      log(`+1 server msg guild=${guildId} ch=${message.channelId}`);
     }
+  } catch (e) {
+    err(`server ingest failed: ${e.message}`);
   }
 
-  // ── USER PERSONA ──
-  const opt = await store.userIsOptedIn(pool, userId, guildId);
-  if (opt.optedIn) {
-    await store.addUserMessage(pool, {
-      userId,
-      guildId,
-      channelId: message.channelId,
-      content: message.content,
-    });
-    PENDING_USER.set(`${userId}:${guildId}`, { userId, guildId });
-    await store.userCorpusPrune(pool, userId, guildId, DEFAULTS.userMaxCorpus);
+  // ── USER ──
+  try {
+    const opt = await store.userIsOptedIn(pool, userId, guildId);
+    if (opt.optedIn) {
+      await store.addUserMessage(pool, {
+        userId,
+        guildId,
+        channelId: message.channelId,
+        content: message.content,
+      });
+      PENDING_USER.set(`${userId}:${guildId}`, { userId, guildId });
+      await store.userCorpusPrune(pool, userId, guildId, DEFAULTS.userMaxCorpus);
+      log(`+1 user msg ${userId} in ${guildId}`);
+    }
+  } catch (e) {
+    err(`user ingest failed: ${e.message}`);
   }
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   FLUSH — periodically re-extract profiles
+   FLUSH LOOP
    ═══════════════════════════════════════════════════════════════ */
 function startFlushLoop(client) {
   clientRef = client;
-  flushTimer = setInterval(() => flushAll().catch(() => {}), FLUSH_INTERVAL_MS);
+  log("flush loop started (30s interval)");
+  flushTimer = setInterval(() => {
+    flushAll().catch((e) => err(`flushAll threw: ${e.message}`));
+  }, FLUSH_INTERVAL_MS);
   flushTimer.unref?.();
+
+  // run once shortly after boot to catch anything queued
+  setTimeout(() => flushAll().catch(() => {}), 5_000);
+}
+
+function stopFlushLoop() {
+  if (flushTimer) clearInterval(flushTimer);
+  flushTimer = null;
 }
 
 async function flushAll() {
   if (!clientRef) return;
   const pool = clientRef.pool;
 
-  // SERVER
   const guilds = [...PENDING_SERVER];
   PENDING_SERVER.clear();
+  log(`flush: ${guilds.length} server(s), ${PENDING_USER.size} user(s)`);
+
   for (const guildId of guilds) {
-    try { await refreshServerProfile(pool, guildId); }
-    catch (err) { console.error(`[persona] server refresh ${guildId}:`, err.message); }
+    try {
+      await refreshServerProfile(pool, guildId);
+    } catch (e) {
+      err(`server refresh ${guildId}: ${e.message}`);
+    }
   }
 
-  // USER
   const users = [...PENDING_USER.values()];
   PENDING_USER.clear();
   for (const { userId, guildId } of users) {
-    try { await refreshUserProfile(pool, userId, guildId); }
-    catch (err) { console.error(`[persona] user refresh ${userId}:`, err.message); }
+    try {
+      await refreshUserProfile(pool, userId, guildId);
+    } catch (e) {
+      err(`user refresh ${userId}@${guildId}: ${e.message}`);
+    }
   }
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SERVER PROFILE EXTRACTION
+   SERVER REFRESH
    ═══════════════════════════════════════════════════════════════ */
 async function refreshServerProfile(pool, guildId) {
   const sample = await store.serverCorpusSample(pool, guildId, 200);
-  if (sample.length < 20) return;
+  log(`server ${guildId}: sampled ${sample.length} msgs`);
+
+  if (sample.length < 20) {
+    log(`server ${guildId}: too few samples (${sample.length}), skipping`);
+    return null;
+  }
 
   const total = await store.serverCorpusCount(pool, guildId);
-  const profile = await extractStyle(clientRef, sample, {
+  log(`server ${guildId}: total corpus = ${total}, calling LLM…`);
+
+  const extracted = await extractStyle(clientRef, sample, {
     scope: "server",
     guildId,
     sampleCount: total,
   });
-  if (!profile) return;
 
-  // sanitize + save
-  const clean = await blocked.sanitizeProfile(pool, guildId, profile);
+  if (!extracted) {
+    warn(`server ${guildId}: extractStyle returned null`);
+    return null;
+  }
+
+  log(`server ${guildId}: LLM returned tone="${extracted.tone}" phrases=${extracted.phrases.length}`);
+
+  const clean = await blocked.sanitizeProfile(pool, guildId, extracted);
   clean.sample_count = total;
   clean.confidence = confidenceFromSamples(total);
 
   await store.saveServerProfile(pool, guildId, clean);
+  log(`server ${guildId}: profile SAVED — confidence=${clean.confidence}%`);
+  return clean;
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   USER PROFILE EXTRACTION
+   USER REFRESH
    ═══════════════════════════════════════════════════════════════ */
 async function refreshUserProfile(pool, userId, guildId) {
   const sample = await store.userCorpusSample(pool, userId, guildId, 200);
-  if (sample.length < 15) return;
+  log(`user ${userId}@${guildId}: sampled ${sample.length} msgs`);
+
+  if (sample.length < 15) {
+    log(`user ${userId}: too few samples (${sample.length}), skipping`);
+    return null;
+  }
 
   const total = await store.userCorpusCount(pool, userId, guildId);
-  const profile = await extractStyle(clientRef, sample, {
+  log(`user ${userId}: total = ${total}, calling LLM…`);
+
+  const extracted = await extractStyle(clientRef, sample, {
     scope: "user",
     userId,
     guildId,
     sampleCount: total,
   });
-  if (!profile) return;
 
-  const clean = await blocked.sanitizeProfile(pool, guildId, profile);
+  if (!extracted) {
+    warn(`user ${userId}: extractStyle returned null`);
+    return null;
+  }
+
+  log(`user ${userId}: LLM returned tone="${extracted.tone}"`);
+
+  const clean = await blocked.sanitizeProfile(pool, guildId, extracted);
   clean.sample_count = total;
   clean.confidence = confidenceFromSamples(total);
 
   await store.saveUserProfile(pool, userId, guildId, clean);
+  log(`user ${userId}: profile SAVED — confidence=${clean.confidence}%`);
+  return clean;
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   LLM STYLE EXTRACTION
+   LLM EXTRACTION — the fixed version
    ═══════════════════════════════════════════════════════════════ */
 async function extractStyle(client, messages, meta) {
+  // ── resolve the AI caller ──
+  let callAI;
   try {
-    const { callAI } = require("../index") && require("../../tools");
-    // fallback: use tools.callAI (kilo/groq/navy chain)
     const tools = require("../../tools");
-    if (!tools?.callAI) throw new Error("callAI unavailable");
+    if (!tools?.callAI) throw new Error("tools.callAI is missing — check exports");
+    callAI = tools.callAI;
+  } catch (e) {
+    err(`cannot load tools.callAI: ${e.message}`);
+    return null;
+  }
 
-    const sampleBlock = messages
-      .map((m, i) => `${i + 1}. ${m}`)
-      .join("\n");
+  // ── build prompt ──
+  const sampleBlock = messages
+    .map((m, i) => `${i + 1}. ${m}`)
+    .join("\n");
 
-    const scopeHint = meta.scope === "user"
-      ? "This is ONE user's messages. Learn THEIR individual voice."
-      : "This is a collection of messages from MANY users in one Discord server. Learn the collective server voice/style.";
+  const scopeHint = meta.scope === "user"
+    ? "This is ONE user's messages. Learn THEIR individual voice."
+    : "This is a collection of messages from MANY users in one Discord server. Learn the collective server voice/style.";
 
-    const prompt = `You are a linguistics analyst. Study these Discord messages and extract a style profile.
+  const prompt = `You are a linguistics analyst. Study these Discord messages and extract a style profile.
 
 ${scopeHint}
 
@@ -165,116 +244,182 @@ Return ONLY valid JSON matching this exact shape:
   "tone": "short description of the overall vibe",
   "avg_length": <number, average word count per message>,
   "phrases": ["recurring phrases, max 12"],
-  "punctuation": "how they use punctuation, periods, ellipsis, caps",
-  "emoji_style": "how they use emojis (custom, unicode, none, sparingly, etc.)",
+  "punctuation": "how they use punctuation",
+  "emoji_style": "how they use emojis",
   "topics": ["common topics, max 8"],
-  "avoid": ["things they never do — no caps, no punctuation, etc."],
+  "avoid": ["things they never do"],
   "sample_messages": ["3-5 short example lines in this exact voice"]
 }
 
 Rules:
-- Never include slurs, hate speech, or anything harmful in phrases or samples.
-- Sample messages MUST sound like the original voice but be new text, not copies.
-- Keep phrases lowercase unless the source is consistently uppercase.
+- Never include slurs, hate speech, or anything harmful.
+- Sample messages MUST sound like the original voice but be new text.
 - Return valid JSON only, no prose, no markdown fences.`;
 
-    const raw = await tools.callAI(
+  // ── call the LLM ──
+  log(`calling LLM (${messages.length} samples, scope=${meta.scope})…`);
+  const t0 = Date.now();
+  let raw;
+  try {
+    raw = await callAI(
       "thinker",
       [{ role: "user", content: prompt }],
       0.4,
       1200
     );
+  } catch (e) {
+    err(`LLM call threw: ${e.message}`);
+    return null;
+  }
+  const dt = Date.now() - t0;
+  log(`LLM returned in ${dt}ms · length ${raw?.length || 0}`);
 
-    const cleaned = String(raw).replace(/```json\s*|```\s*/g, "").trim();
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    const parsed = JSON.parse(match[0]);
+  if (!raw || typeof raw !== "string") {
+    warn(`LLM returned non-string: ${typeof raw}`);
+    return null;
+  }
 
-    return {
-      tone:           String(parsed.tone || "").slice(0, 200),
-      avg_length:     Number(parsed.avg_length || 0),
-      phrases:        (parsed.phrases || []).slice(0, 12).map((p) => String(p).slice(0, 80)),
-      punctuation:    String(parsed.punctuation || "").slice(0, 200),
-      emoji_style:    String(parsed.emoji_style || "").slice(0, 200),
-      topics:         (parsed.topics || []).slice(0, 8).map((t) => String(t).slice(0, 60)),
-      avoid:          (parsed.avoid || []).slice(0, 8).map((a) => String(a).slice(0, 80)),
-      sample_messages:(parsed.sample_messages || []).slice(0, 5).map((s) => String(s).slice(0, 200)),
-    };
-  } catch (err) {
-    console.error("[persona/learner] extractStyle failed:", err.message);
+  // ── parse JSON robustly ──
+  let parsed = safeParseJson(raw);
+  if (!parsed) {
+    warn(`JSON parse failed. Raw preview: ${raw.slice(0, 300)}`);
+    return null;
+  }
+
+  log(`parsed OK: tone="${parsed.tone}" avg_length=${parsed.avg_length}`);
+
+  // ── normalize shape ──
+  return {
+    tone:            String(parsed.tone || "").slice(0, 200),
+    avg_length:      Number(parsed.avg_length || 0),
+    phrases:         asArray(parsed.phrases).slice(0, 12).map((p) => String(p).slice(0, 80)),
+    punctuation:     String(parsed.punctuation || "").slice(0, 200),
+    emoji_style:     String(parsed.emoji_style || "").slice(0, 200),
+    topics:          asArray(parsed.topics).slice(0, 8).map((t) => String(t).slice(0, 60)),
+    avoid:           asArray(parsed.avoid).slice(0, 8).map((a) => String(a).slice(0, 80)),
+    sample_messages: asArray(parsed.sample_messages).slice(0, 5).map((s) => String(s).slice(0, 200)),
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   JSON PARSER — handles fences, extra prose, trailing commas
+   ═══════════════════════════════════════════════════════════════ */
+function safeParseJson(text) {
+  if (!text) return null;
+
+  // strip markdown fences
+  let cleaned = String(text)
+    .replace(/```json\s*/gi, "")
+    .replace(/```\s*/g, "")
+    .trim();
+
+  // find first { and last }
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1 || end < start) return null;
+  cleaned = cleaned.slice(start, end + 1);
+
+  // strip trailing commas before } or ]
+  cleaned = cleaned.replace(/,\s*([}\]])/g, "$1");
+
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    warn(`JSON.parse error: ${e.message}`);
     return null;
   }
 }
 
+function asArray(v) {
+  if (Array.isArray(v)) return v;
+  if (v === null || v === undefined) return [];
+  return [v];
+}
+
 /* ═══════════════════════════════════════════════════════════════
-   FORCE REFRESH (used by backfill)
+   FORCE REFRESH (backfill + manual)
    ═══════════════════════════════════════════════════════════════ */
 async function forceRefreshServer(client, guildId) {
-  await refreshServerProfile(client.pool, guildId);
+  return refreshServerProfile(client.pool, guildId);
 }
 
 async function forceRefreshUser(client, userId, guildId) {
-  await refreshUserProfile(client.pool, userId, guildId);
+  return refreshUserProfile(client.pool, userId, guildId);
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   BACKFILL — pull recent messages from a channel
+   BACKFILL
    ═══════════════════════════════════════════════════════════════ */
 async function backfillChannel(client, guildId, channelId, limit = DEFAULTS.backfillMax) {
   const guild = client.guilds.cache.get(guildId);
   if (!guild) return { added: 0, reason: "guild not found" };
+
   const channel = await guild.channels.fetch(channelId).catch(() => null);
-  if (!channel?.isTextBased?.()) return { added: 0, reason: "not text" };
+  if (!channel?.isTextBased?.()) return { added: 0, reason: "not text channel" };
 
   const pool = client.pool;
   let lastId = null;
   let totalAdded = 0;
+  let skipped = 0;
   const cap = Math.min(limit, DEFAULTS.backfillMax);
+
+  log(`backfill: ch=${channelId} cap=${cap}`);
+  const t0 = Date.now();
 
   while (totalAdded < cap) {
     const fetchLimit = Math.min(100, cap - totalAdded);
     const opts = { limit: fetchLimit };
     if (lastId) opts.before = lastId;
 
-    const batch = await channel.messages.fetch(opts).catch(() => null);
+    const batch = await channel.messages.fetch(opts).catch((e) => {
+      warn(`fetch failed: ${e.message}`);
+      return null;
+    });
     if (!batch || batch.size === 0) break;
 
     const msgs = [...batch.values()].filter((m) => !m.author.bot && m.content?.length >= 2);
     for (const m of msgs) {
-      const chk = await blocked.shouldSkipLearning(pool, guildId, m.content);
-      if (chk.skip) continue;
-      await store.addServerMessage(pool, {
-        guildId,
-        channelId,
-        authorId: m.author.id,
-        content: m.content,
-      });
-      totalAdded++;
+      let chk;
+      try {
+        chk = await blocked.shouldSkipLearning(pool, guildId, m.content);
+      } catch { skipped++; continue; }
+      if (chk.skip) { skipped++; continue; }
+
+      try {
+        await store.addServerMessage(pool, {
+          guildId,
+          channelId,
+          authorId: m.author.id,
+          content: m.content,
+        });
+        totalAdded++;
+      } catch (e) {
+        warn(`insert failed: ${e.message}`);
+      }
     }
+
+    log(`  batch: got ${batch.size}, added total ${totalAdded}, skipped ${skipped}`);
 
     lastId = batch.last()?.id;
     if (!lastId || batch.size < fetchLimit) break;
-
-    // brief delay to avoid rate limits
     await new Promise((r) => setTimeout(r, 500));
   }
 
   await store.serverCorpusPrune(pool, guildId, DEFAULTS.corpusMaxPerChannel);
   await store.saveServerSettings(pool, guildId, { lastBackfill: new Date() });
   await store.logAudit(pool, {
-    guildId, actorId: client.user.id, action: "backfill",
-    detail: `channel ${channelId}: +${totalAdded}`,
+    guildId,
+    actorId: client.user.id,
+    action: "backfill",
+    detail: `ch ${channelId}: +${totalAdded}, skipped ${skipped}`,
   });
-  await forceRefreshServer(client, guildId);
-  return { added: totalAdded };
-}
 
-/* ═══════════════════════════════════════════════════════════════
-   STOP
-   ═══════════════════════════════════════════════════════════════ */
-function stopFlushLoop() {
-  if (flushTimer) clearInterval(flushTimer);
-  flushTimer = null;
+  log(`backfill done: +${totalAdded} in ${Date.now() - t0}ms (${skipped} skipped)`);
+
+  // force profile refresh immediately
+  await forceRefreshServer(client, guildId);
+
+  return { added: totalAdded, skipped };
 }
 
 module.exports = {
@@ -288,4 +433,6 @@ module.exports = {
   forceRefreshUser,
   backfillChannel,
   extractStyle,
+  // expose internals for testing
+  _internal: { safeParseJson, asArray },
 };
