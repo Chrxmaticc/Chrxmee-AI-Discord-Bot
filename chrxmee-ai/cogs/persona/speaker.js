@@ -1,8 +1,8 @@
 // cogs/persona/speaker.js
 // decides whether to speak, builds the prompt, generates a reply.
-// cached + timeout-protected + fast-model-first.
+// NO kilo — direct Groq/Navy calls with per-provider timeouts.
 
-const { DEFAULTS, CONTEXT_WINDOW, emptyProfile } = require("./constants");
+const { DEFAULTS, CONTEXT_WINDOW } = require("./constants");
 const store = require("./store");
 const blocked = require("./blocked");
 
@@ -11,7 +11,7 @@ const log  = (...a) => { if (DEBUG) console.log("[persona/speaker]", ...a); };
 const warn = (...a) => console.warn("[persona/speaker]", ...a);
 
 /* ═══════════════════════════════════════════════════════════════
-   CACHES — avoid 4 DB queries on every message
+   CACHES
    ═══════════════════════════════════════════════════════════════ */
 const SETTINGS_CACHE = new Map();
 const PROFILE_CACHE  = new Map();
@@ -45,14 +45,14 @@ async function getCachedCount(pool, guildId) {
   return n;
 }
 
+function invalidateSettings(guildId) { SETTINGS_CACHE.delete(guildId); }
+function invalidateProfile(guildId)  { PROFILE_CACHE.delete(guildId); }
+function invalidateCount(guildId)    { COUNT_CACHE.delete(guildId); }
 function invalidate(guildId) {
   SETTINGS_CACHE.delete(guildId);
   PROFILE_CACHE.delete(guildId);
   COUNT_CACHE.delete(guildId);
 }
-function invalidateSettings(guildId) { SETTINGS_CACHE.delete(guildId); }
-function invalidateProfile(guildId)  { PROFILE_CACHE.delete(guildId); }
-function invalidateCount(guildId)    { COUNT_CACHE.delete(guildId); }
 
 /* ═══════════════════════════════════════════════════════════════
    TIMEOUT HELPER
@@ -67,7 +67,83 @@ function withTimeout(promise, ms, name) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SERVER SPEAK — chance roll FIRST, then DB
+   DIRECT LLM CALL — no kilo, direct Groq/Navy
+   ═══════════════════════════════════════════════════════════════ */
+const DIRECT_PROVIDERS = {
+  speedster: [
+    { name: "groq", id: "openai/gpt-oss-20b",
+      url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+    { name: "navy", id: "gpt-4.1-mini",
+      url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
+  ],
+  genius: [
+    { name: "groq", id: "openai/gpt-oss-120b",
+      url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+    { name: "navy", id: "gpt-4.1",
+      url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
+  ],
+  thinker: [
+    { name: "groq", id: "openai/gpt-oss-120b",
+      url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+    { name: "navy", id: "gpt-4.1",
+      url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
+  ],
+  creative: [
+    { name: "groq", id: "qwen/qwen3.6-27b",
+      url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
+    { name: "navy", id: "gpt-4.1",
+      url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
+  ],
+};
+
+async function directCall(modelKey, messages, temperature, maxTokens, timeoutMs = 7000) {
+  const providers = DIRECT_PROVIDERS[modelKey] || DIRECT_PROVIDERS.speedster;
+  const t0 = Date.now();
+
+  for (const p of providers) {
+    const key = process.env[p.keyEnv];
+    if (!key) { log(`directCall: ${p.name} — no ${p.keyEnv}`); continue; }
+    try {
+      const res = await withTimeout(
+        fetch(p.url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${key}`,
+          },
+          body: JSON.stringify({
+            model: p.id,
+            messages,
+            temperature,
+            max_tokens: Math.max(64, maxTokens),
+          }),
+        }),
+        timeoutMs,
+        `direct/${p.name}`
+      );
+
+      if (!res.ok) {
+        warn(`directCall: ${p.name} HTTP ${res.status}`);
+        continue;
+      }
+
+      const data = await res.json();
+      const content = data.choices?.[0]?.message?.content;
+      if (content && content.length > 1) {
+        log(`directCall: ${p.name} ok in ${Date.now() - t0}ms`);
+        return content;
+      }
+      warn(`directCall: ${p.name} empty`);
+    } catch (e) {
+      warn(`directCall: ${p.name} failed — ${e.message}`);
+    }
+  }
+
+  return null;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SERVER SPEAK
    ═══════════════════════════════════════════════════════════════ */
 async function considerServerSpeak(client, message) {
   const t0 = Date.now();
@@ -76,12 +152,10 @@ async function considerServerSpeak(client, message) {
   if (!message.guild) return null;
   if (message.author.bot) return null;
 
-  // 1. cached settings (usually in-memory, no DB hit)
   const cfg = await getCachedSettings(pool, message.guildId);
   if (!cfg.enabled) return null;
   if (!cfg.channels.includes(message.channelId)) return null;
 
-  // 2. chance roll BEFORE any expensive check
   const mentioned = cfg.mentions && message.mentions.has(client.user);
   if (!mentioned) {
     const roll = Math.random() * 100;
@@ -91,7 +165,6 @@ async function considerServerSpeak(client, message) {
     }
   }
 
-  // 3. cooldown + profile + count in parallel
   const [lastSpoke, prof, total] = await Promise.all([
     store.cooldownGet(pool, message.channelId),
     getCachedProfile(pool, message.guildId),
@@ -99,7 +172,7 @@ async function considerServerSpeak(client, message) {
   ]);
 
   if (Date.now() - lastSpoke < cfg.cooldownMs) {
-    log(`bail: cooldown in ${Date.now() - t0}ms`);
+    log(`bail: cooldown`);
     return null;
   }
   if (total < cfg.minMessages) {
@@ -111,18 +184,14 @@ async function considerServerSpeak(client, message) {
     return null;
   }
 
-  log(`passed checks in ${Date.now() - t0}ms (mentioned=${mentioned})`);
+  log(`passed checks in ${Date.now() - t0}ms`);
   return await generateServerReply(client, message, cfg, prof, { mentioned });
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   SERVER REPLY
-   ═══════════════════════════════════════════════════════════════ */
 async function generateServerReply(client, message, cfg, prof, { mentioned }) {
   const pool  = client.pool;
   const guild = message.guild;
 
-  // perceived speed
   await message.channel.sendTyping().catch(() => {});
 
   const context = await fetchContext(message.channel, message.id, CONTEXT_WINDOW);
@@ -188,23 +257,13 @@ async function generateUserSpeak(client, userId, guildId, topic) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   CORE GENERATE — timeout-protected, fast model first
+   CORE GENERATE
    ═══════════════════════════════════════════════════════════════ */
 async function generate(client, opts) {
   const {
     scope, guild, message, context, topic,
     profile, manualEdit, gifsAllowed, mentioned, extras = {},
   } = opts;
-
-  let callAI;
-  try {
-    const tools = require("../../tools");
-    if (!tools?.callAI) throw new Error("tools.callAI missing");
-    callAI = tools.callAI;
-  } catch (e) {
-    warn(`cannot load tools: ${e.message}`);
-    return null;
-  }
 
   const profileBlock = buildProfileBlock(profile);
   const manualBlock  = manualEdit ? buildManualBlock(manualEdit) : "";
@@ -213,37 +272,28 @@ async function generate(client, opts) {
     : "";
   const mentionHint  = mentioned ? "You were @mentioned — reply directly." : "";
   const gifHint      = gifsAllowed
-    ? "If a custom emoji or GIF fits naturally, include ONE. Otherwise skip."
-    : "No GIFs or URLs. Custom emojis OK.";
+    ? "If a custom emoji fits, use ONE. Otherwise skip."
+    : "No GIFs. Custom emojis OK.";
 
   const prompt = scope === "user"
     ? buildUserPrompt({ profileBlock, manualBlock, topic, targetName: extras.targetName })
     : buildServerPrompt({ profileBlock, manualBlock, ctxBlock, message, extras, mentionHint, gifHint });
 
-  // fast model first, then bigger ones
-  const chain = ["speedster", "genius", "thinker"];
+  // try speedster first (fastest), then genius
+  const chain = ["speedster", "genius"];
   const t0 = Date.now();
 
   for (const modelKey of chain) {
-    try {
-      log(`generate: trying ${modelKey}`);
-      const raw = await withTimeout(
-        callAI(modelKey, [{ role: "user", content: prompt }], 0.85, 250),
-        12_000,
-        `generate/${modelKey}`
-      );
-      const out = cleanOutput(raw);
-      if (out) {
-        log(`generate: ${modelKey} ok in ${Date.now() - t0}ms`);
-        return out;
-      }
-      warn(`generate: ${modelKey} empty`);
-    } catch (e) {
-      warn(`generate: ${modelKey} failed — ${e.message}`);
+    const raw = await directCall(modelKey, [{ role: "user", content: prompt }], 0.85, 250, 7000);
+    const out = cleanOutput(raw);
+    if (out) {
+      log(`generate: ${modelKey} ok in ${Date.now() - t0}ms`);
+      return out;
     }
+    warn(`generate: ${modelKey} no output`);
   }
 
-  warn(`generate: all models failed (${Date.now() - t0}ms)`);
+  warn(`generate: all direct providers failed in ${Date.now() - t0}ms`);
   return null;
 }
 
@@ -258,7 +308,7 @@ function cleanOutput(raw) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   PROMPT BLOCKS — trimmed for speed
+   PROMPTS
    ═══════════════════════════════════════════════════════════════ */
 function buildProfileBlock(profile) {
   if (!profile) return "";
@@ -270,7 +320,6 @@ function buildProfileBlock(profile) {
   if (profile.phrases?.length)  lines.push(`phrases: ${profile.phrases.slice(0, 6).map((p) => `"${p}"`).join(", ")}`);
   if (profile.topics?.length)   lines.push(`topics: ${profile.topics.join(", ")}`);
   if (profile.avoid?.length)    lines.push(`never: ${profile.avoid.join(", ")}`);
-  // only 2 samples — keeps prompt small
   if (profile.sample_messages?.length) {
     lines.push(`examples:\n${profile.sample_messages.slice(0, 2).map((s) => `  • ${s}`).join("\n")}`);
   }
@@ -280,7 +329,7 @@ function buildProfileBlock(profile) {
 function buildManualBlock(manual) {
   if (!manual) return "";
   const lines = [];
-  if (manual.tone) lines.push(`override tone: ${manual.tone}`);
+  if (manual.tone)            lines.push(`override tone: ${manual.tone}`);
   if (manual.phrases?.length) lines.push(`prefer: ${manual.phrases.join(", ")}`);
   if (manual.avoid?.length)   lines.push(`never: ${manual.avoid.join(", ")}`);
   if (manual.extra)           lines.push(`extra: ${manual.extra}`);
@@ -331,9 +380,6 @@ ${topic}
 - Output ONLY the message. No quotes, no prefixes.`;
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   CHANCE (kept for API compat)
-   ═══════════════════════════════════════════════════════════════ */
 function computeChance(cfg, prof, message) {
   let chance = cfg.replyChance;
   if (/\?\s*$/.test(message.content || "")) chance += DEFAULTS.questionBoost;
@@ -347,9 +393,6 @@ function computeChance(cfg, prof, message) {
   return Math.max(0, Math.min(100, chance));
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   CONTEXT
-   ═══════════════════════════════════════════════════════════════ */
 async function fetchContext(channel, beforeMessageId, limit = 8) {
   try {
     const msgs = await channel.messages.fetch({ limit, before: beforeMessageId });
