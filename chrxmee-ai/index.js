@@ -248,6 +248,8 @@ client.once("ready", async () => {
     }, 30_000);
 
     require("./cogs/backup").scheduler.startScheduler(client);
+    // after client is ready
+require("./cogs/persona").handlers.install(client);
 
     
 
