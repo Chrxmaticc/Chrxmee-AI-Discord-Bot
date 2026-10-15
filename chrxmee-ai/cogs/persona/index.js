@@ -6,7 +6,6 @@ const store    = require("./store");
 const blocked  = require("./blocked");
 const learner  = require("./learner");
 const speaker  = require("./speaker");
-const menu     = require("./menu");
 const handlers = require("./handlers");
 const constants = require("./constants");
 
@@ -17,6 +16,5 @@ module.exports = {
   blocked,
   learner,
   speaker,
-  menu,
   handlers,
 };
