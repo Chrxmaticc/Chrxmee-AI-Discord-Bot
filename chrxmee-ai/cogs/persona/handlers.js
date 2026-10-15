@@ -1,49 +1,60 @@
 // cogs/persona/handlers.js
-// messageCreate hook → ingest for learning + maybe speak as server persona.
+// messageCreate hook → ingest + speak. Fire-and-forget, never blocks.
 
 const schema  = require("./schema");
 const learner = require("./learner");
 const speaker = require("./speaker");
-const store   = require("./store");
 
 const DEBUG = true;
 const log  = (...a) => { if (DEBUG) console.log("[persona/handler]", ...a); };
 const warn = (...a) => console.warn("[persona/handler]", ...a);
 
-// per-channel lock so we don't double-speak
 const SPEAKING = new Set();
+const SPEAK_TIMEOUT_MS = 30_000;   // hard cap — force-release the lock
 
 async function onMessageCreate(message, client) {
-  log(`saw msg ch=${message.channelId} author=${message.author.id} bot=${message.author.bot} content="${(message.content || "").slice(0, 40)}"`);
+  if (!message.guild) return;
+  if (message.author.bot) return;
+  if (!message.content) return;
 
-  if (!message.guild) { log("bail: dm"); return; }
-  if (message.author.bot) { log("bail: bot"); return; }
-  if (!message.content) { log("bail: empty content"); return; }
-
-  // 1. ingest (fire and forget)
+  // 1. ingest — always fire, never blocks anything
   learner.ingestMessage(client, message).catch((e) =>
     warn(`ingest threw: ${e.message}`)
   );
 
-  // 2. maybe speak
-  if (SPEAKING.has(message.channelId)) { log("bail: already speaking"); return; }
-  SPEAKING.add(message.channelId);
-  try {
-    log(`considering speak for ch=${message.channelId}`);
-    const reply = await speaker.considerServerSpeak(client, message);
-    if (!reply) { log("speak: no reply"); return; }
-
-    log(`speak: replying — "${reply.text.slice(0, 60)}"`);
-    const sendOpts = { content: reply.text };
-    if (reply.replyTo && !reply.mentioned) {
-      sendOpts.reply = { messageReference: reply.replyTo, failIfNotExists: false };
-    }
-    await message.channel.send(sendOpts).catch((e) => warn(`send failed: ${e.message}`));
-  } catch (e) {
-    warn(`speak threw: ${e.message}`);
-  } finally {
-    SPEAKING.delete(message.channelId);
+  // 2. speak — one at a time per channel
+  if (SPEAKING.has(message.channelId)) {
+    log(`speak locked ch=${message.channelId}`);
+    return;
   }
+  SPEAKING.add(message.channelId);
+
+  // safety: force-release the lock if something hangs
+  const lockTimer = setTimeout(() => {
+    warn(`speak lock timeout ch=${message.channelId}, releasing`);
+    SPEAKING.delete(message.channelId);
+  }, SPEAK_TIMEOUT_MS);
+  lockTimer.unref?.();
+
+  // fire-and-forget — do NOT await, let handler return immediately
+  (async () => {
+    try {
+      const reply = await speaker.considerServerSpeak(client, message);
+      if (!reply) return;
+
+      log(`speak: sending reply`);
+      const sendOpts = { content: reply.text };
+      if (reply.replyTo && !reply.mentioned) {
+        sendOpts.reply = { messageReference: reply.replyTo, failIfNotExists: false };
+      }
+      await message.channel.send(sendOpts).catch((e) => warn(`send failed: ${e.message}`));
+    } catch (e) {
+      warn(`speak threw: ${e.message}`);
+    } finally {
+      clearTimeout(lockTimer);
+      SPEAKING.delete(message.channelId);
+    }
+  })();
 }
 
 function install(client) {
