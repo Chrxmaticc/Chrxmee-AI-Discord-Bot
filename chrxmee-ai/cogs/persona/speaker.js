@@ -1,6 +1,6 @@
 // cogs/persona/speaker.js
-// decides whether to speak, builds the prompt, generates a reply.
-// NO kilo — direct Groq/Navy calls with per-provider timeouts.
+// decides whether to speak + generates the reply.
+// direct Groq/Navy (no kilo), cached, timeout-protected, truncation-aware.
 
 const { DEFAULTS, CONTEXT_WINDOW } = require("./constants");
 const store = require("./store");
@@ -16,10 +16,12 @@ const warn = (...a) => console.warn("[persona/speaker]", ...a);
 const SETTINGS_CACHE = new Map();
 const PROFILE_CACHE  = new Map();
 const COUNT_CACHE    = new Map();
+const CONTEXT_CACHE  = new Map();
 
 const SETTINGS_TTL = 30_000;
 const PROFILE_TTL  = 60_000;
 const COUNT_TTL    = 15_000;
+const CONTEXT_TTL  = 5_000;
 
 async function getCachedSettings(pool, guildId) {
   const c = SETTINGS_CACHE.get(guildId);
@@ -55,7 +57,7 @@ function invalidate(guildId) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   TIMEOUT HELPER
+   TIMEOUT
    ═══════════════════════════════════════════════════════════════ */
 function withTimeout(promise, ms, name) {
   return Promise.race([
@@ -67,36 +69,24 @@ function withTimeout(promise, ms, name) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   DIRECT LLM CALL — no kilo, direct Groq/Navy
+   DIRECT PROVIDERS
    ═══════════════════════════════════════════════════════════════ */
 const DIRECT_PROVIDERS = {
   speedster: [
-    { name: "groq", id: "openai/gpt-oss-20b",
+    { name: "groq-fast", id: "openai/gpt-oss-20b",
       url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
     { name: "navy", id: "gpt-4.1-mini",
       url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
   ],
   genius: [
-    { name: "groq", id: "openai/gpt-oss-120b",
-      url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
-    { name: "navy", id: "gpt-4.1",
-      url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
-  ],
-  thinker: [
-    { name: "groq", id: "openai/gpt-oss-120b",
-      url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
-    { name: "navy", id: "gpt-4.1",
-      url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
-  ],
-  creative: [
-    { name: "groq", id: "qwen/qwen3.6-27b",
+    { name: "groq-big", id: "openai/gpt-oss-120b",
       url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
     { name: "navy", id: "gpt-4.1",
       url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
   ],
 };
 
-async function directCall(modelKey, messages, temperature, maxTokens, timeoutMs = 7000) {
+async function directCall(modelKey, messages, temperature, maxTokens, timeoutMs = 8000) {
   const providers = DIRECT_PROVIDERS[modelKey] || DIRECT_PROVIDERS.speedster;
   const t0 = Date.now();
 
@@ -122,23 +112,22 @@ async function directCall(modelKey, messages, temperature, maxTokens, timeoutMs 
         `direct/${p.name}`
       );
 
-      if (!res.ok) {
-        warn(`directCall: ${p.name} HTTP ${res.status}`);
-        continue;
-      }
+      if (!res.ok) { warn(`directCall: ${p.name} HTTP ${res.status}`); continue; }
 
       const data = await res.json();
-      const content = data.choices?.[0]?.message?.content;
+      const choice = data.choices?.[0];
+      const content = choice?.message?.content;
+      const finish  = choice?.finish_reason || "unknown";
+
       if (content && content.length > 1) {
-        log(`directCall: ${p.name} ok in ${Date.now() - t0}ms`);
-        return content;
+        log(`directCall: ${p.name} ok in ${Date.now() - t0}ms · finish=${finish}`);
+        return { content, finishReason: finish };
       }
       warn(`directCall: ${p.name} empty`);
     } catch (e) {
-      warn(`directCall: ${p.name} failed — ${e.message}`);
+      warn(`directCall: ${p.name} — ${e.message}`);
     }
   }
-
   return null;
 }
 
@@ -160,7 +149,7 @@ async function considerServerSpeak(client, message) {
   if (!mentioned) {
     const roll = Math.random() * 100;
     if (roll > cfg.replyChance) {
-      log(`bail: chance ${roll.toFixed(1)} > ${cfg.replyChance} in ${Date.now() - t0}ms`);
+      log(`bail: chance ${roll.toFixed(1)} > ${cfg.replyChance} (${Date.now() - t0}ms)`);
       return null;
     }
   }
@@ -171,20 +160,11 @@ async function considerServerSpeak(client, message) {
     getCachedCount(pool, message.guildId),
   ]);
 
-  if (Date.now() - lastSpoke < cfg.cooldownMs) {
-    log(`bail: cooldown`);
-    return null;
-  }
-  if (total < cfg.minMessages) {
-    log(`bail: below min (${total}/${cfg.minMessages})`);
-    return null;
-  }
-  if (!prof.profile || total < 20) {
-    log(`bail: no profile`);
-    return null;
-  }
+  if (Date.now() - lastSpoke < cfg.cooldownMs) { log(`bail: cooldown`); return null; }
+  if (total < cfg.minMessages) { log(`bail: below min (${total}/${cfg.minMessages})`); return null; }
+  if (!prof.profile || total < 20) { log(`bail: no profile`); return null; }
 
-  log(`passed checks in ${Date.now() - t0}ms`);
+  log(`passed in ${Date.now() - t0}ms (mentioned=${mentioned})`);
   return await generateServerReply(client, message, cfg, prof, { mentioned });
 }
 
@@ -257,7 +237,7 @@ async function generateUserSpeak(client, userId, guildId, topic) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   CORE GENERATE
+   GENERATE
    ═══════════════════════════════════════════════════════════════ */
 async function generate(client, opts) {
   const {
@@ -279,21 +259,52 @@ async function generate(client, opts) {
     ? buildUserPrompt({ profileBlock, manualBlock, topic, targetName: extras.targetName })
     : buildServerPrompt({ profileBlock, manualBlock, ctxBlock, message, extras, mentionHint, gifHint });
 
-  // try speedster first (fastest), then genius
   const chain = ["speedster", "genius"];
   const t0 = Date.now();
 
   for (const modelKey of chain) {
-    const raw = await directCall(modelKey, [{ role: "user", content: prompt }], 0.85, 250, 7000);
-    const out = cleanOutput(raw);
+    const result = await directCall(
+      modelKey,
+      [{ role: "user", content: prompt }],
+      0.85,
+      400,
+      8000
+    );
+    if (!result?.content) {
+      warn(`generate: ${modelKey} no output`);
+      continue;
+    }
+
+    let out = cleanOutput(result.content);
+
+    // truncation recovery — ask model to finish the sentence
+    if (result.finishReason === "length" && out) {
+      warn(`generate: ${modelKey} truncated — finishing`);
+      const tail = await directCall(
+        modelKey,
+        [
+          { role: "user", content: prompt },
+          { role: "assistant", content: result.content },
+          { role: "user", content: "finish that in under 15 words. no preamble." },
+        ],
+        0.6,
+        80,
+        5000
+      );
+      if (tail?.content) {
+        const tailText = cleanOutput(tail.content);
+        if (tailText) out = (out + " " + tailText).replace(/\s+/g, " ").trim();
+      }
+    }
+
     if (out) {
-      log(`generate: ${modelKey} ok in ${Date.now() - t0}ms`);
+      log(`generate: ${modelKey} ok in ${Date.now() - t0}ms (${out.length} chars)`);
       return out;
     }
-    warn(`generate: ${modelKey} no output`);
+    warn(`generate: ${modelKey} empty after cleanup`);
   }
 
-  warn(`generate: all direct providers failed in ${Date.now() - t0}ms`);
+  warn(`generate: all providers failed in ${Date.now() - t0}ms`);
   return null;
 }
 
@@ -302,13 +313,19 @@ function cleanOutput(raw) {
   let out = raw.trim();
   out = out.replace(/^(assistant|chromed|bot)\s*:\s*/i, "").trim();
   out = out.replace(/^["'`]+|["'`]+$/g, "").trim();
+
+  // strip trailing dangling conjunctions
+  out = out.replace(/\s+(and|or|but|so|because|then|if|when|while|you're|i'm|it's|we're|they're)\s*$/i, "");
+  // strip incomplete clause after a trailing comma
+  out = out.replace(/,\s*[^.!?]{0,40}$/, "");
+
   if (!out || out.length < 2) return null;
   if (out.length > 1900) out = out.slice(0, 1900) + "…";
   return out;
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   PROMPTS
+   PROMPT BUILDERS
    ═══════════════════════════════════════════════════════════════ */
 function buildProfileBlock(profile) {
   if (!profile) return "";
@@ -317,9 +334,9 @@ function buildProfileBlock(profile) {
   if (profile.avg_length)  lines.push(`target length: ~${profile.avg_length} words`);
   if (profile.punctuation) lines.push(`punctuation: ${profile.punctuation}`);
   if (profile.emoji_style) lines.push(`emoji style: ${profile.emoji_style}`);
-  if (profile.phrases?.length)  lines.push(`phrases: ${profile.phrases.slice(0, 6).map((p) => `"${p}"`).join(", ")}`);
-  if (profile.topics?.length)   lines.push(`topics: ${profile.topics.join(", ")}`);
-  if (profile.avoid?.length)    lines.push(`never: ${profile.avoid.join(", ")}`);
+  if (profile.phrases?.length) lines.push(`phrases: ${profile.phrases.slice(0, 6).map((p) => `"${p}"`).join(", ")}`);
+  if (profile.topics?.length)  lines.push(`topics: ${profile.topics.join(", ")}`);
+  if (profile.avoid?.length)   lines.push(`never: ${profile.avoid.join(", ")}`);
   if (profile.sample_messages?.length) {
     lines.push(`examples:\n${profile.sample_messages.slice(0, 2).map((s) => `  • ${s}`).join("\n")}`);
   }
@@ -355,7 +372,7 @@ ${mentionHint}
 - Match the style exactly.
 - Never mention being a bot or AI.
 - Do NOT copy context lines — write something NEW.
-- 1-2 sentences max.
+- HARD LIMIT: under 220 characters. Stop when you hit 220.
 - ${gifHint}
 - Never output slurs or harmful content.
 - Output ONLY the reply. No quotes, no prefixes.`;
@@ -375,11 +392,14 @@ ${topic}
 - Sound exactly like the style.
 - Do NOT copy sample lines verbatim.
 - Never mention being a bot.
-- Keep it short.
+- HARD LIMIT: under 220 characters.
 - No slurs, no harmful content.
 - Output ONLY the message. No quotes, no prefixes.`;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   CHANCE (kept for API compat)
+   ═══════════════════════════════════════════════════════════════ */
 function computeChance(cfg, prof, message) {
   let chance = cfg.replyChance;
   if (/\?\s*$/.test(message.content || "")) chance += DEFAULTS.questionBoost;
@@ -393,16 +413,24 @@ function computeChance(cfg, prof, message) {
   return Math.max(0, Math.min(100, chance));
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   CONTEXT FETCH — cached 5s
+   ═══════════════════════════════════════════════════════════════ */
 async function fetchContext(channel, beforeMessageId, limit = 8) {
+  const cached = CONTEXT_CACHE.get(channel.id);
+  if (cached && Date.now() - cached.t < CONTEXT_TTL) return cached.data;
+
   try {
     const msgs = await channel.messages.fetch({ limit, before: beforeMessageId });
-    return [...msgs.values()]
+    const data = [...msgs.values()]
       .reverse()
       .filter((m) => m.content && m.content.length < 400)
       .map((m) => ({
         author: m.member?.displayName || m.author.username,
         content: m.content.slice(0, 250),
       }));
+    CONTEXT_CACHE.set(channel.id, { t: Date.now(), data });
+    return data;
   } catch { return []; }
 }
 
