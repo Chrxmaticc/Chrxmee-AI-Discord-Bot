@@ -1,14 +1,11 @@
 // cogs/persona/learner.js
-// ingests messages → extracts style profiles → saves.
-// direct Groq/Navy · serial queue · stopword-filtered phrases · LLM-first extraction.
+// ingests messages → extracts full friend-group persona → saves.
+// direct Groq/DeepSeek race · serial queue · filtered phrases · LLM-first · enhancer API.
 
 const { DEFAULTS, confidenceFromSamples } = require("./constants");
 const store   = require("./store");
 const blocked = require("./blocked");
 
-/* ═══════════════════════════════════════════════════════════════
-   LOGGING
-   ═══════════════════════════════════════════════════════════════ */
 const DEBUG = true;
 const log  = (...a) => { if (DEBUG) console.log("[persona/learner]", ...a); };
 const warn = (...a) => console.warn("[persona/learner]", ...a);
@@ -21,12 +18,12 @@ const FLUSH_INTERVAL_MS  = 60_000;
 const MIN_EXTRACT_GAP_MS = 60_000;
 const MIN_NEW_MESSAGES   = 100;
 const PRUNE_EVERY        = 50;
-const SAMPLE_SIZE        = 100;
-const EXTRACT_TIMEOUT_MS = 12_000;
-const EXTRACT_MAX_TOKENS = 1200;
+const SAMPLE_SIZE        = 120;
+const EXTRACT_TIMEOUT_MS = 14_000;
+const EXTRACT_MAX_TOKENS = 1600;
 
 /* ═══════════════════════════════════════════════════════════════
-   STOPWORDS — reject grammatical glue from phrase extraction
+   STOPWORDS
    ═══════════════════════════════════════════════════════════════ */
 const STOPWORDS = new Set([
   "i", "me", "my", "mine", "you", "your", "yours", "we", "us", "our", "ours",
@@ -47,6 +44,14 @@ const PHRASE_STOPWORDS = new Set([
   "are not", "is not", "was not", "were not",
   "the and", "a and", "an and",
   "and and", "or or", "but but", "the the", "is a", "it a", "to be",
+]);
+
+const ACADEMIC_WORDS = new Set([
+  "probability", "probabilities", "independent", "exponential", "random",
+  "variable", "variables", "parameter", "parameters", "rate", "distribution",
+  "given", "calculate", "compute", "solve", "equation", "theorem", "lemma",
+  "derivative", "integral", "function", "domain", "range", "matrix", "vector",
+  "coefficient", "polynomial", "algebra", "calculus", "geometry", "statistics",
 ]);
 
 /* ═══════════════════════════════════════════════════════════════
@@ -90,8 +95,53 @@ function safeParseJson(text) {
   try { return JSON.parse(cleaned); } catch { return null; }
 }
 
+function looksLikeHomework(text) {
+  if (!text || text.length < 40) return false;
+  const markers = [
+    /\bprobabilit(?:y|ies)\b/i,
+    /\bindependent\b/i,
+    /\bexponential\b/i,
+    /\brandom variable/i,
+    /\bparameter\b/i,
+    /\bdistribution\b/i,
+    /\bgiven that\b/i,
+    /\bfind the\b/i,
+    /\bcalculate\b/i,
+    /\bsolve\b/i,
+    /\bequation\b/i,
+    /\bP\s*\(\s*X\b/,
+    /\bX\s+and\s+Y\b/,
+  ];
+  let count = 0;
+  for (const m of markers) if (m.test(text)) count++;
+  return count >= 3;
+}
+
+function filterPhrases(phrases) {
+  const out = [];
+  for (const p of phrases) {
+    const lower = String(p).toLowerCase().trim();
+    if (lower.length < 3) continue;
+    if (lower.length > 60) continue;
+    if (PHRASE_STOPWORDS.has(lower)) continue;
+    if (/^\d+$/.test(lower)) continue;
+    if (/^[\d\s]+$/.test(lower)) continue;
+    if (/^\d{15,25}$/.test(lower)) continue;
+
+    const words = lower.split(/\s+/).filter(Boolean);
+    if (!words.length) continue;
+
+    const realWords = words.filter((w) => !STOPWORDS.has(w) && w.length > 2);
+    if (realWords.length === 0) continue;
+    if (words.some((w) => ACADEMIC_WORDS.has(w))) continue;
+
+    if (!out.includes(p)) out.push(p);
+  }
+  return out.slice(0, 12);
+}
+
 /* ═══════════════════════════════════════════════════════════════
-   EXTRACTION QUEUE — one at a time
+   EXTRACTION QUEUE
    ═══════════════════════════════════════════════════════════════ */
 let extracting = false;
 const EXTRACT_QUEUE = [];
@@ -116,9 +166,10 @@ async function enqueueExtract(task) {
    ═══════════════════════════════════════════════════════════════ */
 async function ingestMessage(client, message) {
   if (!message.guild) return;
-  if (message.author.bot) return;                 // ← reject bot messages (prevents chromed's own output poisoning corpus)
+  if (message.author.bot) return;
   if (!message.content || message.content.length < 2) return;
   if (message.content.length > 2000) return;
+  if (looksLikeHomework(message.content)) return;
 
   const guildId = message.guildId;
   const userId  = message.author.id;
@@ -129,7 +180,6 @@ async function ingestMessage(client, message) {
   catch { return; }
   if (chk.skip) return;
 
-  /* ── SERVER ── */
   try {
     const cfg = await store.getServerSettings(pool, guildId);
     if (cfg.enabled && cfg.channels.includes(message.channelId)) {
@@ -150,7 +200,6 @@ async function ingestMessage(client, message) {
     }
   } catch (e) { err(`server ingest: ${e.message}`); }
 
-  /* ── USER ── */
   try {
     const opt = await store.userIsOptedIn(pool, userId, guildId);
     if (opt.optedIn) {
@@ -211,7 +260,7 @@ async function flushAll() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SERVER REFRESH
+   REFRESH
    ═══════════════════════════════════════════════════════════════ */
 async function refreshServerProfile(pool, guildId, opts = {}) {
   const { force = false } = opts;
@@ -250,16 +299,13 @@ async function refreshServerProfile(pool, guildId, opts = {}) {
   clean.confidence = confidenceFromSamples(total);
 
   await store.saveServerProfile(pool, guildId, clean);
-  log(`server ${guildId}: SAVED — confidence=${clean.confidence}% · phrases=${clean.phrases?.length || 0}`);
+  log(`server ${guildId}: SAVED — confidence=${clean.confidence}% · phrases=${clean.phrases?.length || 0} · bits=${clean.running_bits?.length || 0}`);
 
   try { require("./speaker").invalidateProfile(guildId); } catch {}
 
   return clean;
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   USER REFRESH
-   ═══════════════════════════════════════════════════════════════ */
 async function refreshUserProfile(pool, userId, guildId, opts = {}) {
   const { force = false } = opts;
 
@@ -291,86 +337,93 @@ async function refreshUserProfile(pool, userId, guildId, opts = {}) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   LLM PROVIDERS
+   PROVIDERS — race both in parallel
    ═══════════════════════════════════════════════════════════════ */
 const EXTRACT_PROVIDERS = [
-  { name: "groq-big",  id: "openai/gpt-oss-120b",
+  { name: "groq-big", id: "openai/gpt-oss-120b",
     url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
-  { name: "groq-fast", id: "openai/gpt-oss-20b",
-    url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
-  { name: "navy", id: "gpt-4.1",
+  { name: "deepseek", id: "deepseek-v4-pro-0813",
     url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
 ];
 
-async function callExtractLLM(prompt) {
-  for (const p of EXTRACT_PROVIDERS) {
+async function callExtractLLM(prompt, maxTokens = EXTRACT_MAX_TOKENS) {
+  const attempts = EXTRACT_PROVIDERS.map(async (p) => {
     const key = process.env[p.keyEnv];
-    if (!key) continue;
-    try {
-      const res = await withTimeout(
-        fetch(p.url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-          body: JSON.stringify({
-            model: p.id,
-            messages: [{ role: "user", content: prompt }],
-            temperature: 0.3,
-            max_tokens: EXTRACT_MAX_TOKENS,
-          }),
+    if (!key) throw new Error(`${p.name}: no key`);
+
+    const t0 = Date.now();
+    const res = await withTimeout(
+      fetch(p.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+          model: p.id,
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.3,
+          max_tokens: maxTokens,
         }),
-        EXTRACT_TIMEOUT_MS,
-        `extract/${p.name}`
-      );
-      if (!res.ok) { warn(`extract: ${p.name} HTTP ${res.status}`); continue; }
-      const data = await res.json();
-      const content = data.choices?.[0]?.message?.content;
-      if (content && content.length > 10) {
-        log(`extract: ${p.name} ok`);
-        return content;
-      }
-    } catch (e) {
-      warn(`extract: ${p.name} — ${e.message}`);
-    }
-  }
-  return null;
+      }),
+      EXTRACT_TIMEOUT_MS,
+      `extract/${p.name}`
+    );
+
+    if (!res.ok) throw new Error(`${p.name} HTTP ${res.status}`);
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content || content.length < 10) throw new Error(`${p.name} empty`);
+
+    log(`extract: ${p.name} ok in ${Date.now() - t0}ms`);
+    return content;
+  });
+
+  try { return await Promise.any(attempts); }
+  catch { return null; }
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   EXTRACT
+   ═══════════════════════════════════════════════════════════════ */
 async function extractStyle(messages, meta) {
   const sampleBlock = messages.map((m, i) => `${i + 1}. ${m}`).join("\n");
   const scopeHint = meta.scope === "user"
-    ? "These messages are all from ONE user. Learn their individual voice."
-    : "These messages are from MANY users in ONE Discord server. Learn the collective voice.";
+    ? "These messages are all from ONE user. Learn THEM as a person — voice, humor, running jokes, personality."
+    : "These messages are from a Discord friend group / server. Learn the SOCIAL FABRIC — vibe, jokes, people, running bits.";
 
-  const prompt = `You are a linguistics analyst studying Discord chat.
+  const prompt = `You are a social analyst studying a Discord friend group.
 
 ${scopeHint}
 
 MESSAGES:
 ${sampleBlock}
 
-Extract the STYLE of this chat. Return ONLY valid JSON:
+Extract a rich profile of this community as if you were a person who's been in the chat for months and wants to blend in perfectly.
+
+Return ONLY valid JSON:
 {
-  "tone": "one SPECIFIC phrase describing the vibe — not generic words like 'casual'",
+  "tone": "specific vibe phrase — NOT generic words like 'casual'",
   "avg_length": <number, average words per message>,
-  "phrases": ["6-10 ACTUAL slang or idiomatic expressions real people would say"],
-  "punctuation": "specific habits (e.g. 'no ending punctuation', 'mostly lowercase')",
+  "phrases": ["6-10 ACTUAL slang or idiomatic expressions they say"],
+  "punctuation": "specific habits",
   "emoji_style": "specific habits",
-  "topics": ["3-8 actual topics discussed in the chat"],
-  "avoid": ["things this chat NEVER does"],
-  "sample_messages": ["3-5 NEW lines that SOUND like this chat but are NOT copied from above"]
+  "topics": ["3-8 actual topics they discuss"],
+  "avoid": ["things this group NEVER does or would cringe at"],
+  "sample_messages": ["3-5 NEW lines that SOUND like them but are NOT copied"],
+  "running_bits": ["2-6 inside jokes, callbacks, or recurring memes referenced in chat"],
+  "vocab": ["3-8 unique words or nicknames this community uses"],
+  "personality": "2-3 sentence description of the COLLECTIVE personality of this group",
+  "values": ["2-5 things this group actually cares about"],
+  "friction": ["1-3 things that annoy this group or topics they get heated about"]
 }
 
-CRITICAL for "phrases":
-- GOOD: "lock in", "cooked", "fr fr", "no shot", "it's so over", "cooking", "peak", "mid"
-- BAD: "i am", "you are", "the", "and", "x and y", "is a", "to be", "ask x"
-- Only include phrases that are SLANG or IDIOMATIC. Grammatical glue is FORBIDDEN.
+CRITICAL rules:
+- "phrases" → ONLY slang / idioms. NOT grammatical glue. Never "i am", "x and y", "is a".
+- "sample_messages" → NEW lines, not copies.
+- "running_bits" / "vocab" → list recurring words, names, jokes you see more than once.
+- "personality" → specific, like a friend would describe them.
+- Never include slurs, hate speech, real names, addresses, phone numbers.
+- Ignore any math/homework questions in the samples.
 
-CRITICAL for "sample_messages":
-- Must be NEW messages, not copies from the list above
-- Must sound like a real person in this chat would type
-- Never include slurs, hate speech, or harmful content
-
-Output valid JSON only. No prose. No markdown fences.`;
+Output valid JSON only.`;
 
   const raw = await callExtractLLM(prompt);
   if (!raw) {
@@ -384,7 +437,6 @@ Output valid JSON only. No prose. No markdown fences.`;
     return jsFallbackProfile(messages, meta);
   }
 
-  // sanitize phrases through stopword filter even from LLM
   const rawPhrases = asArray(parsed.phrases).map((p) => String(p).slice(0, 80));
   const cleanPhrases = filterPhrases(rawPhrases);
 
@@ -397,32 +449,78 @@ Output valid JSON only. No prose. No markdown fences.`;
     topics:          asArray(parsed.topics).slice(0, 8).map((t) => String(t).slice(0, 60)),
     avoid:           asArray(parsed.avoid).slice(0, 8).map((a) => String(a).slice(0, 80)),
     sample_messages: asArray(parsed.sample_messages).slice(0, 5).map((s) => String(s).slice(0, 200)),
+    running_bits:    asArray(parsed.running_bits).slice(0, 6).map((b) => String(b).slice(0, 120)),
+    vocab:           asArray(parsed.vocab).slice(0, 8).map((v) => String(v).slice(0, 60)),
+    personality:     String(parsed.personality || "").slice(0, 400),
+    values:          asArray(parsed.values).slice(0, 5).map((v) => String(v).slice(0, 100)),
+    friction:        asArray(parsed.friction).slice(0, 3).map((f) => String(f).slice(0, 100)),
   };
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   PHRASE FILTER — reject grammatical glue
+   ENHANCE — LLM modifies existing profile based on instruction
    ═══════════════════════════════════════════════════════════════ */
-function filterPhrases(phrases) {
-  const out = [];
-  for (const p of phrases) {
-    const lower = String(p).toLowerCase().trim();
-    if (lower.length < 3) continue;
-    if (lower.length > 60) continue;
-    if (PHRASE_STOPWORDS.has(lower)) continue;
+async function enhanceServerProfile(pool, guildId, instruction) {
+  const current = await store.getServerProfile(pool, guildId);
+  if (!current.profile) return { ok: false, reason: "no profile yet — run a backfill first" };
 
-    // reject if every word is a stopword
-    const words = lower.split(/\s+/).filter(Boolean);
-    if (!words.length) continue;
-    const realWords = words.filter((w) => !STOPWORDS.has(w) && w.length > 2);
-    if (realWords.length === 0) continue;
+  const prompt = `You are tuning a Discord bot's persona profile. Below is the CURRENT profile JSON. The user wants to modify it based on this instruction:
 
-    // reject if the phrase is only 1 char words or punctuation
-    if (words.every((w) => w.length <= 2)) continue;
+INSTRUCTION: "${instruction}"
 
-    if (!out.includes(p)) out.push(p);
-  }
-  return out.slice(0, 12);
+CURRENT PROFILE:
+${JSON.stringify(current.profile, null, 2)}
+
+Return ONLY the MODIFIED profile as valid JSON. Keep the exact same field names and types. Only change what the instruction asks for. Preserve everything else exactly.
+
+If the instruction is unclear, make a reasonable guess. If it references a field that doesn't exist, add it as a new field.
+
+Return ONLY the JSON. No prose. No markdown.`;
+
+  const raw = await callExtractLLM(prompt, 1600);
+  if (!raw) return { ok: false, reason: "LLM unavailable" };
+
+  const parsed = safeParseJson(raw);
+  if (!parsed) return { ok: false, reason: "LLM returned invalid JSON" };
+
+  // sanitize phrases if present
+  if (Array.isArray(parsed.phrases)) parsed.phrases = filterPhrases(parsed.phrases);
+
+  parsed.sample_count = current.profile.sample_count || 0;
+  parsed.confidence = current.profile.confidence || 0;
+
+  await store.saveServerProfile(pool, guildId, parsed);
+  try { require("./speaker").invalidateProfile(guildId); } catch {}
+
+  log(`enhance: applied — "${instruction.slice(0, 60)}"`);
+  return { ok: true, profile: parsed };
+}
+
+async function enhanceUserProfile(pool, userId, guildId, instruction) {
+  const current = await store.getUserProfile(pool, userId, guildId);
+  if (!current.profile) return { ok: false, reason: "no profile yet" };
+
+  const prompt = `Modify the persona profile JSON below based on this instruction:
+
+INSTRUCTION: "${instruction}"
+
+CURRENT PROFILE:
+${JSON.stringify(current.profile, null, 2)}
+
+Return ONLY the modified JSON with the same field names. Change only what's asked. Preserve everything else.
+
+Return ONLY JSON. No prose.`;
+
+  const raw = await callExtractLLM(prompt, 1200);
+  if (!raw) return { ok: false, reason: "LLM unavailable" };
+
+  const parsed = safeParseJson(raw);
+  if (!parsed) return { ok: false, reason: "invalid JSON" };
+
+  if (Array.isArray(parsed.phrases)) parsed.phrases = filterPhrases(parsed.phrases);
+
+  await store.saveUserProfile(pool, userId, guildId, parsed);
+  return { ok: true, profile: parsed };
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -465,7 +563,6 @@ function jsFallbackProfile(messages, meta) {
   else if (custom / total > 0.05)  emojiStyle = "some custom emojis";
   else if (unicode / total > 0.15) emojiStyle = "uses unicode emojis";
 
-  // phrase extraction WITH stopword filtering
   const phraseCounts = new Map();
   for (const m of cleaned) {
     const words = m.toLowerCase().replace(/[^\w\s]/g, "").split(/\s+/).filter(Boolean);
@@ -474,11 +571,10 @@ function jsFallbackProfile(messages, meta) {
         const gram = words.slice(i, i + n).join(" ");
         if (gram.length < 5) continue;
         if (PHRASE_STOPWORDS.has(gram)) continue;
-
         const gramWords = gram.split(" ");
+        if (gramWords.some((w) => ACADEMIC_WORDS.has(w))) continue;
         const realWords = gramWords.filter((w) => !STOPWORDS.has(w) && w.length > 2);
         if (realWords.length < 1) continue;
-
         phraseCounts.set(gram, (phraseCounts.get(gram) || 0) + 1);
       }
     }
@@ -507,6 +603,7 @@ function jsFallbackProfile(messages, meta) {
     tone, avg_length: avgLength, phrases,
     punctuation: pHabits.join(", "), emoji_style: emojiStyle,
     topics: [], avoid: [], sample_messages,
+    running_bits: [], vocab: [], personality: "", values: [], friction: [],
     _fallback: true,
   };
 }
@@ -517,11 +614,9 @@ function jsFallbackProfile(messages, meta) {
 async function forceRefreshServer(client, guildId) {
   return refreshServerProfile(client.pool, guildId, { force: true });
 }
-
 async function forceRefreshUser(client, userId, guildId) {
   return refreshUserProfile(client.pool, userId, guildId, { force: true });
 }
-
 async function forceExtractNow(client, guildId) {
   return refreshServerProfile(client.pool, guildId, { force: true });
 }
@@ -552,7 +647,10 @@ async function backfillChannel(client, guildId, channelId, limit = DEFAULTS.back
     if (!batch || batch.size === 0) break;
     batches++;
 
-    const msgs = [...batch.values()].filter((m) => !m.author.bot && m.content?.length >= 2);
+    const msgs = [...batch.values()].filter((m) =>
+      !m.author.bot && m.content?.length >= 2 && !looksLikeHomework(m.content)
+    );
+
     for (const m of msgs) {
       let chk;
       try { chk = await blocked.shouldSkipLearning(pool, guildId, m.content); }
@@ -605,5 +703,7 @@ module.exports = {
   extractStyle,
   jsFallbackProfile,
   filterPhrases,
-  _internal: { safeParseJson, asArray, STOPWORDS, PHRASE_STOPWORDS },
+  enhanceServerProfile,
+  enhanceUserProfile,
+  _internal: { safeParseJson, asArray, STOPWORDS, PHRASE_STOPWORDS, ACADEMIC_WORDS },
 };
