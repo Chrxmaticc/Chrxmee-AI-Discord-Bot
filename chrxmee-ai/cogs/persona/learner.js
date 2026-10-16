@@ -1,6 +1,6 @@
 // cogs/persona/learner.js
 // ingests messages → extracts style profiles → saves.
-// direct Groq/Navy (no kilo), serial queue, lazy extract, batched prune.
+// direct Groq/Navy · serial queue · stopword-filtered phrases · LLM-first extraction.
 
 const { DEFAULTS, confidenceFromSamples } = require("./constants");
 const store   = require("./store");
@@ -17,13 +17,37 @@ const err  = (...a) => console.error("[persona/learner]", ...a);
 /* ═══════════════════════════════════════════════════════════════
    TUNABLES
    ═══════════════════════════════════════════════════════════════ */
-const FLUSH_INTERVAL_MS    = 60_000;
-const MIN_EXTRACT_GAP_MS   = 60_000;
-const MIN_NEW_MESSAGES     = 100;
-const PRUNE_EVERY          = 50;
-const SAMPLE_SIZE          = 100;
-const EXTRACT_TIMEOUT_MS   = 12_000;
-const EXTRACT_MAX_TOKENS   = 1000;
+const FLUSH_INTERVAL_MS  = 60_000;
+const MIN_EXTRACT_GAP_MS = 60_000;
+const MIN_NEW_MESSAGES   = 100;
+const PRUNE_EVERY        = 50;
+const SAMPLE_SIZE        = 100;
+const EXTRACT_TIMEOUT_MS = 12_000;
+const EXTRACT_MAX_TOKENS = 1200;
+
+/* ═══════════════════════════════════════════════════════════════
+   STOPWORDS — reject grammatical glue from phrase extraction
+   ═══════════════════════════════════════════════════════════════ */
+const STOPWORDS = new Set([
+  "i", "me", "my", "mine", "you", "your", "yours", "we", "us", "our", "ours",
+  "they", "them", "their", "theirs", "he", "him", "his", "she", "her", "hers",
+  "it", "its", "the", "a", "an", "and", "or", "but", "if", "then", "so",
+  "of", "to", "in", "on", "at", "for", "with", "by", "from", "as", "into",
+  "is", "are", "was", "were", "be", "been", "being", "am", "do", "does", "did",
+  "have", "has", "had", "will", "would", "can", "could", "should", "may", "might",
+  "this", "that", "these", "those", "not", "no", "yes", "just", "only", "also",
+  "here", "there", "where", "when", "why", "how", "what", "who", "which",
+]);
+
+const PHRASE_STOPWORDS = new Set([
+  "i am", "you are", "we are", "they are", "he is", "she is", "it is",
+  "i'm", "you're", "we're", "they're", "it's",
+  "ask x", "ask y", "ask me", "tell me", "ask him", "ask her",
+  "x and", "and y", "y are", "x is", "y is",
+  "are not", "is not", "was not", "were not",
+  "the and", "a and", "an and",
+  "and and", "or or", "but but", "the the", "is a", "it a", "to be",
+]);
 
 /* ═══════════════════════════════════════════════════════════════
    STATE
@@ -60,7 +84,7 @@ function safeParseJson(text) {
   if (!text) return null;
   let cleaned = String(text).replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
   const start = cleaned.indexOf("{");
-  const end = cleaned.lastIndexOf("}");
+  const end   = cleaned.lastIndexOf("}");
   if (start === -1 || end === -1 || end < start) return null;
   cleaned = cleaned.slice(start, end + 1).replace(/,\s*([}\]])/g, "$1");
   try { return JSON.parse(cleaned); } catch { return null; }
@@ -92,7 +116,7 @@ async function enqueueExtract(task) {
    ═══════════════════════════════════════════════════════════════ */
 async function ingestMessage(client, message) {
   if (!message.guild) return;
-  if (message.author.bot) return;
+  if (message.author.bot) return;                 // ← reject bot messages (prevents chromed's own output poisoning corpus)
   if (!message.content || message.content.length < 2) return;
   if (message.content.length > 2000) return;
 
@@ -226,7 +250,7 @@ async function refreshServerProfile(pool, guildId, opts = {}) {
   clean.confidence = confidenceFromSamples(total);
 
   await store.saveServerProfile(pool, guildId, clean);
-  log(`server ${guildId}: SAVED — confidence=${clean.confidence}%`);
+  log(`server ${guildId}: SAVED — confidence=${clean.confidence}% · phrases=${clean.phrases?.length || 0}`);
 
   try { require("./speaker").invalidateProfile(guildId); } catch {}
 
@@ -267,14 +291,14 @@ async function refreshUserProfile(pool, userId, guildId, opts = {}) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   LLM PROVIDERS (direct — no kilo)
+   LLM PROVIDERS
    ═══════════════════════════════════════════════════════════════ */
 const EXTRACT_PROVIDERS = [
+  { name: "groq-big",  id: "openai/gpt-oss-120b",
+    url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
   { name: "groq-fast", id: "openai/gpt-oss-20b",
     url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
-  { name: "groq-big", id: "openai/gpt-oss-120b",
-    url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
-  { name: "navy", id: "gpt-4.1-mini",
+  { name: "navy", id: "gpt-4.1",
     url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
 ];
 
@@ -290,7 +314,7 @@ async function callExtractLLM(prompt) {
           body: JSON.stringify({
             model: p.id,
             messages: [{ role: "user", content: prompt }],
-            temperature: 0.4,
+            temperature: 0.3,
             max_tokens: EXTRACT_MAX_TOKENS,
           }),
         }),
@@ -314,32 +338,39 @@ async function callExtractLLM(prompt) {
 async function extractStyle(messages, meta) {
   const sampleBlock = messages.map((m, i) => `${i + 1}. ${m}`).join("\n");
   const scopeHint = meta.scope === "user"
-    ? "This is ONE user's messages. Learn THEIR individual voice."
-    : "This is a collection of messages from MANY users in one Discord server. Learn the collective voice.";
+    ? "These messages are all from ONE user. Learn their individual voice."
+    : "These messages are from MANY users in ONE Discord server. Learn the collective voice.";
 
-  const prompt = `Linguistics analyst task. Study these Discord messages.
+  const prompt = `You are a linguistics analyst studying Discord chat.
 
 ${scopeHint}
 
 MESSAGES:
 ${sampleBlock}
 
-Return ONLY valid JSON:
+Extract the STYLE of this chat. Return ONLY valid JSON:
 {
-  "tone": "short vibe description",
-  "avg_length": <number, avg words>,
-  "phrases": ["recurring phrases, max 12"],
-  "punctuation": "punctuation habits",
-  "emoji_style": "emoji habits",
-  "topics": ["common topics, max 8"],
-  "avoid": ["things they never do"],
-  "sample_messages": ["3-5 new lines in this exact voice"]
+  "tone": "one SPECIFIC phrase describing the vibe — not generic words like 'casual'",
+  "avg_length": <number, average words per message>,
+  "phrases": ["6-10 ACTUAL slang or idiomatic expressions real people would say"],
+  "punctuation": "specific habits (e.g. 'no ending punctuation', 'mostly lowercase')",
+  "emoji_style": "specific habits",
+  "topics": ["3-8 actual topics discussed in the chat"],
+  "avoid": ["things this chat NEVER does"],
+  "sample_messages": ["3-5 NEW lines that SOUND like this chat but are NOT copied from above"]
 }
 
-Rules:
-- Never include slurs or harmful content.
-- Sample messages MUST sound like the source but be new text.
-- Output valid JSON only. No prose. No markdown.`;
+CRITICAL for "phrases":
+- GOOD: "lock in", "cooked", "fr fr", "no shot", "it's so over", "cooking", "peak", "mid"
+- BAD: "i am", "you are", "the", "and", "x and y", "is a", "to be", "ask x"
+- Only include phrases that are SLANG or IDIOMATIC. Grammatical glue is FORBIDDEN.
+
+CRITICAL for "sample_messages":
+- Must be NEW messages, not copies from the list above
+- Must sound like a real person in this chat would type
+- Never include slurs, hate speech, or harmful content
+
+Output valid JSON only. No prose. No markdown fences.`;
 
   const raw = await callExtractLLM(prompt);
   if (!raw) {
@@ -353,16 +384,45 @@ Rules:
     return jsFallbackProfile(messages, meta);
   }
 
+  // sanitize phrases through stopword filter even from LLM
+  const rawPhrases = asArray(parsed.phrases).map((p) => String(p).slice(0, 80));
+  const cleanPhrases = filterPhrases(rawPhrases);
+
   return {
     tone:            String(parsed.tone || "").slice(0, 200),
     avg_length:      Number(parsed.avg_length || 0),
-    phrases:         asArray(parsed.phrases).slice(0, 12).map((p) => String(p).slice(0, 80)),
+    phrases:         cleanPhrases,
     punctuation:     String(parsed.punctuation || "").slice(0, 200),
     emoji_style:     String(parsed.emoji_style || "").slice(0, 200),
     topics:          asArray(parsed.topics).slice(0, 8).map((t) => String(t).slice(0, 60)),
     avoid:           asArray(parsed.avoid).slice(0, 8).map((a) => String(a).slice(0, 80)),
     sample_messages: asArray(parsed.sample_messages).slice(0, 5).map((s) => String(s).slice(0, 200)),
   };
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PHRASE FILTER — reject grammatical glue
+   ═══════════════════════════════════════════════════════════════ */
+function filterPhrases(phrases) {
+  const out = [];
+  for (const p of phrases) {
+    const lower = String(p).toLowerCase().trim();
+    if (lower.length < 3) continue;
+    if (lower.length > 60) continue;
+    if (PHRASE_STOPWORDS.has(lower)) continue;
+
+    // reject if every word is a stopword
+    const words = lower.split(/\s+/).filter(Boolean);
+    if (!words.length) continue;
+    const realWords = words.filter((w) => !STOPWORDS.has(w) && w.length > 2);
+    if (realWords.length === 0) continue;
+
+    // reject if the phrase is only 1 char words or punctuation
+    if (words.every((w) => w.length <= 2)) continue;
+
+    if (!out.includes(p)) out.push(p);
+  }
+  return out.slice(0, 12);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -405,13 +465,20 @@ function jsFallbackProfile(messages, meta) {
   else if (custom / total > 0.05)  emojiStyle = "some custom emojis";
   else if (unicode / total > 0.15) emojiStyle = "uses unicode emojis";
 
+  // phrase extraction WITH stopword filtering
   const phraseCounts = new Map();
   for (const m of cleaned) {
     const words = m.toLowerCase().replace(/[^\w\s]/g, "").split(/\s+/).filter(Boolean);
     for (let n = 2; n <= 3; n++) {
       for (let i = 0; i <= words.length - n; i++) {
         const gram = words.slice(i, i + n).join(" ");
-        if (gram.length < 4) continue;
+        if (gram.length < 5) continue;
+        if (PHRASE_STOPWORDS.has(gram)) continue;
+
+        const gramWords = gram.split(" ");
+        const realWords = gramWords.filter((w) => !STOPWORDS.has(w) && w.length > 2);
+        if (realWords.length < 1) continue;
+
         phraseCounts.set(gram, (phraseCounts.get(gram) || 0) + 1);
       }
     }
@@ -537,5 +604,6 @@ module.exports = {
   backfillChannel,
   extractStyle,
   jsFallbackProfile,
-  _internal: { safeParseJson, asArray, PENDING_SERVER, PENDING_USER },
+  filterPhrases,
+  _internal: { safeParseJson, asArray, STOPWORDS, PHRASE_STOPWORDS },
 };
