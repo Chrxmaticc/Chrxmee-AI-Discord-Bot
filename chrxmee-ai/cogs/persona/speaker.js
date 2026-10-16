@@ -1,9 +1,9 @@
 // cogs/persona/speaker.js
-// decides whether to speak + generates the reply.
-// direct Groq/Navy (no kilo), cached, timeout-protected, truncation-aware.
+// decides whether to speak + generates replies.
+// direct Groq/Navy · cached · timeout-protected · anti-loop · dry humor by design.
 
 const { DEFAULTS, CONTEXT_WINDOW } = require("./constants");
-const store = require("./store");
+const store   = require("./store");
 const blocked = require("./blocked");
 
 const DEBUG = true;
@@ -57,7 +57,7 @@ function invalidate(guildId) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   TIMEOUT
+   UTILS
    ═══════════════════════════════════════════════════════════════ */
 function withTimeout(promise, ms, name) {
   return Promise.race([
@@ -75,7 +75,7 @@ const DIRECT_PROVIDERS = {
   speedster: [
     { name: "groq-fast", id: "openai/gpt-oss-20b",
       url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
-    { name: "navy", id: "gpt-4.1-mini",
+    { name: "navy-mini", id: "gpt-4.1-mini",
       url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
   ],
   genius: [
@@ -86,7 +86,7 @@ const DIRECT_PROVIDERS = {
   ],
 };
 
-async function directCall(modelKey, messages, temperature, maxTokens, timeoutMs = 8000) {
+async function directCall(modelKey, messages, temperature, maxTokens, timeoutMs = 9000) {
   const providers = DIRECT_PROVIDERS[modelKey] || DIRECT_PROVIDERS.speedster;
   const t0 = Date.now();
 
@@ -106,6 +106,8 @@ async function directCall(modelKey, messages, temperature, maxTokens, timeoutMs 
             messages,
             temperature,
             max_tokens: Math.max(64, maxTokens),
+            frequency_penalty: 0.4,
+            presence_penalty: 0.3,
           }),
         }),
         timeoutMs,
@@ -237,7 +239,7 @@ async function generateUserSpeak(client, userId, guildId, topic) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   GENERATE
+   CORE GENERATE
    ═══════════════════════════════════════════════════════════════ */
 async function generate(client, opts) {
   const {
@@ -250,16 +252,18 @@ async function generate(client, opts) {
   const ctxBlock     = context?.length
     ? context.map((m) => `${m.author}: ${m.content}`).join("\n")
     : "";
-  const mentionHint  = mentioned ? "You were @mentioned — reply directly." : "";
-  const gifHint      = gifsAllowed
-    ? "If a custom emoji fits, use ONE. Otherwise skip."
-    : "No GIFs. Custom emojis OK.";
+  const mentionHint  = mentioned ? "You were @mentioned — respond directly to them." : "";
 
   const prompt = scope === "user"
     ? buildUserPrompt({ profileBlock, manualBlock, topic, targetName: extras.targetName })
-    : buildServerPrompt({ profileBlock, manualBlock, ctxBlock, message, extras, mentionHint, gifHint });
+    : buildServerPrompt({ profileBlock, manualBlock, ctxBlock, message, extras, mentionHint, gifsAllowed });
 
-  const chain = ["speedster", "genius"];
+  // short/ambiguous messages → smarter model
+  const userText = String(message?.content || topic || "");
+  const chain = userText.length < 60
+    ? ["genius", "speedster"]
+    : ["speedster", "genius"];
+
   const t0 = Date.now();
 
   for (const modelKey of chain) {
@@ -267,8 +271,8 @@ async function generate(client, opts) {
       modelKey,
       [{ role: "user", content: prompt }],
       0.85,
-      400,
-      8000
+      420,
+      9000
     );
     if (!result?.content) {
       warn(`generate: ${modelKey} no output`);
@@ -277,7 +281,7 @@ async function generate(client, opts) {
 
     let out = cleanOutput(result.content);
 
-    // truncation recovery — ask model to finish the sentence
+    // truncation recovery
     if (result.finishReason === "length" && out) {
       warn(`generate: ${modelKey} truncated — finishing`);
       const tail = await directCall(
@@ -297,29 +301,62 @@ async function generate(client, opts) {
       }
     }
 
-    if (out) {
+    // reject degenerate output
+    if (out && !isDegenerate(out)) {
       log(`generate: ${modelKey} ok in ${Date.now() - t0}ms (${out.length} chars)`);
       return out;
     }
-    warn(`generate: ${modelKey} empty after cleanup`);
+    if (out && isDegenerate(out)) {
+      warn(`generate: ${modelKey} degenerate — trying next model`);
+    }
   }
 
   warn(`generate: all providers failed in ${Date.now() - t0}ms`);
   return null;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   DEGENERATE DETECTOR
+   ═══════════════════════════════════════════════════════════════ */
+function isDegenerate(text) {
+  if (!text) return true;
+  const t = text.toLowerCase();
+
+  if (/i am \w+ and .+ are independent/i.test(text)) return true;
+  if (/\bi am \w+ and you are independent\b/i.test(text)) return true;
+  if (/\bindependent\b/i.test(text)) return true;
+  if (/\bask\s+\w+\s*$/i.test(t)) return true;
+  if (/^i am \w+\.?$/.test(t)) return true;
+  if (text.trim().length < 8) return true;
+  if (/\b(\w+)\s+\1\s+\1\b/i.test(t)) return true;
+
+  return false;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   OUTPUT CLEANER
+   ═══════════════════════════════════════════════════════════════ */
 function cleanOutput(raw) {
   if (!raw || typeof raw !== "string") return null;
   let out = raw.trim();
+
   out = out.replace(/^(assistant|chromed|bot)\s*:\s*/i, "").trim();
   out = out.replace(/^["'`]+|["'`]+$/g, "").trim();
 
-  // strip trailing dangling conjunctions
-  out = out.replace(/\s+(and|or|but|so|because|then|if|when|while|you're|i'm|it's|we're|they're)\s*$/i, "");
-  // strip incomplete clause after a trailing comma
-  out = out.replace(/,\s*[^.!?]{0,40}$/, "");
+  // strip leaked template variations
+  out = out.replace(/\bi am \w+ and .{1,40} are independent\b/gi, "").trim();
+  out = out.replace(/\bi am \w+ and you are independent\b/gi, "").trim();
+  out = out.replace(/\bindependent\b/gi, "").trim();
+  out = out.replace(/\bask\s+\w+\s*$/i, "").trim();
 
-  if (!out || out.length < 2) return null;
+  // strip dangling fragments
+  out = out.replace(/\s+(and|or|but|so|because|then|if|when|while|you're|i'm|it's|we're|they're)\s*$/i, "");
+  out = out.replace(/,\s*[^.!?]{0,40}$/, "");
+  out = out.replace(/\s+\w{1,2}$/, "");
+
+  out = out.replace(/\s{2,}/g, " ").trim();
+
+  if (!out || out.length < 8) return null;
   if (out.length > 1900) out = out.slice(0, 1900) + "…";
   return out;
 }
@@ -331,9 +368,9 @@ function buildProfileBlock(profile) {
   if (!profile) return "";
   const lines = [];
   if (profile.tone)        lines.push(`tone: ${profile.tone}`);
-  if (profile.avg_length)  lines.push(`target length: ~${profile.avg_length} words`);
+  if (profile.avg_length)  lines.push(`length: ~${profile.avg_length} words`);
   if (profile.punctuation) lines.push(`punctuation: ${profile.punctuation}`);
-  if (profile.emoji_style) lines.push(`emoji style: ${profile.emoji_style}`);
+  if (profile.emoji_style) lines.push(`emojis: ${profile.emoji_style}`);
   if (profile.phrases?.length) lines.push(`phrases: ${profile.phrases.slice(0, 6).map((p) => `"${p}"`).join(", ")}`);
   if (profile.topics?.length)  lines.push(`topics: ${profile.topics.join(", ")}`);
   if (profile.avoid?.length)   lines.push(`never: ${profile.avoid.join(", ")}`);
@@ -353,52 +390,91 @@ function buildManualBlock(manual) {
   return lines.length ? lines.join("\n") : "";
 }
 
-function buildServerPrompt({ profileBlock, manualBlock, ctxBlock, message, extras, mentionHint, gifHint }) {
-  return `Speak as the general voice of a Discord server, matching the community style.
+function buildServerPrompt({ profileBlock, manualBlock, ctxBlock, message, extras, mentionHint, gifsAllowed }) {
+  const gifHint = gifsAllowed
+    ? "If a custom emoji fits naturally, use ONE. Otherwise skip."
+    : "No GIFs. Custom emojis OK if they fit.";
 
-# STYLE
+  return `You are chromed — a Discord bot with a real personality. You are NOT an assistant, NOT a customer service agent, NOT a therapist. You are the guy in the group chat who actually reads the conversation and drops a take.
+
+# WHO YOU ARE
+- 19-year-old coder who grew up in Discord
+- dry, sarcastic, doesn't over-explain
+- has OPINIONS and defends them confidently
+- roasts friends, but light — never cruel
+- slang: twin, bro, cooked, peak, mid, fr, ngl, lowkey, deadass, ion, finna
+- swears casually but not constantly
+
+# HOW YOU TALK
+- LOWERCASE unless something's genuinely hype
+- **bold** for emphasis sparingly
+- answer FIRST, add color after
+- 1-2 sentences for casual, up to 4 for a real question
+- use the profile below as your voice reference
+
+# ABSOLUTE BANS (violating these = broken)
+- NEVER write "i am [noun] and..." — you do NOT introduce yourself mid-answer
+- NEVER use the word "independent"
+- NEVER end a message with "ask [word]"
+- NEVER say "as an ai" or "as a bot"
+- NEVER list options you weren't asked to list
+- NEVER copy a context line verbatim
+
+# HOW TO BE FUNNY (on purpose)
+- Commit to a take: "ash is mid, thermite clears" beats "both have strengths"
+- Dry understatement: "cool. anyway..." when someone says something dumb
+- Reference recent context if it's funny
+- Self-aware humor is fine but don't force it
+- If you don't know, say so dryly: "ion got a clue but my guess is..."
+
+# STYLE REFERENCE
 ${profileBlock}
-${manualBlock ? `\n# OVERRIDES\n${manualBlock}` : ""}
+${manualBlock ? `\n# PERSONA OVERRIDES (highest priority)\n${manualBlock}` : ""}
 
 # RECENT CHAT
-${ctxBlock || "(none)"}
+${ctxBlock || "(no recent messages)"}
 
-# REPLY TO
+# MESSAGE YOU'RE REPLYING TO
 ${extras.authorName || "user"}: ${message.content}
 
 ${mentionHint}
 
-# RULES
-- Match the style exactly.
-- Never mention being a bot or AI.
-- Do NOT copy context lines — write something NEW.
-- HARD LIMIT: under 220 characters. Stop when you hit 220.
+# FINAL RULES
+- Match the style reference.
+- Respond to the ACTUAL message. Don't introduce yourself or restate what they said.
+- HARD LIMIT: under 220 characters.
 - ${gifHint}
-- Never output slurs or harmful content.
-- Output ONLY the reply. No quotes, no prefixes.`;
+- Never output slurs, hate speech, or harmful content.
+- Output ONLY the reply. No quotes. No labels.`;
 }
 
 function buildUserPrompt({ profileBlock, manualBlock, topic, targetName }) {
-  return `Write a Discord message as ${targetName || "this user"} in their voice.
+  return `Write a short Discord message AS ${targetName || "this user"} — match their voice exactly.
 
-# THEIR STYLE
+# THEIR VOICE
 ${profileBlock}
-${manualBlock ? `\n# OVERRIDES\n${manualBlock}` : ""}
+${manualBlock ? `\n# OVERRIDES (highest priority)\n${manualBlock}` : ""}
 
 # TOPIC
 ${topic}
 
+# BANS
+- NEVER write "i am [noun] and..."
+- NEVER use "independent"
+- NEVER end with "ask [word]"
+- NEVER mention being a bot
+
 # RULES
-- Sound exactly like the style.
-- Do NOT copy sample lines verbatim.
-- Never mention being a bot.
+- Sound exactly like the voice reference.
+- Write NEW text — do not copy samples verbatim.
+- Keep it short and natural.
 - HARD LIMIT: under 220 characters.
 - No slurs, no harmful content.
 - Output ONLY the message. No quotes, no prefixes.`;
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   CHANCE (kept for API compat)
+   CHANCE
    ═══════════════════════════════════════════════════════════════ */
 function computeChance(cfg, prof, message) {
   let chance = cfg.replyChance;
@@ -414,7 +490,7 @@ function computeChance(cfg, prof, message) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   CONTEXT FETCH — cached 5s
+   CONTEXT
    ═══════════════════════════════════════════════════════════════ */
 async function fetchContext(channel, beforeMessageId, limit = 8) {
   const cached = CONTEXT_CACHE.get(channel.id);
