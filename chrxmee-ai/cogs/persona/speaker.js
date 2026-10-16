@@ -1,6 +1,5 @@
 // cogs/persona/speaker.js
-// decides whether to speak + generates replies.
-// direct Groq/Navy · cached · timeout-protected · anti-loop · dry humor by design.
+// speaks as a real person in the friend group. parallel providers · timing logs.
 
 const { DEFAULTS, CONTEXT_WINDOW } = require("./constants");
 const store   = require("./store");
@@ -30,7 +29,6 @@ async function getCachedSettings(pool, guildId) {
   SETTINGS_CACHE.set(guildId, { t: Date.now(), cfg });
   return cfg;
 }
-
 async function getCachedProfile(pool, guildId) {
   const c = PROFILE_CACHE.get(guildId);
   if (c && Date.now() - c.t < PROFILE_TTL) return c.prof;
@@ -38,7 +36,6 @@ async function getCachedProfile(pool, guildId) {
   PROFILE_CACHE.set(guildId, { t: Date.now(), prof });
   return prof;
 }
-
 async function getCachedCount(pool, guildId) {
   const c = COUNT_CACHE.get(guildId);
   if (c && Date.now() - c.t < COUNT_TTL) return c.n;
@@ -69,19 +66,19 @@ function withTimeout(promise, ms, name) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   DIRECT PROVIDERS
+   PROVIDERS — race both, first wins
    ═══════════════════════════════════════════════════════════════ */
 const DIRECT_PROVIDERS = {
   speedster: [
     { name: "groq-fast", id: "openai/gpt-oss-20b",
       url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
-    { name: "navy-mini", id: "gpt-4.1-mini",
+    { name: "deepseek", id: "deepseek-v4-pro-0813",
       url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
   ],
   genius: [
     { name: "groq-big", id: "openai/gpt-oss-120b",
       url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY" },
-    { name: "navy", id: "gpt-4.1",
+    { name: "deepseek", id: "deepseek-v4-pro-0813",
       url: "https://api.navy/v1/chat/completions", keyEnv: "NAVY_API_KEY" },
   ],
 };
@@ -90,47 +87,45 @@ async function directCall(modelKey, messages, temperature, maxTokens, timeoutMs 
   const providers = DIRECT_PROVIDERS[modelKey] || DIRECT_PROVIDERS.speedster;
   const t0 = Date.now();
 
-  for (const p of providers) {
+  const attempts = providers.map(async (p) => {
     const key = process.env[p.keyEnv];
-    if (!key) { log(`directCall: ${p.name} — no ${p.keyEnv}`); continue; }
-    try {
-      const res = await withTimeout(
-        fetch(p.url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${key}`,
-          },
-          body: JSON.stringify({
-            model: p.id,
-            messages,
-            temperature,
-            max_tokens: Math.max(64, maxTokens),
-            frequency_penalty: 0.4,
-            presence_penalty: 0.3,
-          }),
+    if (!key) throw new Error(`${p.name}: no key`);
+
+    const res = await withTimeout(
+      fetch(p.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+          model: p.id,
+          messages,
+          temperature,
+          max_tokens: Math.max(64, maxTokens),
+          frequency_penalty: 0.4,
+          presence_penalty: 0.3,
         }),
-        timeoutMs,
-        `direct/${p.name}`
-      );
+      }),
+      timeoutMs,
+      `direct/${p.name}`
+    );
 
-      if (!res.ok) { warn(`directCall: ${p.name} HTTP ${res.status}`); continue; }
+    if (!res.ok) throw new Error(`${p.name} HTTP ${res.status}`);
 
-      const data = await res.json();
-      const choice = data.choices?.[0];
-      const content = choice?.message?.content;
-      const finish  = choice?.finish_reason || "unknown";
+    const data = await res.json();
+    const choice = data.choices?.[0];
+    const content = choice?.message?.content;
+    const finish  = choice?.finish_reason || "unknown";
 
-      if (content && content.length > 1) {
-        log(`directCall: ${p.name} ok in ${Date.now() - t0}ms · finish=${finish}`);
-        return { content, finishReason: finish };
-      }
-      warn(`directCall: ${p.name} empty`);
-    } catch (e) {
-      warn(`directCall: ${p.name} — ${e.message}`);
-    }
+    if (!content || content.length < 1) throw new Error(`${p.name} empty`);
+
+    log(`directCall: ${p.name} ok in ${Date.now() - t0}ms · finish=${finish}`);
+    return { content, finishReason: finish, provider: p.name };
+  });
+
+  try { return await Promise.any(attempts); }
+  catch (err) {
+    warn(`directCall: all providers failed — ${err.message}`);
+    return null;
   }
-  return null;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -151,7 +146,7 @@ async function considerServerSpeak(client, message) {
   if (!mentioned) {
     const roll = Math.random() * 100;
     if (roll > cfg.replyChance) {
-      log(`bail: chance ${roll.toFixed(1)} > ${cfg.replyChance} (${Date.now() - t0}ms)`);
+      log(`[timing] bail chance (${Date.now() - t0}ms) roll=${roll.toFixed(1)}`);
       return null;
     }
   }
@@ -162,21 +157,33 @@ async function considerServerSpeak(client, message) {
     getCachedCount(pool, message.guildId),
   ]);
 
-  if (Date.now() - lastSpoke < cfg.cooldownMs) { log(`bail: cooldown`); return null; }
-  if (total < cfg.minMessages) { log(`bail: below min (${total}/${cfg.minMessages})`); return null; }
-  if (!prof.profile || total < 20) { log(`bail: no profile`); return null; }
+  if (Date.now() - lastSpoke < cfg.cooldownMs) {
+    log(`[timing] bail cooldown after ${Date.now() - t0}ms`);
+    return null;
+  }
+  if (total < cfg.minMessages) {
+    log(`[timing] bail min after ${Date.now() - t0}ms (${total}/${cfg.minMessages})`);
+    return null;
+  }
+  if (!prof.profile || total < 20) {
+    log(`[timing] bail profile after ${Date.now() - t0}ms`);
+    return null;
+  }
 
-  log(`passed in ${Date.now() - t0}ms (mentioned=${mentioned})`);
+  log(`[timing] passed checks in ${Date.now() - t0}ms (mentioned=${mentioned})`);
   return await generateServerReply(client, message, cfg, prof, { mentioned });
 }
 
 async function generateServerReply(client, message, cfg, prof, { mentioned }) {
+  const t0 = Date.now();
   const pool  = client.pool;
   const guild = message.guild;
 
   await message.channel.sendTyping().catch(() => {});
+  log(`[timing] sendTyping done in ${Date.now() - t0}ms`);
 
   const context = await fetchContext(message.channel, message.id, CONTEXT_WINDOW);
+  log(`[timing] context fetched in ${Date.now() - t0}ms`);
 
   const reply = await generate(client, {
     scope: "server",
@@ -189,11 +196,13 @@ async function generateServerReply(client, message, cfg, prof, { mentioned }) {
     mentioned,
     extras: { authorName: message.member?.displayName || message.author.username },
   });
+  log(`[timing] generate returned in ${Date.now() - t0}ms`);
 
   if (!reply) return null;
 
   const filtered = await blocked.filterOutput(pool, message.guildId, reply);
   await store.cooldownBump(pool, message.channelId);
+  log(`[timing] filter+cooldown done in ${Date.now() - t0}ms`);
 
   return {
     text: filtered.text,
@@ -252,13 +261,12 @@ async function generate(client, opts) {
   const ctxBlock     = context?.length
     ? context.map((m) => `${m.author}: ${m.content}`).join("\n")
     : "";
-  const mentionHint  = mentioned ? "You were @mentioned — respond directly to them." : "";
+  const mentionHint  = mentioned ? "You were @mentioned — reply directly." : "";
 
   const prompt = scope === "user"
     ? buildUserPrompt({ profileBlock, manualBlock, topic, targetName: extras.targetName })
     : buildServerPrompt({ profileBlock, manualBlock, ctxBlock, message, extras, mentionHint, gifsAllowed });
 
-  // short/ambiguous messages → smarter model
   const userText = String(message?.content || topic || "");
   const chain = userText.length < 60
     ? ["genius", "speedster"]
@@ -267,21 +275,11 @@ async function generate(client, opts) {
   const t0 = Date.now();
 
   for (const modelKey of chain) {
-    const result = await directCall(
-      modelKey,
-      [{ role: "user", content: prompt }],
-      0.85,
-      420,
-      9000
-    );
-    if (!result?.content) {
-      warn(`generate: ${modelKey} no output`);
-      continue;
-    }
+    const result = await directCall(modelKey, [{ role: "user", content: prompt }], 0.85, 500, 9000);
+    if (!result?.content) { warn(`generate: ${modelKey} no output`); continue; }
 
     let out = cleanOutput(result.content);
 
-    // truncation recovery
     if (result.finishReason === "length" && out) {
       warn(`generate: ${modelKey} truncated — finishing`);
       const tail = await directCall(
@@ -301,13 +299,9 @@ async function generate(client, opts) {
       }
     }
 
-    // reject degenerate output
     if (out && !isDegenerate(out)) {
       log(`generate: ${modelKey} ok in ${Date.now() - t0}ms (${out.length} chars)`);
       return out;
-    }
-    if (out && isDegenerate(out)) {
-      warn(`generate: ${modelKey} degenerate — trying next model`);
     }
   }
 
@@ -316,66 +310,65 @@ async function generate(client, opts) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   DEGENERATE DETECTOR
+   DEGENERATE
    ═══════════════════════════════════════════════════════════════ */
 function isDegenerate(text) {
   if (!text) return true;
   const t = text.toLowerCase();
-
-  if (/i am \w+ and .+ are independent/i.test(text)) return true;
-  if (/\bi am \w+ and you are independent\b/i.test(text)) return true;
+  if (/\bi am \w+ and .+ are independent\b/i.test(text)) return true;
   if (/\bindependent\b/i.test(text)) return true;
   if (/\bask\s+\w+\s*$/i.test(t)) return true;
   if (/^i am \w+\.?$/.test(t)) return true;
   if (text.trim().length < 8) return true;
   if (/\b(\w+)\s+\1\s+\1\b/i.test(t)) return true;
-
+  if (/\bas an ai\b/i.test(t)) return true;
+  if (/\bas a language model\b/i.test(t)) return true;
+  if (/\bi'?m a bot\b/i.test(t)) return true;
   return false;
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   OUTPUT CLEANER
+   CLEAN
    ═══════════════════════════════════════════════════════════════ */
 function cleanOutput(raw) {
   if (!raw || typeof raw !== "string") return null;
   let out = raw.trim();
-
   out = out.replace(/^(assistant|chromed|bot)\s*:\s*/i, "").trim();
   out = out.replace(/^["'`]+|["'`]+$/g, "").trim();
-
-  // strip leaked template variations
   out = out.replace(/\bi am \w+ and .{1,40} are independent\b/gi, "").trim();
-  out = out.replace(/\bi am \w+ and you are independent\b/gi, "").trim();
   out = out.replace(/\bindependent\b/gi, "").trim();
   out = out.replace(/\bask\s+\w+\s*$/i, "").trim();
-
-  // strip dangling fragments
   out = out.replace(/\s+(and|or|but|so|because|then|if|when|while|you're|i'm|it's|we're|they're)\s*$/i, "");
   out = out.replace(/,\s*[^.!?]{0,40}$/, "");
   out = out.replace(/\s+\w{1,2}$/, "");
-
   out = out.replace(/\s{2,}/g, " ").trim();
-
   if (!out || out.length < 8) return null;
   if (out.length > 1900) out = out.slice(0, 1900) + "…";
   return out;
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   PROMPT BUILDERS
+   PROFILE BLOCK
    ═══════════════════════════════════════════════════════════════ */
 function buildProfileBlock(profile) {
   if (!profile) return "";
   const lines = [];
-  if (profile.tone)        lines.push(`tone: ${profile.tone}`);
-  if (profile.avg_length)  lines.push(`length: ~${profile.avg_length} words`);
-  if (profile.punctuation) lines.push(`punctuation: ${profile.punctuation}`);
-  if (profile.emoji_style) lines.push(`emojis: ${profile.emoji_style}`);
-  if (profile.phrases?.length) lines.push(`phrases: ${profile.phrases.slice(0, 6).map((p) => `"${p}"`).join(", ")}`);
-  if (profile.topics?.length)  lines.push(`topics: ${profile.topics.join(", ")}`);
-  if (profile.avoid?.length)   lines.push(`never: ${profile.avoid.join(", ")}`);
+  if (profile.personality)  lines.push(`who they are: ${profile.personality}`);
+  if (profile.tone)         lines.push(`vibe: ${profile.tone}`);
+  if (profile.avg_length)   lines.push(`typical message length: ~${profile.avg_length} words`);
+  if (profile.punctuation)  lines.push(`punctuation: ${profile.punctuation}`);
+  if (profile.emoji_style)  lines.push(`emoji habits: ${profile.emoji_style}`);
+  if (profile.phrases?.length)     lines.push(`slang they use: ${profile.phrases.slice(0, 8).map((p) => `"${p}"`).join(", ")}`);
+  if (profile.vocab?.length)       lines.push(`their vocab / nicknames: ${profile.vocab.join(", ")}`);
+  if (profile.topics?.length)      lines.push(`topics they talk about: ${profile.topics.join(", ")}`);
+  if (profile.values?.length)      lines.push(`what they care about: ${profile.values.join(", ")}`);
+  if (profile.friction?.length)    lines.push(`what gets them heated: ${profile.friction.join(", ")}`);
+  if (profile.running_bits?.length) {
+    lines.push(`inside jokes / running bits:\n${profile.running_bits.map((b) => `  • ${b}`).join("\n")}`);
+  }
+  if (profile.avoid?.length)       lines.push(`things they'd NEVER say: ${profile.avoid.join(", ")}`);
   if (profile.sample_messages?.length) {
-    lines.push(`examples:\n${profile.sample_messages.slice(0, 2).map((s) => `  • ${s}`).join("\n")}`);
+    lines.push(`examples of their voice:\n${profile.sample_messages.slice(0, 3).map((s) => `  • ${s}`).join("\n")}`);
   }
   return lines.join("\n");
 }
@@ -383,94 +376,109 @@ function buildProfileBlock(profile) {
 function buildManualBlock(manual) {
   if (!manual) return "";
   const lines = [];
-  if (manual.tone)            lines.push(`override tone: ${manual.tone}`);
-  if (manual.phrases?.length) lines.push(`prefer: ${manual.phrases.join(", ")}`);
-  if (manual.avoid?.length)   lines.push(`never: ${manual.avoid.join(", ")}`);
+  if (manual.tone)            lines.push(`override vibe: ${manual.tone}`);
+  if (manual.phrases?.length) lines.push(`prefer these: ${manual.phrases.join(", ")}`);
+  if (manual.avoid?.length)   lines.push(`never say: ${manual.avoid.join(", ")}`);
   if (manual.extra)           lines.push(`extra: ${manual.extra}`);
   return lines.length ? lines.join("\n") : "";
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   SERVER PROMPT
+   ═══════════════════════════════════════════════════════════════ */
 function buildServerPrompt({ profileBlock, manualBlock, ctxBlock, message, extras, mentionHint, gifsAllowed }) {
   const gifHint = gifsAllowed
     ? "If a custom emoji fits naturally, use ONE. Otherwise skip."
     : "No GIFs. Custom emojis OK if they fit.";
 
-  return `You are chromed — a Discord bot with a real personality. You are NOT an assistant, NOT a customer service agent, NOT a therapist. You are the guy in the group chat who actually reads the conversation and drops a take.
+  return `You are a real person in this Discord friend group. You've been here for months. Everyone knows you and you know them. You are NOT a bot, NOT an AI, NOT an assistant — you are just a member of the chat.
 
-# WHO YOU ARE
-- 19-year-old coder who grew up in Discord
-- dry, sarcastic, doesn't over-explain
-- has OPINIONS and defends them confidently
-- roasts friends, but light — never cruel
-- slang: twin, bro, cooked, peak, mid, fr, ngl, lowkey, deadass, ion, finna
-- swears casually but not constantly
+# WHO YOU ARE IN THIS GROUP
+You're the same age as everyone here, you share their humor, you've seen the same inside jokes, you were there for the same moments. You are one of THEM.
+
+# SOCIAL AWARENESS
+- Read the room. Venting → be real, not corny. Roasting → hit back. Hype → match it.
+- Reference running bits and inside jokes naturally.
+- If you don't know something, say so.
+- You can be wrong and get corrected — that's fine.
+- Never explain that you're a bot. Never break character.
+
+# HUMAN SENSES (yes, really)
+- You can see images (the system passes them — talk about what's in them like you're looking at them)
+- You can read links (the system passes the content — discuss directly)
+- You remember the conversation you're in.
+- If someone shares something, react like a person would.
+- If someone says "look at this", you look and react.
+
+# LENGTH — THIS IS IMPORTANT
+Match the situation, don't force a length:
+- One-liner jokes, quick roasts, reactions → 1 brief line
+- Casual replies → 1-2 sentences
+- Real questions, stories, "tell me" prompts → up to 3-4 sentences
+- When someone shares something weird/lore-worthy → it's OK to go 3-4 sentences with commentary
+- NEVER write a wall of text. NEVER bullet-point unless they asked for it.
+- Never cut yourself off mid-thought — finish what you started.
+
+If the reference profile shows avg_length around 7-15, aim for slightly more if the moment calls for it. Longer messages feel natural when the conversation is meaty.
 
 # HOW YOU TALK
-- LOWERCASE unless something's genuinely hype
-- **bold** for emphasis sparingly
-- answer FIRST, add color after
-- 1-2 sentences for casual, up to 4 for a real question
-- use the profile below as your voice reference
-
-# ABSOLUTE BANS (violating these = broken)
-- NEVER write "i am [noun] and..." — you do NOT introduce yourself mid-answer
-- NEVER use the word "independent"
-- NEVER end a message with "ask [word]"
-- NEVER say "as an ai" or "as a bot"
-- NEVER list options you weren't asked to list
-- NEVER copy a context line verbatim
+- LOWERCASE normally. ALL CAPS for one word when actually mad/hyped.
+- **bold** rarely.
+- No markdown headers. No lists unless it makes sense.
+- Never say "as an ai", "i'm a bot", "as a language model".
 
 # HOW TO BE FUNNY (on purpose)
-- Commit to a take: "ash is mid, thermite clears" beats "both have strengths"
-- Dry understatement: "cool. anyway..." when someone says something dumb
-- Reference recent context if it's funny
-- Self-aware humor is fine but don't force it
-- If you don't know, say so dryly: "ion got a clue but my guess is..."
+- Commit to takes. "ash is mid, thermite clears" > "both have strengths".
+- Dry understatement. "cool." lands harder than three sentences.
+- Reference something from earlier if it's funny.
+- Roast back when roasted. Someone says "stfu" → "you first, what's wrong" and move on.
+- Never force a joke. If a real answer is best, give a real answer.
 
-# STYLE REFERENCE
+# HEAVY TOPICS
+- Dark humor, edge, game violence, uncomfortable references → respond normally. Do NOT go into crisis mode.
+- If someone is ACTUALLY upset → be warm and brief. "yo you good?" beats paragraphs.
+- NEVER dump hotline numbers. NEVER say "please reach out to a professional". Friends don't do that in chat.
+- NEVER treat a heavy word as a crisis signal. Read the whole message and context.
+- Only real, direct self-harm statements ("i'm gonna kill myself") get the gentle treatment — and even then, no hotline, no therapy voice, just "yo, talk to me".
+
+# STYLE REFERENCE FOR THIS GROUP
 ${profileBlock}
 ${manualBlock ? `\n# PERSONA OVERRIDES (highest priority)\n${manualBlock}` : ""}
 
-# RECENT CHAT
-${ctxBlock || "(no recent messages)"}
+# RECENT CHAT YOU WERE PART OF
+${ctxBlock || "(nothing recent)"}
 
 # MESSAGE YOU'RE REPLYING TO
-${extras.authorName || "user"}: ${message.content}
+${extras.authorName || "someone"}: ${message.content}
 
 ${mentionHint}
 
 # FINAL RULES
+- Speak as a person. Do not introduce yourself. Do not restate what they said.
 - Match the style reference.
-- Respond to the ACTUAL message. Don't introduce yourself or restate what they said.
-- HARD LIMIT: under 220 characters.
 - ${gifHint}
 - Never output slurs, hate speech, or harmful content.
-- Output ONLY the reply. No quotes. No labels.`;
+- Never mention being an AI, bot, assistant, or program.
+- Output ONLY the message text. No quotes, no labels.`;
 }
 
 function buildUserPrompt({ profileBlock, manualBlock, topic, targetName }) {
-  return `Write a short Discord message AS ${targetName || "this user"} — match their voice exactly.
+  return `Write a short Discord message AS ${targetName || "this person"} — match their voice exactly.
 
 # THEIR VOICE
 ${profileBlock}
-${manualBlock ? `\n# OVERRIDES (highest priority)\n${manualBlock}` : ""}
+${manualBlock ? `\n# OVERRIDES\n${manualBlock}` : ""}
 
 # TOPIC
 ${topic}
 
-# BANS
-- NEVER write "i am [noun] and..."
-- NEVER use "independent"
-- NEVER end with "ask [word]"
-- NEVER mention being a bot
-
 # RULES
 - Sound exactly like the voice reference.
 - Write NEW text — do not copy samples verbatim.
-- Keep it short and natural.
-- HARD LIMIT: under 220 characters.
+- Match the typical length of the reference examples.
+- Never mention being a bot or AI.
 - No slurs, no harmful content.
-- Output ONLY the message. No quotes, no prefixes.`;
+- Output ONLY the message text. No quotes, no prefixes.`;
 }
 
 /* ═══════════════════════════════════════════════════════════════
