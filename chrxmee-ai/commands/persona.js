@@ -28,7 +28,11 @@ function btn(id, label, style = ButtonStyle.Secondary, emoji = null, disabled = 
 function toggleIcon(on) { return on ? E.on : E.off; }
 
 async function replyEmbed(interaction, title, desc, color = COLORS.persona) {
-  const embed = new EmbedBuilder().setColor(color).setTitle(title).setDescription(desc).setFooter({ text: "chromed · persona" });
+  const embed = new EmbedBuilder()
+    .setColor(color)
+    .setTitle(title)
+    .setDescription(desc)
+    .setFooter({ text: "chromed · persona" });
   const payload = { embeds: [embed] };
   if (interaction.deferred || interaction.replied) return interaction.editReply(payload).catch(() => {});
   return interaction.reply(payload).catch(() => {});
@@ -53,7 +57,7 @@ async function buildMainPanel(pool, guild) {
   const ready      = total >= cfg.minMessages;
   const confidence = confidenceFromSamples(total);
   const channels   = cfg.channels.length
-    ? cfg.channels.slice(0, 8).map((id) => `<#${id}>`).join(", ")
+    ? cfg.channels.slice(0, 6).map((id) => `<#${id}>`).join(", ")
     : "*none*";
   const lastBackfill = cfg.lastBackfillAt
     ? `<t:${Math.floor(new Date(cfg.lastBackfillAt).getTime() / 1000)}:R>`
@@ -95,10 +99,10 @@ async function buildMainPanel(pool, guild) {
     btn("p_mentions",   "Mentions", cfg.mentions ? ButtonStyle.Success : ButtonStyle.Secondary, E.mention),
   );
   const row3 = new ActionRowBuilder().addComponents(
-    btn("p_edit_server", "Edit",     ButtonStyle.Primary, E.edit),
-    btn("p_blocked",     "Blocked",  ButtonStyle.Secondary, E.filter),
-    btn("p_backfill",    "Backfill", ButtonStyle.Secondary, E.backfill),
-    btn("p_advanced",    "Advanced", ButtonStyle.Secondary, E.settings),
+    btn("p_edit_server", "Manual Edit", ButtonStyle.Primary, E.edit),
+    btn("p_enhance",     "AI Enhance",  ButtonStyle.Primary, E.settings),
+    btn("p_blocked",     "Blocked",     ButtonStyle.Secondary, E.filter),
+    btn("p_backfill",    "Backfill",    ButtonStyle.Secondary, E.backfill),
   );
   const row4 = new ActionRowBuilder().addComponents(
     btn("p_toggle_server", cfg.enabled ? "Disable" : "Enable",
@@ -122,12 +126,15 @@ async function buildServerPanel(pool, guild) {
     `${E.chance} \`${cfg.replyChance}%\` · ${E.timer} \`${formatMs(cfg.cooldownMs)}\``,
     `${E.gif} ${toggleIcon(cfg.gifs)} · ${E.mention} ${toggleIcon(cfg.mentions)}`,
     ``,
-    `**${E.brain} learned style**`,
-    p.tone        ? `tone · \`${String(p.tone).slice(0, 140)}\`` : "*no profile yet*",
-    p.avg_length  ? `avg length · \`~${p.avg_length}\` words` : null,
-    p.emoji_style ? `emoji style · \`${String(p.emoji_style).slice(0, 100)}\`` : null,
+    `**${E.brain} learned persona**`,
+    p.personality  ? `who they are · ${String(p.personality).slice(0, 200)}` : null,
+    p.tone         ? `vibe · \`${String(p.tone).slice(0, 120)}\`` : "*no profile yet*",
+    p.avg_length   ? `length · \`~${p.avg_length}\` words` : null,
     p.phrases?.length
-      ? `phrases · ${p.phrases.slice(0, 8).map((x) => `\`${x}\``).join(" ")}`
+      ? `slang · ${p.phrases.slice(0, 6).map((x) => `\`${x}\``).join(" ")}`
+      : null,
+    p.running_bits?.length
+      ? `bits · ${p.running_bits.slice(0, 3).map((x) => `\`${String(x).slice(0, 40)}\``).join(" ")}`
       : null,
   ].filter(Boolean).join("\n");
 
@@ -146,33 +153,43 @@ async function buildServerPanel(pool, guild) {
   const row2 = new ActionRowBuilder().addComponents(
     btn("p_gifs",       "GIFs",     cfg.gifs ? ButtonStyle.Success : ButtonStyle.Secondary, E.gif),
     btn("p_mentions",   "Mentions", cfg.mentions ? ButtonStyle.Success : ButtonStyle.Secondary, E.mention),
-    btn("p_edit_server", "Edit",    ButtonStyle.Primary, E.edit),
-    btn("p_blocked",    "Blocked",  ButtonStyle.Secondary, E.filter),
+    btn("p_edit_server", "Manual",  ButtonStyle.Primary, E.edit),
+    btn("p_enhance",     "AI Enhance", ButtonStyle.Primary, E.settings),
   );
   const row3 = new ActionRowBuilder().addComponents(
     btn("p_back",     "← Back",   ButtonStyle.Secondary),
     btn("p_backfill", "Backfill", ButtonStyle.Secondary, E.backfill),
+    btn("p_blocked",  "Blocked",  ButtonStyle.Secondary, E.filter),
     btn("p_close",    "Close",    ButtonStyle.Secondary),
   );
 
   return { embeds: [embed], components: [row1, row2, row3] };
 }
 
-async function buildUserPanel(pool, guild) {
+async function buildUserPanel(pool, guild, userId) {
   const optins = await store.userListOptIns(pool, guild.id);
+  const opt = await store.userIsOptedIn(pool, userId, guild.id);
+
+  const myStatus = opt.optedIn
+    ? [
+        `**your persona**`,
+        `messages: \`${opt.learnedCount}\` / min \`${opt.minMessages}\``,
+        `confidence: \`${confidenceFromSamples(opt.learnedCount)}%\``,
+      ].join("\n")
+    : `*you're not opted in. click "Opt me in" to teach chromed your voice.*`;
 
   const list = optins.length
-    ? optins.slice(0, 12).map((o) => {
+    ? optins.slice(0, 10).map((o) => {
         const ready = o.learned_count >= o.min_messages;
-        return `<@${o.user_id}> — \`${o.learned_count}\` msgs · ${ready ? `${E.on} ready` : `${E.off} ${o.learned_count}/${o.min_messages}`}`;
+        return `<@${o.user_id}> — \`${o.learned_count}\` · ${ready ? `${E.on}` : `${E.off} ${o.learned_count}/${o.min_messages}`}`;
       }).join("\n")
-    : "*no one has opted in yet*";
+    : "*nobody yet*";
 
   const embed = new EmbedBuilder()
     .setColor(COLORS.persona)
     .setTitle(`${E.user} user personas`)
     .setDescription([
-      `users opt in themselves to teach chromed their voice`,
+      myStatus,
       ``,
       `**opted-in (${optins.length})**`,
       list,
@@ -183,10 +200,15 @@ async function buildUserPanel(pool, guild) {
     btn("p_user_in",  "Opt me in",   ButtonStyle.Success),
     btn("p_user_out", "Opt me out",  ButtonStyle.Danger),
     btn("p_min_user", "My min msgs", ButtonStyle.Secondary, E.brain),
-    btn("p_back",     "← Back",      ButtonStyle.Secondary),
+    btn("p_enhance_user", "Enhance", ButtonStyle.Primary, E.settings),
   );
 
-  return { embeds: [embed], components: [row1] };
+  const row2 = new ActionRowBuilder().addComponents(
+    btn("p_back",  "← Back", ButtonStyle.Secondary),
+    btn("p_close", "Close",  ButtonStyle.Secondary),
+  );
+
+  return { embeds: [embed], components: [row1, row2] };
 }
 
 async function buildBlockedPanel(pool, guild) {
@@ -229,13 +251,15 @@ function makeModal(id, title, label, placeholder, current, { paragraph = false }
     .setStyle(paragraph ? TextInputStyle.Paragraph : TextInputStyle.Short)
     .setRequired(true)
     .setPlaceholder(placeholder);
-  if (current !== undefined && current !== null) input.setValue(String(current).slice(0, paragraph ? 3800 : 200));
+  if (current !== undefined && current !== null) {
+    input.setValue(String(current).slice(0, paragraph ? 3800 : 200));
+  }
   modal.addComponents(new ActionRowBuilder().addComponents(input));
   return modal;
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   MODAL SUBMIT HANDLER — called inline from button handler
+   MODAL SUBMIT PROCESSOR
    ═══════════════════════════════════════════════════════════════ */
 async function processModal(modal, pool, guild, userId) {
   const id = modal.customId;
@@ -246,6 +270,7 @@ async function processModal(modal, pool, guild, userId) {
     const n = parseInt(value, 10);
     if (isNaN(n) || n < 0 || n > 100) return { ok: false, msg: `${E.error} pick 0-100.` };
     await store.saveServerSettings(pool, guild.id, { replyChance: n });
+    speaker.invalidateSettings(guild.id);
     return { ok: true, msg: `${E.success} chance set to **${n}%**.` };
   }
 
@@ -253,6 +278,7 @@ async function processModal(modal, pool, guild, userId) {
     const n = parseInt(value, 10);
     if (isNaN(n) || n < 0 || n > 3600) return { ok: false, msg: `${E.error} pick 0-3600 seconds.` };
     await store.saveServerSettings(pool, guild.id, { cooldownMs: n * 1000 });
+    speaker.invalidateSettings(guild.id);
     return { ok: true, msg: `${E.success} cooldown set to **${n}s**.` };
   }
 
@@ -260,6 +286,7 @@ async function processModal(modal, pool, guild, userId) {
     const n = parseInt(value, 10);
     if (isNaN(n) || n < 1 || n > 100000) return { ok: false, msg: `${E.error} pick 1-100000.` };
     await store.saveServerSettings(pool, guild.id, { minMessages: n });
+    speaker.invalidateSettings(guild.id);
     return { ok: true, msg: `${E.success} server threshold set to **${n}**.` };
   }
 
@@ -268,7 +295,7 @@ async function processModal(modal, pool, guild, userId) {
     if (isNaN(n) || n < 1 || n > 100000) return { ok: false, msg: `${E.error} pick 1-100000.` };
     const opt = await store.userIsOptedIn(pool, userId, guild.id);
     if (!opt.optedIn) return { ok: false, msg: `${E.error} opt in first.` };
-    await store.userSetMinMessages(pool, userId, guild.id, n);
+    await store.setUserMinMessages(pool, userId, guild.id, n);
     return { ok: true, msg: `${E.success} your threshold set to **${n}**.` };
   }
 
@@ -279,6 +306,7 @@ async function processModal(modal, pool, guild, userId) {
       catch { parsed = { extra: value }; }
     }
     await store.saveServerManualEdit(pool, guild.id, parsed);
+    speaker.invalidateProfile(guild.id);
     return { ok: true, msg: parsed ? `${E.success} override saved.` : `${E.success} override cleared.` };
   }
 
@@ -294,11 +322,36 @@ async function processModal(modal, pool, guild, userId) {
     return { ok: true, msg: ok ? `${E.success} \`${value}\` removed.` : `${E.warning} \`${value}\` wasn't blocked.` };
   }
 
+  if (id === "p_modal_enhance_server") {
+    if (!value) return { ok: false, msg: `${E.error} enter an instruction.` };
+    const res = await learner.enhanceServerProfile(pool, guild.id, value);
+    if (!res.ok) return { ok: false, msg: `${E.error} ${res.reason}` };
+    const p = res.profile;
+    return {
+      ok: true,
+      msg: [
+        `${E.success} profile enhanced`,
+        `**vibe:** ${p.tone || "—"}`,
+        `**length:** ~${p.avg_length || "?"} words`,
+        `**phrases:** ${(p.phrases || []).slice(0, 6).join(", ") || "—"}`,
+      ].join("\n"),
+    };
+  }
+
+  if (id === "p_modal_enhance_user") {
+    if (!value) return { ok: false, msg: `${E.error} enter an instruction.` };
+    const opt = await store.userIsOptedIn(pool, userId, guild.id);
+    if (!opt.optedIn) return { ok: false, msg: `${E.error} opt in first.` };
+    const res = await learner.enhanceUserProfile(pool, userId, guild.id, value);
+    if (!res.ok) return { ok: false, msg: `${E.error} ${res.reason}` };
+    return { ok: true, msg: `${E.success} your persona enhanced.` };
+  }
+
   return { ok: false, msg: "unhandled modal." };
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   PANEL SESSION — button collector + inline modal handling
+   PANEL SESSION — inline button collector
    ═══════════════════════════════════════════════════════════════ */
 async function openPanel(interaction, pool, guild) {
   const payload = await buildMainPanel(pool, guild);
@@ -319,31 +372,38 @@ async function openPanel(interaction, pool, guild) {
     }
 
     const id = i.customId;
+    const refreshView = async (view) => {
+      if (view === "server")  return i.update(await buildServerPanel(pool, guild));
+      if (view === "user")    return i.update(await buildUserPanel(pool, guild, i.user.id));
+      if (view === "blocked") return i.update(await buildBlockedPanel(pool, guild));
+      return i.update(await buildMainPanel(pool, guild));
+    };
 
     try {
-      // ── tab switches ──
-      if (id === "p_tab_server") { state.view = "server";  return await i.update(await buildServerPanel(pool, guild)); }
-      if (id === "p_tab_user")   { state.view = "user";    return await i.update(await buildUserPanel(pool, guild)); }
-      if (id === "p_back")       { state.view = "main";    return await i.update(await buildMainPanel(pool, guild)); }
+      // ── tabs ──
+      if (id === "p_tab_server") { state.view = "server";  return refreshView("server"); }
+      if (id === "p_tab_user")   { state.view = "user";    return refreshView("user"); }
+      if (id === "p_back")       { state.view = "main";    return refreshView("main"); }
 
       // ── toggles ──
       if (id === "p_toggle_server") {
         const cfg = await store.getServerSettings(pool, guild.id);
         await store.saveServerSettings(pool, guild.id, { enabled: !cfg.enabled });
         await store.logAudit(pool, { guildId: guild.id, actorId: i.user.id, action: cfg.enabled ? "server-disable" : "server-enable" });
-        return await i.update(await buildMainPanel(pool, guild));
+        speaker.invalidateSettings(guild.id);
+        return refreshView(state.view);
       }
       if (id === "p_gifs") {
         const cfg = await store.getServerSettings(pool, guild.id);
         await store.saveServerSettings(pool, guild.id, { gifs: !cfg.gifs });
-        const next = state.view === "server" ? await buildServerPanel(pool, guild) : await buildMainPanel(pool, guild);
-        return await i.update(next);
+        speaker.invalidateSettings(guild.id);
+        return refreshView(state.view);
       }
       if (id === "p_mentions") {
         const cfg = await store.getServerSettings(pool, guild.id);
         await store.saveServerSettings(pool, guild.id, { mentions: !cfg.mentions });
-        const next = state.view === "server" ? await buildServerPanel(pool, guild) : await buildMainPanel(pool, guild);
-        return await i.update(next);
+        speaker.invalidateSettings(guild.id);
+        return refreshView(state.view);
       }
 
       // ── modals ──
@@ -352,9 +412,11 @@ async function openPanel(interaction, pool, guild) {
         p_cooldown:    ["p_modal_cooldown",    "Cooldown",            "seconds (0-3600)",   "30"],
         p_min_server:  ["p_modal_min_server",  "Server Min Messages", "messages before speaking", "40"],
         p_min_user:    ["p_modal_min_user",    "Your Min Messages",   "before chromed speaks as you", "40"],
-        p_edit_server: ["p_modal_edit_server", "Edit Persona",        "JSON or plain text", `{"tone": "chill but hype", "phrases": ["lock in"]}`],
+        p_edit_server: ["p_modal_edit_server", "Manual Override",     "JSON or plain text", `{"tone": "chill but hype", "phrases": ["lock in"]}`],
         p_blocked_add:    ["p_modal_blocked_add",    "Block Word",   "word",   "example"],
         p_blocked_remove: ["p_modal_blocked_remove", "Unblock Word", "word",   "example"],
+        p_enhance:      ["p_modal_enhance_server", "AI Enhance",     "how should the persona change?", "make replies 2-3 sentences, keep the dry vibe"],
+        p_enhance_user: ["p_modal_enhance_user",   "Enhance My Persona", "how should your persona change?", "make it sound more hyped"],
       };
 
       if (modalDefs[id]) {
@@ -366,49 +428,36 @@ async function openPanel(interaction, pool, guild) {
         if (id === "p_min_user")    { const o = await store.userIsOptedIn(pool, i.user.id, guild.id); current = o.optedIn ? o.minMessages : DEFAULTS.userMinMessages; }
         if (id === "p_edit_server") { const pr = await store.getServerProfile(pool, guild.id); current = pr.manualEdit ? JSON.stringify(pr.manualEdit, null, 2) : ""; }
 
-        const paragraph = id === "p_edit_server";
+        const paragraph = ["p_edit_server", "p_enhance", "p_enhance_user"].includes(id);
         await i.showModal(makeModal(modalId, title, label, placeholder, current, { paragraph }));
 
-        // wait for THIS user's modal submit
         let submission;
         try {
           submission = await i.awaitModalSubmit({
             time: 5 * 60 * 1000,
             filter: (m) => m.user.id === i.user.id && m.customId === modalId,
           });
-        } catch {
-          return; // timed out silently
-        }
+        } catch { return; }
 
         const result = await processModal(submission, pool, guild, i.user.id);
         await submission.reply({ content: result.msg, ephemeral: true }).catch(() => {});
 
-        // refresh panel view under the user
-        const refreshed = state.view === "server" ? await buildServerPanel(pool, guild)
-                        : state.view === "user"   ? await buildUserPanel(pool, guild)
-                        : state.view === "blocked" ? await buildBlockedPanel(pool, guild)
-                        : await buildMainPanel(pool, guild);
+        // refresh panel behind
+        const refreshed =
+          state.view === "server"  ? await buildServerPanel(pool, guild) :
+          state.view === "user"    ? await buildUserPanel(pool, guild, i.user.id) :
+          state.view === "blocked" ? await buildBlockedPanel(pool, guild) :
+                                     await buildMainPanel(pool, guild);
         await msg.edit(refreshed).catch(() => {});
         return;
       }
 
-      // ── blocked panel ──
-      if (id === "p_blocked") { state.view = "blocked"; return await i.update(await buildBlockedPanel(pool, guild)); }
+      // ── blocked sub-panel ──
+      if (id === "p_blocked") { state.view = "blocked"; return refreshView("blocked"); }
 
       // ── channels hint ──
       if (id === "p_channels") {
-        return i.reply({
-          content: "use `/persona server channel add|remove|list`",
-          ephemeral: true,
-        }).catch(() => {});
-      }
-
-      // ── advanced hint ──
-      if (id === "p_advanced") {
-        return i.reply({
-          content: "`/persona server min-messages`, `/persona server ignore-bots`, `/persona server reset`, `/persona audit`",
-          ephemeral: true,
-        }).catch(() => {});
+        return i.reply({ content: "use `/persona server channel add|remove|list`", ephemeral: true }).catch(() => {});
       }
 
       // ── backfill ──
@@ -425,12 +474,9 @@ async function openPanel(interaction, pool, guild) {
             total += res.added || 0;
           } catch {}
         }
+        speaker.invalidateProfile(guild.id);
+        speaker.invalidateCount(guild.id);
         return i.followUp({ content: `${E.success} backfill done — **+${total}** learned.`, ephemeral: true }).catch(() => {});
-      }
-
-      // ── reset hint ──
-      if (id === "p_reset") {
-        return i.reply({ content: "run `/persona server reset` to confirm.", ephemeral: true }).catch(() => {});
       }
 
       // ── user actions ──
@@ -443,6 +489,11 @@ async function openPanel(interaction, pool, guild) {
         const removed = await store.userOptOut(pool, i.user.id, guild.id);
         await store.logAudit(pool, { guildId: guild.id, actorId: i.user.id, action: "user-optout", detail: `${removed} msgs` });
         return i.reply({ content: `${E.success} opted out — data purged.`, ephemeral: true }).catch(() => {});
+      }
+
+      // ── reset hint ──
+      if (id === "p_reset") {
+        return i.reply({ content: "run `/persona server reset` to confirm.", ephemeral: true }).catch(() => {});
       }
 
       // ── close ──
@@ -527,6 +578,11 @@ module.exports = {
       )
       .addSubcommand((s) => s.setName("reset").setDescription("⚠ wipe ALL server persona data"))
       .addSubcommand((s) => s.setName("profile").setDescription("view what chromed learned"))
+      .addSubcommand((s) => s
+        .setName("enhance")
+        .setDescription("use AI to modify the current profile")
+        .addStringOption((o) => o.setName("instruction").setDescription("what to change").setRequired(true))
+      )
     )
 
     .addSubcommandGroup((g) => g
@@ -547,6 +603,11 @@ module.exports = {
         .setDescription("(admin) wipe a user's persona")
         .addUserOption((o) => o.setName("user").setDescription("user").setRequired(true))
       )
+      .addSubcommand((s) => s
+        .setName("enhance")
+        .setDescription("use AI to tweak your own persona")
+        .addStringOption((o) => o.setName("instruction").setDescription("what to change").setRequired(true))
+      )
     )
 
     .addSubcommand((s) => s
@@ -565,11 +626,12 @@ module.exports = {
     .addSubcommand((s) => s.setName("help").setDescription("how persona works")),
 
   async execute(interaction) {
-    const pool = interaction.client.pool;
+    const pool  = interaction.client.pool;
     const guild = interaction.guild;
-    const sub = interaction.options.getSubcommand(true);
+    const sub   = interaction.options.getSubcommand(true);
     const group = interaction.options.getSubcommandGroup(false);
 
+    // menu doesn't defer — opens panel with reply
     if (sub === "menu" && !group) {
       return openPanel(interaction, pool, guild);
     }
@@ -585,15 +647,15 @@ module.exports = {
       if (sub === "enable") {
         await store.saveServerSettings(pool, guild.id, { enabled: true });
         await store.logAudit(pool, { guildId: guild.id, actorId: interaction.user.id, action: "server-enable" });
-        return replyEmbed(interaction, `${E.success} server persona on`, "chromed will learn from your channels.", COLORS.success);
+        speaker.invalidateSettings(guild.id);
+        return replyEmbed(interaction, `${E.success} on`, "chromed will learn from your channels.", COLORS.success);
       }
-
       if (sub === "disable") {
         await store.saveServerSettings(pool, guild.id, { enabled: false });
         await store.logAudit(pool, { guildId: guild.id, actorId: interaction.user.id, action: "server-disable" });
+        speaker.invalidateSettings(guild.id);
         return replyEmbed(interaction, `${E.success} off`, "stopped.", COLORS.success);
       }
-
       if (sub === "channel") {
         const action = interaction.options.getString("action");
         const ch = interaction.options.getChannel("channel");
@@ -609,34 +671,33 @@ module.exports = {
         if (action === "add") set.add(ch.id);
         else set.delete(ch.id);
         await store.saveServerSettings(pool, guild.id, { channels: [...set] });
+        speaker.invalidateSettings(guild.id);
         return replyEmbed(interaction, `${E.success} updated`,
           action === "add" ? `${ch} added.` : `${ch} removed.`, COLORS.success);
       }
-
       if (sub === "min-messages") {
         const n = interaction.options.getInteger("count");
         await store.saveServerSettings(pool, guild.id, { minMessages: n });
+        speaker.invalidateSettings(guild.id);
         return replyEmbed(interaction, `${E.success} set`, `threshold: **${n}**`, COLORS.success);
       }
-
       if (sub === "chance") {
         const n = interaction.options.getInteger("percent");
         await store.saveServerSettings(pool, guild.id, { replyChance: n });
+        speaker.invalidateSettings(guild.id);
         return replyEmbed(interaction, `${E.success} set`, `chance: **${n}%**`, COLORS.success);
       }
-
       if (sub === "cooldown") {
         const n = interaction.options.getInteger("seconds");
         await store.saveServerSettings(pool, guild.id, { cooldownMs: n * 1000 });
+        speaker.invalidateSettings(guild.id);
         return replyEmbed(interaction, `${E.success} set`, `cooldown: **${formatMs(n * 1000)}**`, COLORS.success);
       }
-
       if (sub === "ignore-bots") {
         const on = interaction.options.getBoolean("enabled");
         await store.saveServerSettings(pool, guild.id, { ignoreBots: on });
         return replyEmbed(interaction, `${E.success} set`, `ignore bots: **${on ? "on" : "off"}**`, COLORS.success);
       }
-
       if (sub === "backfill") {
         const cfg = await store.getServerSettings(pool, guild.id);
         if (!cfg.channels.length) return replyEmbed(interaction, `${E.error} no channels`, "add one first.", COLORS.error);
@@ -649,9 +710,10 @@ module.exports = {
             total += res.added || 0;
           } catch {}
         }
+        speaker.invalidateProfile(guild.id);
+        speaker.invalidateCount(guild.id);
         return replyEmbed(interaction, `${E.success} done`, `**+${total}** learned.`, COLORS.success);
       }
-
       if (sub === "reset") {
         const row = new ActionRowBuilder().addComponents(
           btn("p_reset_yes", "yes, wipe", ButtonStyle.Danger),
@@ -672,12 +734,12 @@ module.exports = {
             return click.update({ embeds: [new EmbedBuilder().setColor(COLORS.muted).setTitle("cancelled")], components: [] });
           }
           const removed = await store.serverCorpusReset(pool, guild.id);
+          speaker.invalidate(guild.id);
           return click.update({ embeds: [new EmbedBuilder().setColor(COLORS.success).setTitle(`${E.success} wiped`).setDescription(`deleted **${removed}** messages + profile.`)], components: [] });
         } catch {
           return interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.muted).setTitle("timed out")], components: [] }).catch(() => {});
         }
       }
-
       if (sub === "profile") {
         const prof = await store.getServerProfile(pool, guild.id);
         const total = await store.serverCorpusCount(pool, guild.id);
@@ -685,17 +747,39 @@ module.exports = {
         const lines = [
           `**samples:** ${total}`,
           `**confidence:** ${confidenceFromSamples(total)}%`,
+          `**personality:** ${p.personality || "—"}`,
           `**tone:** ${p.tone || "—"}`,
           `**avg length:** ${p.avg_length || "—"}`,
           `**punctuation:** ${p.punctuation || "—"}`,
           `**emoji style:** ${p.emoji_style || "—"}`,
           `**phrases:** ${(p.phrases || []).join(", ") || "—"}`,
+          `**vocab:** ${(p.vocab || []).join(", ") || "—"}`,
           `**topics:** ${(p.topics || []).join(", ") || "—"}`,
+          `**values:** ${(p.values || []).join(", ") || "—"}`,
+          `**friction:** ${(p.friction || []).join(", ") || "—"}`,
+          `**running bits:**`,
+          ...(p.running_bits || []).length
+            ? (p.running_bits || []).map((b) => `  • ${b}`)
+            : ["  *none*"],
           ``,
           `**examples:**`,
           ...(p.sample_messages || []).slice(0, 5).map((s) => `> ${s}`),
         ];
         return replyEmbed(interaction, `${E.brain} server profile`, lines.join("\n"));
+      }
+      if (sub === "enhance") {
+        const instruction = interaction.options.getString("instruction");
+        await replyEmbed(interaction, `${E.loading} enhancing…`, `applying: *${instruction}*`);
+        const res = await learner.enhanceServerProfile(pool, guild.id, instruction);
+        if (!res.ok) return replyEmbed(interaction, `${E.error} failed`, res.reason, COLORS.error);
+        const p = res.profile;
+        return replyEmbed(interaction, `${E.success} profile enhanced`, [
+          `**vibe:** ${p.tone || "—"}`,
+          `**length:** ~${p.avg_length || "?"} words`,
+          `**phrases:** ${(p.phrases || []).slice(0, 6).join(", ") || "—"}`,
+          ``,
+          `-# next reply uses the updated profile.`,
+        ].join("\n"), COLORS.success);
       }
     }
 
@@ -721,6 +805,7 @@ module.exports = {
           `**messages:** ${total} / min ${opt.minMessages}`,
           `**ready:** ${ready ? "yes" : "no"}`,
           `**confidence:** ${confidenceFromSamples(total)}%`,
+          `**personality:** ${prof.profile?.personality || "—"}`,
           `**tone:** ${prof.profile?.tone || "—"}`,
         ].join("\n"));
       }
@@ -771,6 +856,16 @@ module.exports = {
         const removed = await store.userOptOut(pool, target.id, guild.id);
         await store.logAudit(pool, { guildId: guild.id, actorId: interaction.user.id, action: "admin-purge-user", detail: `${target.id}` });
         return replyEmbed(interaction, `${E.success} purged`, `deleted **${removed}** messages from <@${target.id}>.`, COLORS.success);
+      }
+      if (sub === "enhance") {
+        const instruction = interaction.options.getString("instruction");
+        const opt = await store.userIsOptedIn(pool, interaction.user.id, guild.id);
+        if (!opt.optedIn) return replyEmbed(interaction, `${E.error} not opted in`, "run `/persona user opt-in` first.", COLORS.error);
+
+        await replyEmbed(interaction, `${E.loading} enhancing…`, `applying: *${instruction}*`);
+        const res = await learner.enhanceUserProfile(pool, interaction.user.id, guild.id, instruction);
+        if (!res.ok) return replyEmbed(interaction, `${E.error} failed`, res.reason, COLORS.error);
+        return replyEmbed(interaction, `${E.success} enhanced`, `your persona has been tweaked.`, COLORS.success);
       }
     }
 
@@ -832,10 +927,12 @@ module.exports = {
         `**server persona**`,
         "chromed learns the vibe of channels you enable and replies occasionally.",
         "`/persona menu` to configure.",
+        "`/persona server enhance <instruction>` — AI edits the profile",
         ``,
         `**user persona**`,
         "`/persona user opt-in` — teach chromed YOUR voice",
         "`/persona user speak @user topic` — generate a draft in someone's voice",
+        "`/persona user enhance <instruction>` — tweak your own profile",
         ``,
         `**safety**`,
         "• hardcoded blocks for slurs + harmful content",
