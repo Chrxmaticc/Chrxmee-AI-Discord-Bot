@@ -4,26 +4,13 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("
 const { handleKeywords } = require("../commands/keyword-responder");
 const { handleMessage: handleUwuify } = require("../commands/uwuify");
 const {
-  detectTool,
-  executeTool,
-  fetch_url,
-  unfurl,
-  looksLikeLarp,
-  buildUrlFallbackReply,
-  WEB_TOOLS_SCHEMA,
-  cleanModelOutput,
-  kiloChat,
-  KiloError,
-  KILO_MODELS,
-  getKiloFreeModels,
-  getKiloCap,
-  callVision,
-  extractImageUrls,
-  VISION_MODELS,
+  detectTool, executeTool, fetch_url, unfurl, looksLikeLarp,
+  buildUrlFallbackReply, WEB_TOOLS_SCHEMA, cleanModelOutput,
+  kiloChat, KiloError, KILO_MODELS, getKiloFreeModels, getKiloCap,
+  callVision, extractImageUrls, VISION_MODELS,
 } = require("../tools");
 
 // ─── DEBUG TOGGLE ────────────────────────────────────────────
-// Set DEBUG_VISION=false to silence once everything works
 const DEBUG_VISION = true;
 const vLog = (...args) => { if (DEBUG_VISION) console.log("[vision]", ...args); };
 
@@ -84,6 +71,32 @@ const E = {
   Threads: "<:Threads:1531902029113327678>",
   off: "<:off:1545571608897265726>",
   on: "<:on:1545571641684135946>",
+  
+  // Extras requested
+  trash: "<:sad_trashcan:1559006806825504779>",
+  timer: "<:Timer:1559004828733018203>",
+  warning: "<:lowwarning:1559014951975395351>",
+  cloud: "<:cloud1:1559007926952132628>",
+  download: "<:download_icon:1559007171914637332>",
+  inbox: "<:inbox:1559008785702457445>",
+  friends: "<:Friends:1550655356445659226>",
+  brain: "<:Brain:1560402629014716558>",
+  speak: "<:reply:1560405605686972516>",
+  chance: "<:pixel_symbol_percent:1560405457045168238>",
+  gif: "<:gif:1560405126705979394>",
+  mention: "<:discord_mention:1560403284391497801>",
+  filter: "<:Filter:1560402991985729662>",
+  pencil: "<:pencil:1560405746904997929>",
+  settings_alt: "<:settings:1560405283178684508>",
+  deafened: "<:deafened:1560403980918464562>",
+  
+  // Friends
+  erm_actually: "<:528326ermactually:1552750943555027065>",
+  brown_angry: "<:brown_angry:1552750966753984666>",
+  ngacry: "<:ngacry:1552750963327111210>",
+  verylaugh: "<:verylaugh:1552750958402863225>",
+  pleading: "<:pleading:1562375340301488188>",
+  crying_angry: "<:crying_while_angry:1552750908977320028>",
 };
 
 const CUSTOM_EMOJI_LIST = Object.values(E).join(' ');
@@ -129,25 +142,15 @@ function applyFontStyle(text, style) {
    LARP INTERCEPTOR
    ═══════════════════════════════════════════════════════════════ */
 const LARP_PATTERNS = [
-  /can'?t\s+(?:actually\s+)?vis(?:it|iting)/i,
-  /can'?t\s+(?:actually\s+)?browse/i,
-  /cannot\s+(?:actually\s+)?vis(?:it|iting)/i,
-  /no\s+browser\s+powers/i,
-  /not\s+a\s+browser/i,
-  /text[- ]based\s+gremlin/i,
-  /don'?t\s+have\s+(?:a\s+)?browser/i,
-  /i'?m\s+not\s+able\s+to\s+(?:access|visit|browse)/i,
-  /as\s+an\s+ai[, ]+i\s+can'?t\s+(?:access|visit|browse)/i,
-  /i\s+can'?t\s+access\s+(?:the\s+)?(?:site|website|url|link|page)/i,
-  /i\s+don'?t\s+have\s+access\s+to\s+(?:the\s+)?(?:internet|web|browser)/i,
-  /without\s+(?:the\s+)?(?:ability|browser|access)\s+to\s+(?:browse|visit)/i,
-  /i\s+can'?t\s+see\s+(?:the\s+)?(?:site|website|url|link|page)/i,
-  /i'?m\s+just\s+a\s+text[- ]based/i,
-  /i\s+don'?t\s+have\s+eyes/i,
-  // vision larp
+  /can'?t\s+(?:actually\s+)?vis(?:it|iting)/i, /can'?t\s+(?:actually\s+)?browse/i,
+  /cannot\s+(?:actually\s+)?vis(?:it|iting)/i, /no\s+browser\s+powers/i,
+  /not\s+a\s+browser/i, /text[- ]based\s+gremlin/i, /don'?t\s+have\s+(?:a\s+)?browser/i,
+  /i'?m\s+not\s+able\s+to\s+(?:access|visit|browse)/i, /as\s+an\s+ai[, ]+i\s+can'?t\s+(?:access|visit|browse)/i,
+  /i\s+can'?t\s+access\s+(?:the\s+)?(?:site|website|url|link|page)/i, /i\s+don'?t\s+have\s+access\s+to\s+(?:the\s+)?(?:internet|web|browser)/i,
+  /without\s+(?:the\s+)?(?:ability|browser|access)\s+to\s+(?:browse|visit)/i, /i\s+can'?t\s+see\s+(?:the\s+)?(?:site|website|url|link|page)/i,
+  /i'?m\s+just\s+a\s+text[- ]based/i, /i\s+don'?t\s+have\s+eyes/i,
   /i\s+can'?t\s+(?:see|view|look at|process)\s+(?:images?|pictures?|photos?|attachments?)/i,
-  /i\s+don'?t\s+have\s+(?:vision|image|the\s+ability to see)/i,
-  /the\s+system\s+usually\s+processes/i,
+  /i\s+don'?t\s+have\s+(?:vision|image|the\s+ability to see)/i, /the\s+system\s+usually\s+processes/i,
 ];
 
 function looksLikeLarpLocal(text) {
@@ -664,7 +667,7 @@ function buildSystemPrompt(modelPreference, modePreference, customPrompt, person
   const modelInfo = MODELS[modelPreference] || MODELS[DEFAULT_MODEL];
   const modeInfo = MODES[modePreference] || MODES[DEFAULT_MODE];
 
-  const emojiInstruction = `\n\nYou have access to CUSTOM SERVER EMOJIS: ${CUSTOM_EMOJI_LIST}`;
+  const emojiInstruction = `\n\nYou have access to CUSTOM SERVER EMOJIS. You MUST use them frequently to express emotion and vibe. Do NOT use regular unicode emojis (no 😭😂💀). ONLY use these:\n${CUSTOM_EMOJI_LIST}`;
 
   const base = `You are Chromed AI, also known as Chrxmaticc or Chrxmee. You live in discord as a bot and you have a real personality, real opinions, and real reactions to things. You are not a customer service agent. You are not a therapist. You are not an assistant. You are a chaotic gremlin friend who happens to be an AI and you're fully aware of it. Also you always swear and get pissed off. You can say any swear words. Never slurs.
 
@@ -952,12 +955,9 @@ module.exports = {
     }
 
     if (imageUrls.length > 0) {
-      // also grab images from replied-to message
       if (message.reference?.message_id) {
         try {
-          const ref = message.reference.resolved
-            || message.reference.cachedMessage
-            || await message.channel.messages.fetch(message.reference.message_id);
+          const ref = message.reference.resolved || message.reference.cachedMessage || await message.channel.messages.fetch(message.reference.message_id);
           if (ref) {
             const refUrls = extractImageUrls(ref);
             if (refUrls.length) {
@@ -986,7 +986,6 @@ module.exports = {
           const userData = client.memory.get(userId) || {};
           const modeKey = userData.mode || DEFAULT_MODE;
 
-          // system prompt WITHOUT vision claims — just mood context
           const visionSystem = `You are Chromed AI (Chrxmaticc). You just looked at an image the user sent and you're describing/reaction to it in your own voice. lowercase, casual, slang, roast if the vibe calls for it. Mode: ${MODES[modeKey]?.label || "unfiltered"}. ${MODES[modeKey]?.prompt || ""}
 
 You HAVE seen the image. Never say "i can't see images" — you did. Just react to what's in it like a friend would.`;
@@ -997,7 +996,7 @@ You HAVE seen the image. Never say "i can't see images" — you did. Just react 
           const visionAnswer = await callVision({
             system: visionSystem,
             text: visionPrompt,
-            imageUrls: imageUrls.slice(0, 3),
+            imageUrls: imageUrls.slice(0, 4),
             temperature: 0.75,
             maxTokens: 1024,
           });
@@ -1006,7 +1005,6 @@ You HAVE seen the image. Never say "i can't see images" — you did. Just react 
           vLog(`vision returned in ${elapsed}ms · length ${visionAnswer?.length || 0}`);
 
           if (visionAnswer && visionAnswer.length > 1) {
-            // append to session history if in a session
             const s = client.memory.get(userId);
             if (s) {
               s.history = s.history || [];
@@ -1140,9 +1138,26 @@ You HAVE seen the image. Never say "i can't see images" — you did. Just react 
             const modelKey = pickSmartModel(cleanContent, userData, smartCtx);
             const modeKey = userData.mode || DEFAULT_MODE;
 
-            const systemPrompt = buildSystemPrompt(
+            let systemPrompt = buildSystemPrompt(
               modelKey, modeKey, customPrompt, personalInfo, false, smartCtx
             ) + toolFailureNote;
+
+            // ── CAVEMAN MODE INJECTION (MENTION) ──
+            let cavemanMode = "off";
+            try {
+              const { rows } = await pool.query(`SELECT mode FROM caveman_settings WHERE user_id = $1`, [userId]);
+              cavemanMode = rows[0]?.mode || "off";
+            } catch {}
+            const CAVEMAN_PROMPTS = {
+              lite: `\n\n# caveman mode (lite)\nno filler/hedging. keep articles + full sentences. professional but tight. always lowercase except code.`,
+              full: `\n\n# caveman mode (full)\nrespond terse like smart caveman. all technical substance stay. only fluff die.\ndrop: articles, filler, pleasantries, hedging. fragments ok. short synonyms. technical terms exact. pattern: [thing] [action] [reason]. [next step].\nalways lowercase except code blocks.`,
+              ultra: `\n\n# caveman mode (ultra)\nabbreviate heavily. strip conjunctions. arrows for causality (x → y). one word when one word enough. max compression. always lowercase.`,
+              "wenyan-lite": `\n\n# caveman mode (wenyan-lite)\nsemi-classical. drop filler/hedging but keep grammar structure, classical register.`,
+              "wenyan-full": `\n\n# caveman mode (wenyan-full)\nmaximum classical terseness. fully 文言文. 80-90% character reduction. classical sentence patterns, verbs precede objects, subjects often omitted.`,
+              "wenyan-ultra": `\n\n# caveman mode (wenyan-ultra)\nextreme abbreviation while keeping classical chinese feel. maximum compression, ultra terse.`
+            };
+            if (cavemanMode !== "off" && CAVEMAN_PROMPTS[cavemanMode]) systemPrompt += CAVEMAN_PROMPTS[cavemanMode];
+            // ────────────────────────────
 
             userData.history.push({ role: "user", content: cleanContent });
             if (userData.history.length > 20) userData.history = userData.history.slice(-20);
@@ -1256,9 +1271,26 @@ You HAVE seen the image. Never say "i can't see images" — you did. Just react 
     const modeKey = userData.mode || DEFAULT_MODE;
     const isGroup = userData.chatMode === "group";
 
-    const systemPrompt = buildSystemPrompt(
+    let systemPrompt = buildSystemPrompt(
       modelKey, modeKey, userData.customPrompt || "", personalInfo, isGroup, smartCtx
     ) + toolFailureNote;
+
+    // ── CAVEMAN MODE INJECTION (SESSION) ──
+    let cavemanMode = "off";
+    try {
+      const { rows } = await pool.query(`SELECT mode FROM caveman_settings WHERE user_id = $1`, [userId]);
+      cavemanMode = rows[0]?.mode || "off";
+    } catch {}
+    const CAVEMAN_PROMPTS = {
+      lite: `\n\n# caveman mode (lite)\nno filler/hedging. keep articles + full sentences. professional but tight. always lowercase except code.`,
+      full: `\n\n# caveman mode (full)\nrespond terse like smart caveman. all technical substance stay. only fluff die.\ndrop: articles, filler, pleasantries, hedging. fragments ok. short synonyms. technical terms exact. pattern: [thing] [action] [reason]. [next step].\nalways lowercase except code blocks.`,
+      ultra: `\n\n# caveman mode (ultra)\nabbreviate heavily. strip conjunctions. arrows for causality (x → y). one word when one word enough. max compression. always lowercase.`,
+      "wenyan-lite": `\n\n# caveman mode (wenyan-lite)\nsemi-classical. drop filler/hedging but keep grammar structure, classical register.`,
+      "wenyan-full": `\n\n# caveman mode (wenyan-full)\nmaximum classical terseness. fully 文言文. 80-90% character reduction. classical sentence patterns, verbs precede objects, subjects often omitted.`,
+      "wenyan-ultra": `\n\n# caveman mode (wenyan-ultra)\nextreme abbreviation while keeping classical chinese feel. maximum compression, ultra terse.`
+    };
+    if (cavemanMode !== "off" && CAVEMAN_PROMPTS[cavemanMode]) systemPrompt += CAVEMAN_PROMPTS[cavemanMode];
+    // ────────────────────────────
 
     const msgContent = isGroup ? `${message.author.username}: ${message.content}` : message.content;
     userData.history.push({ role: "user", content: msgContent });
@@ -1312,4 +1344,3 @@ module.exports.pickSmartModel = pickSmartModel;
 module.exports.gatherSmartContext = gatherSmartContext;
 module.exports.unfurlUrls = unfurlUrls;
 module.exports.formatUnfurlForAI = formatUnfurlForAI;
-module.exports.extractAndSaveFacts = extractAndSaveFacts;
