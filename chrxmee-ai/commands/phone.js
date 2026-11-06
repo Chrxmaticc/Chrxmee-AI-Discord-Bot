@@ -8,32 +8,18 @@ const { Pool } = require("pg");
 const PHONE_EMOJI = "<:Phone:1568008806124757094>";
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
 
-// Cooldown trackers (In-memory)
-const globalRingCooldown = new Map(); // channel_id -> timestamp
-const userDialCooldown = new Map();   // owner_id -> timestamp
+// Cooldown trackers
+const globalRingCooldown = new Map(); 
+const userDialCooldown = new Map();   
 
 async function ensureTables() {
+  // 1. Create base tables
   await pool.query(`
     CREATE TABLE IF NOT EXISTS phone_registry (
-      owner_id TEXT PRIMARY KEY,
-      type TEXT NOT NULL,
-      phone_number TEXT UNIQUE NOT NULL,
-      channel_id TEXT,
-      webhook_url TEXT,
-      ping_role TEXT,
-      use_threads BOOLEAN DEFAULT FALSE
+      owner_id TEXT PRIMARY KEY
     );
     CREATE TABLE IF NOT EXISTS active_calls (
-      caller_id TEXT PRIMARY KEY,
-      target_id TEXT NOT NULL,
-      caller_webhook TEXT,
-      target_webhook TEXT,
-      caller_channel TEXT,
-      target_channel TEXT,
-      caller_thread TEXT,
-      target_thread TEXT,
-      type TEXT NOT NULL,
-      started_at TIMESTAMPTZ DEFAULT NOW()
+      caller_id TEXT PRIMARY KEY
     );
     CREATE TABLE IF NOT EXISTS blocked_numbers (
       owner_id TEXT,
@@ -41,14 +27,39 @@ async function ensureTables() {
       PRIMARY KEY(owner_id, blocked_number)
     );
     CREATE TABLE IF NOT EXISTS phone_history (
-      id SERIAL PRIMARY KEY,
-      caller_id TEXT,
-      target_id TEXT,
-      type TEXT,
-      duration_seconds INTEGER,
-      created_at TIMESTAMPTZ DEFAULT NOW()
+      id SERIAL PRIMARY KEY
     );
   `);
+
+  // 2. Force-add missing columns (Auto-fixes your broken DB!)
+  const fixes = [
+    `ALTER TABLE phone_registry ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'user';`,
+    `ALTER TABLE phone_registry ADD COLUMN IF NOT EXISTS phone_number TEXT UNIQUE;`,
+    `ALTER TABLE phone_registry ADD COLUMN IF NOT EXISTS channel_id TEXT;`,
+    `ALTER TABLE phone_registry ADD COLUMN IF NOT EXISTS webhook_url TEXT;`,
+    `ALTER TABLE phone_registry ADD COLUMN IF NOT EXISTS ping_role TEXT;`,
+    `ALTER TABLE phone_registry ADD COLUMN IF NOT EXISTS use_threads BOOLEAN DEFAULT FALSE;`,
+    
+    `ALTER TABLE active_calls ADD COLUMN IF NOT EXISTS target_id TEXT;`,
+    `ALTER TABLE active_calls ADD COLUMN IF NOT EXISTS caller_webhook TEXT;`,
+    `ALTER TABLE active_calls ADD COLUMN IF NOT EXISTS target_webhook TEXT;`,
+    `ALTER TABLE active_calls ADD COLUMN IF NOT EXISTS caller_channel TEXT;`,
+    `ALTER TABLE active_calls ADD COLUMN IF NOT EXISTS target_channel TEXT;`,
+    `ALTER TABLE active_calls ADD COLUMN IF NOT EXISTS caller_thread TEXT;`,
+    `ALTER TABLE active_calls ADD COLUMN IF NOT EXISTS target_thread TEXT;`,
+    `ALTER TABLE active_calls ADD COLUMN IF NOT EXISTS type TEXT;`,
+    `ALTER TABLE active_calls ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ DEFAULT NOW();`,
+    
+    `ALTER TABLE phone_history ADD COLUMN IF NOT EXISTS caller_id TEXT;`,
+    `ALTER TABLE phone_history ADD COLUMN IF NOT EXISTS target_id TEXT;`,
+    `ALTER TABLE phone_history ADD COLUMN IF NOT EXISTS type TEXT;`,
+    `ALTER TABLE phone_history ADD COLUMN IF NOT EXISTS duration_seconds INTEGER;`,
+    `ALTER TABLE phone_history ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();`
+  ];
+
+  for (const q of fixes) {
+    await pool.query(q).catch(() => {});
+  }
 }
 ensureTables().catch(console.error);
 
@@ -136,13 +147,13 @@ module.exports = {
     if (sub === "block") {
       const num = formatPhone(interaction.options.getString("number"));
       await pool.query(`INSERT INTO blocked_numbers (owner_id, blocked_number) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [ownerId, num]);
-      return interaction.editReply(`🚫 blocked \`${num}\`.`);
+      return interaction.editReply(`<:deny:1548661439189745744> blocked \`${num}\`.`);
     }
 
     if (sub === "unblock") {
       const num = formatPhone(interaction.options.getString("number"));
       await pool.query(`DELETE FROM blocked_numbers WHERE owner_id = $1 AND blocked_number = $2`, [ownerId, num]);
-      return interaction.editReply(`✅ unblocked \`${num}\`.`);
+      return interaction.editReply(`<:Verified_Icon:1527194184841167010> unblocked \`${num}\`.`);
     }
 
     if (sub === "history") {
@@ -184,18 +195,15 @@ module.exports = {
     if (sub === "dial") {
       const targetStr = interaction.options.getString("target").trim();
       
-      // 1. Check active call
       const active = await pool.query(`SELECT * FROM active_calls WHERE caller_id = $1 OR target_id = $1`, [ownerId]);
       if (active.rows[0]) return interaction.editReply("you're already on a call.");
 
-      // 2. Cooldowns
       const now = Date.now();
       if (userDialCooldown.has(targetStr) && now - userDialCooldown.get(targetStr) < 6000) {
         return interaction.editReply("wait a few seconds before calling them again.");
       }
       userDialCooldown.set(targetStr, now);
 
-      // 3. Find Target
       let target = null;
       const mentionMatch = targetStr.match(/^<@!?(\d+)>$/);
       
@@ -216,14 +224,12 @@ module.exports = {
       if (!target) return interaction.editReply("couldn't find that number or user.");
       if (target.owner_id === ownerId) return interaction.editReply("you can't call yourself.");
 
-      // 4. Block / Busy check
       const blocked = await pool.query(`SELECT 1 FROM blocked_numbers WHERE owner_id = $1 AND blocked_number = $2`, [target.owner_id, formatPhone(targetStr)]);
       if (blocked.rows[0]) return interaction.editReply("call blocked.");
 
       const busy = await pool.query(`SELECT 1 FROM active_calls WHERE caller_id = $1 OR target_id = $1`, [target.owner_id]);
       if (busy.rows[0]) return interaction.editReply("they are on another call (busy).");
 
-      // 5. Ringing System
       const myWebhook = await pool.query(`SELECT webhook_url, channel_id FROM phone_registry WHERE owner_id = $1`, [ownerId]);
       const targetChannel = await interaction.client.channels.fetch(target.channel_id).catch(()=>null);
       if (!targetChannel) return interaction.editReply("target channel is missing.");
@@ -260,7 +266,6 @@ module.exports = {
           return interaction.editReply("call declined.");
         }
 
-        // ACCEPTED
         let callerThread = null;
         let targetThread = null;
         
@@ -268,7 +273,6 @@ module.exports = {
         const useThreads = callType === "user" && (callerData.rows[0]?.use_threads || target.use_threads);
 
         if (useThreads) {
-          // Try private thread, fallback to public
           const th = await targetChannel.threads.create({ name: `call-${interaction.user.username}`, autoArchiveDuration: 60, type: ChannelType.PrivateThread }).catch(async () => {
             return await targetChannel.threads.create({ name: `call-${interaction.user.username}`, autoArchiveDuration: 60, type: ChannelType.PublicThread });
           });
