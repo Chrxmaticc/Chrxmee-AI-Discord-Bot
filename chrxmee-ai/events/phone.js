@@ -52,7 +52,6 @@ module.exports = {
       await message.react(PHONE_EMOJI).catch(() => {});
       
     } catch (err) {
-      // Silently fail if the tables don't exist yet so it doesn't spam console
       if (!err.message.includes("does not exist")) {
         console.error("[phone] interceptor error:", err.message);
       }
