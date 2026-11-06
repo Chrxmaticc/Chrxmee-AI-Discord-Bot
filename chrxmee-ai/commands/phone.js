@@ -29,14 +29,15 @@ async function ensureTables() {
       channel_id TEXT,
       webhook_url TEXT,
       ping_role TEXT,
-      use_threads BOOLEAN DEFAULT FALSE,
-      channel_locked BOOLEAN DEFAULT FALSE
+      use_threads BOOLEAN DEFAULT FALSE
     );
     CREATE TABLE IF NOT EXISTS active_calls (
       caller_id TEXT PRIMARY KEY,
       target_id TEXT NOT NULL,
       caller_webhook TEXT,
       target_webhook TEXT,
+      caller_webhook_id TEXT,
+      target_webhook_id TEXT,
       caller_channel TEXT,
       target_channel TEXT,
       caller_thread TEXT,
@@ -79,11 +80,10 @@ module.exports = {
           { name: "user", value: "user" },
           { name: "server", value: "server" }
         ))
-      .addChannelOption((o) => o.setName("channel").setDescription("channel for calls to happen (webhooks go here)").setRequired(true))
-      .addRoleOption((o) => o.setName("ping").setDescription("role to ping for server calls").setRequired(false))
-      .addBooleanOption((o) => o.setName("channel_locked").setDescription("(server only) lock commands to the setup channel").setRequired(false)))
-    .addSubcommand((s) => s.setName("set-channel").setDescription("change the channel where your phone lives")
-      .addChannelOption((o) => o.setName("channel").setDescription("new channel for calls").setRequired(true)))
+      .addChannelOption((o) => o.setName("channel").setDescription("home channel (where calls ring)").setRequired(true))
+      .addRoleOption((o) => o.setName("ping").setDescription("role to ping for server calls").setRequired(false)))
+    .addSubcommand((s) => s.setName("set-channel").setDescription("change your home channel (where calls ring)")
+      .addChannelOption((o) => o.setName("channel").setDescription("new home channel").setRequired(true)))
     .addSubcommand((s) => s.setName("settings").setDescription("toggle hidden threads for 1-on-1 calls"))
     .addSubcommand((s) => s.setName("set-number").setDescription("change your number")
       .addStringOption((o) => o.setName("number").setDescription("custom number").setRequired(true)))
@@ -106,12 +106,7 @@ module.exports = {
       
       if (interaction.guildId) {
         const guildPhone = await pool.query(`SELECT * FROM phone_registry WHERE owner_id = $1`, [`guild:${interaction.guildId}`]);
-        if (guildPhone.rows[0]) {
-          if (guildPhone.rows[0].channel_locked && interaction.channelId !== guildPhone.rows[0].channel_id) {
-            return { error: `the server phone is locked to <#${guildPhone.rows[0].channel_id}>. you must run this command there.` };
-          }
-          return guildPhone.rows[0];
-        }
+        if (guildPhone.rows[0]) return guildPhone.rows[0];
       }
       return null;
     }
@@ -120,7 +115,6 @@ module.exports = {
       const type = interaction.options.getString("type");
       const channel = interaction.options.getChannel("channel");
       const pingRole = interaction.options.getRole("ping");
-      const locked = interaction.options.getBoolean("channel_locked") ?? (type === "guild");
       
       const owner = type === "server" ? `guild:${interaction.guildId}` : `user:${interaction.user.id}`;
       
@@ -142,20 +136,18 @@ module.exports = {
       const defaultNumber = type === "server" ? interaction.guildId : formatPhone(String(Math.floor(1000000000 + Math.random() * 9000000000)));
 
       await pool.query(
-        `INSERT INTO phone_registry (owner_id, type, phone_number, channel_id, webhook_url, ping_role, channel_locked) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [owner, type, defaultNumber, channel.id, webhook.url, pingRole?.id || null, locked]
+        `INSERT INTO phone_registry (owner_id, type, phone_number, channel_id, webhook_url, ping_role) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [owner, type, defaultNumber, channel.id, webhook.url, pingRole?.id || null]
       );
 
-      return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0x57F287).setTitle(`${PHONE_EMOJI} ${type} phone ready`).setDescription(`**number:** \`${defaultNumber}\`\n**webhook channel:** <#${channel.id}>`)] });
+      return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0x57F287).setTitle(`${PHONE_EMOJI} ${type} phone ready`).setDescription(`**number:** \`${defaultNumber}\`\n**home channel:** <#${channel.id}> (calls will ring here)`)] });
     }
 
     const caller = await resolveCaller();
     if (!caller) return interaction.editReply("you don't have a phone set up. run `/phone setup`.");
-    if (caller.error) return interaction.editReply(caller.error);
     
     const ownerId = caller.owner_id;
 
-    // ── NEW: SET-CHANNEL ──
     if (sub === "set-channel") {
       if (caller.type === "guild" && !interaction.member.permissions.has(PermissionFlagsBits.ManageChannels)) {
         return interaction.editReply("only admins can change the server phone channel.");
@@ -174,12 +166,8 @@ module.exports = {
         return interaction.editReply("i need `manage webhooks` in that channel.");
       }
 
-      await pool.query(
-        `UPDATE phone_registry SET channel_id = $1, webhook_url = $2 WHERE owner_id = $3`,
-        [newChannel.id, webhook.url, ownerId]
-      );
-
-      return interaction.editReply(`${PHONE_EMOJI} phone channel successfully moved to <#${newChannel.id}>.`);
+      await pool.query(`UPDATE phone_registry SET channel_id = $1, webhook_url = $2 WHERE owner_id = $3`, [newChannel.id, webhook.url, ownerId]);
+      return interaction.editReply(`${PHONE_EMOJI} home channel successfully moved to <#${newChannel.id}>.`);
     }
 
     if (sub === "settings") {
@@ -234,6 +222,19 @@ module.exports = {
       const duration = Math.floor((Date.now() - new Date(call.started_at).getTime()) / 1000);
       
       await pool.query(`INSERT INTO phone_history (caller_id, target_id, type, duration_seconds) VALUES ($1, $2, $3, $4)`, [call.caller_id, call.target_id, call.type, duration]);
+      
+      // Cleanup dynamic webhooks
+      if (call.caller_webhook_id) {
+        const ch = await interaction.client.channels.fetch(call.caller_channel).catch(()=>null);
+        const wh = await ch?.fetchWebhook(call.caller_webhook_id).catch(()=>null);
+        if (wh) await wh.delete().catch(()=>{});
+      }
+      if (call.target_webhook_id) {
+        const ch = await interaction.client.channels.fetch(call.target_channel).catch(()=>null);
+        const wh = await ch?.fetchWebhook(call.target_webhook_id).catch(()=>null);
+        if (wh) await wh.delete().catch(()=>{});
+      }
+
       await pool.query(`DELETE FROM active_calls WHERE caller_id = $1 OR target_id = $1`, [ownerId]);
       
       const thread = call.caller_id === ownerId ? call.caller_thread : call.target_thread;
@@ -246,6 +247,8 @@ module.exports = {
     }
 
     if (sub === "dial") {
+      if (!interaction.guild) return interaction.editReply("you must run dial in a server channel so i can bridge the call.");
+      
       const targetStr = interaction.options.getString("target").trim();
       
       const active = await pool.query(`SELECT * FROM active_calls WHERE caller_id = $1 OR target_id = $1`, [ownerId]);
@@ -285,6 +288,15 @@ module.exports = {
 
       const targetChannel = await interaction.client.channels.fetch(target.channel_id).catch(()=>null);
       if (!targetChannel) return interaction.editReply("target channel is missing.");
+
+      // ── DYNAMIC WEBHOOK IN THE CHANNEL YOU TYPED IN ──
+      let callerWebhook;
+      try {
+        const webhooks = await interaction.channel.fetchWebhooks();
+        callerWebhook = webhooks.find((wh) => wh.owner.id === interaction.client.user.id) || await interaction.channel.createWebhook({ name: "Chromed Phone" });
+      } catch {
+        return interaction.editReply("i need `manage webhooks` in this channel to connect the call.");
+      }
 
       const callType = target.type === "guild" ? "guild" : "user";
       const ringId = `ring_${Date.now()}`;
@@ -332,13 +344,13 @@ module.exports = {
         }
 
         await pool.query(
-          `INSERT INTO active_calls (caller_id, target_id, caller_webhook, target_webhook, caller_channel, target_channel, caller_thread, target_thread, type) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-          [ownerId, target.owner_id, caller.webhook_url, target.webhook_url, caller.channel_id, target.channel_id, callerThread, targetThread, callType]
+          `INSERT INTO active_calls (caller_id, target_id, caller_webhook, target_webhook, caller_webhook_id, target_webhook_id, caller_channel, target_channel, caller_thread, target_thread, type) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          [ownerId, target.owner_id, callerWebhook.url, target.webhook_url, callerWebhook.id, target.webhook_url.split('/').pop(), interaction.channelId, target.channel_id, callerThread, targetThread, callType]
         );
 
         await btn.update({ content: `${PHONE_EMOJI} call connected.`, components: [] });
         
-        return interaction.editReply(`${PHONE_EMOJI} **call connected with ${target.owner_id.replace("user:","")}**.\n\n👉 go to <#${caller.channel_id}> to talk.`);
+        return interaction.editReply(`${PHONE_EMOJI} **call connected with ${target.owner_id.replace("user:","")}**.\n\n👉 you can talk right here in <#${interaction.channelId}>.`);
 
       } catch (err) {
         await ringMsg.edit({ content: "📞 missed call.", components: [] }).catch(()=>{});
