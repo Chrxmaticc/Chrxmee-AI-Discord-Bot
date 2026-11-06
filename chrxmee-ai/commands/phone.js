@@ -8,18 +8,51 @@ const { Pool } = require("pg");
 const PHONE_EMOJI = "<:Phone:1568008806124757094>";
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
 
-// Cooldown trackers
-const globalRingCooldown = new Map(); 
 const userDialCooldown = new Map();   
 
 async function ensureTables() {
-  // 1. Create base tables
+  try {
+    // 1. Check if the old broken schema exists
+    const oldCheck = await pool.query(`
+      SELECT column_name FROM information_schema.columns 
+      WHERE table_name = 'phone_registry' AND column_name = 'guild_id'
+    `);
+    
+    if (oldCheck.rows.length > 0) {
+      console.log("[phone] Old schema detected. Dropping broken tables...");
+      await pool.query(`
+        DROP TABLE IF EXISTS phone_registry;
+        DROP TABLE IF EXISTS active_calls;
+        DROP TABLE IF EXISTS blocked_numbers;
+        DROP TABLE IF EXISTS phone_history;
+      `);
+    }
+  } catch (err) {
+    console.error("[phone] Schema check error:", err.message);
+  }
+
+  // 2. Create the new tables perfectly
   await pool.query(`
     CREATE TABLE IF NOT EXISTS phone_registry (
-      owner_id TEXT PRIMARY KEY
+      owner_id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      phone_number TEXT UNIQUE NOT NULL,
+      channel_id TEXT,
+      webhook_url TEXT,
+      ping_role TEXT,
+      use_threads BOOLEAN DEFAULT FALSE
     );
     CREATE TABLE IF NOT EXISTS active_calls (
-      caller_id TEXT PRIMARY KEY
+      caller_id TEXT PRIMARY KEY,
+      target_id TEXT NOT NULL,
+      caller_webhook TEXT,
+      target_webhook TEXT,
+      caller_channel TEXT,
+      target_channel TEXT,
+      caller_thread TEXT,
+      target_thread TEXT,
+      type TEXT NOT NULL,
+      started_at TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS blocked_numbers (
       owner_id TEXT,
@@ -27,39 +60,14 @@ async function ensureTables() {
       PRIMARY KEY(owner_id, blocked_number)
     );
     CREATE TABLE IF NOT EXISTS phone_history (
-      id SERIAL PRIMARY KEY
+      id SERIAL PRIMARY KEY,
+      caller_id TEXT,
+      target_id TEXT,
+      type TEXT,
+      duration_seconds INTEGER,
+      created_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
-
-  // 2. Force-add missing columns (Auto-fixes your broken DB!)
-  const fixes = [
-    `ALTER TABLE phone_registry ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'user';`,
-    `ALTER TABLE phone_registry ADD COLUMN IF NOT EXISTS phone_number TEXT UNIQUE;`,
-    `ALTER TABLE phone_registry ADD COLUMN IF NOT EXISTS channel_id TEXT;`,
-    `ALTER TABLE phone_registry ADD COLUMN IF NOT EXISTS webhook_url TEXT;`,
-    `ALTER TABLE phone_registry ADD COLUMN IF NOT EXISTS ping_role TEXT;`,
-    `ALTER TABLE phone_registry ADD COLUMN IF NOT EXISTS use_threads BOOLEAN DEFAULT FALSE;`,
-    
-    `ALTER TABLE active_calls ADD COLUMN IF NOT EXISTS target_id TEXT;`,
-    `ALTER TABLE active_calls ADD COLUMN IF NOT EXISTS caller_webhook TEXT;`,
-    `ALTER TABLE active_calls ADD COLUMN IF NOT EXISTS target_webhook TEXT;`,
-    `ALTER TABLE active_calls ADD COLUMN IF NOT EXISTS caller_channel TEXT;`,
-    `ALTER TABLE active_calls ADD COLUMN IF NOT EXISTS target_channel TEXT;`,
-    `ALTER TABLE active_calls ADD COLUMN IF NOT EXISTS caller_thread TEXT;`,
-    `ALTER TABLE active_calls ADD COLUMN IF NOT EXISTS target_thread TEXT;`,
-    `ALTER TABLE active_calls ADD COLUMN IF NOT EXISTS type TEXT;`,
-    `ALTER TABLE active_calls ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ DEFAULT NOW();`,
-    
-    `ALTER TABLE phone_history ADD COLUMN IF NOT EXISTS caller_id TEXT;`,
-    `ALTER TABLE phone_history ADD COLUMN IF NOT EXISTS target_id TEXT;`,
-    `ALTER TABLE phone_history ADD COLUMN IF NOT EXISTS type TEXT;`,
-    `ALTER TABLE phone_history ADD COLUMN IF NOT EXISTS duration_seconds INTEGER;`,
-    `ALTER TABLE phone_history ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();`
-  ];
-
-  for (const q of fixes) {
-    await pool.query(q).catch(() => {});
-  }
 }
 ensureTables().catch(console.error);
 
@@ -147,13 +155,13 @@ module.exports = {
     if (sub === "block") {
       const num = formatPhone(interaction.options.getString("number"));
       await pool.query(`INSERT INTO blocked_numbers (owner_id, blocked_number) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [ownerId, num]);
-      return interaction.editReply(`<:deny:1548661439189745744> blocked \`${num}\`.`);
+      return interaction.editReply(`🚫 blocked \`${num}\`.`);
     }
 
     if (sub === "unblock") {
       const num = formatPhone(interaction.options.getString("number"));
       await pool.query(`DELETE FROM blocked_numbers WHERE owner_id = $1 AND blocked_number = $2`, [ownerId, num]);
-      return interaction.editReply(`<:Verified_Icon:1527194184841167010> unblocked \`${num}\`.`);
+      return interaction.editReply(`✅ unblocked \`${num}\`.`);
     }
 
     if (sub === "history") {
