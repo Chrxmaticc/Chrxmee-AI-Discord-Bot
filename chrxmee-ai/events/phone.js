@@ -13,7 +13,6 @@ module.exports = {
     if (message.webhookId) return;
 
     try {
-      // Find if this channel or thread is part of an active call
       const callCheck = await pool.query(
         `SELECT * FROM active_calls WHERE 
          caller_channel = $1 OR target_channel = $1 OR 
@@ -25,32 +24,29 @@ module.exports = {
       
       const call = callCheck.rows[0];
       
-      // Determine who is calling and who is receiving
       const isCaller = 
         message.channelId === call.caller_channel || 
         message.channelId === call.caller_thread;
         
       const targetWebhook = isCaller ? call.target_webhook : call.caller_webhook;
-      const myWebhook = isCaller ? call.caller_webhook : call.target_webhook;
 
       if (!targetWebhook) return;
 
       const webhookClient = new WebhookClient({ url: targetWebhook });
 
-      // Squeeze attachments into CDN links
       let content = message.content || "";
       if (message.attachments.size > 0) {
         const links = message.attachments.map(a => `[${a.contentType?.startsWith('image') ? 'Image' : 'File'}](${a.url})`).join(" ");
         content += (content ? "\n" : "") + links;
       }
 
-      if (!content) return; // Skip empty messages with no attachments
+      if (!content) return;
 
       await webhookClient.send({
         content: content,
         username: `${message.member.displayName} (${message.guild.name})`,
         avatarURL: message.author.displayAvatarURL(),
-        allowedMentions: { parse: [] } // Prevents @everyone ping abuse across servers
+        allowedMentions: { parse: [] }
       }).catch((err) => console.error("[phone] webhook failed:", err.message));
 
       await message.react(PHONE_EMOJI).catch(() => {});
