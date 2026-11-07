@@ -42,7 +42,7 @@ async function ensureTables() {
       target_channel TEXT,
       caller_thread TEXT,
       target_thread TEXT,
-      type TEXT NOT NULL, -- 'global', 'server', or 'user'
+      type TEXT NOT NULL, -- 'user' or 'server' (how the call is routed)
       started_at TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS blocked_numbers (
@@ -60,7 +60,6 @@ async function ensureTables() {
     );
   `);
 
-  // Force-add missing columns
   const fixQueries = [
     `ALTER TABLE active_calls ADD COLUMN IF NOT EXISTS caller_webhook_id TEXT;`,
     `ALTER TABLE active_calls ADD COLUMN IF NOT EXISTS target_webhook_id TEXT;`,
@@ -87,8 +86,8 @@ module.exports = {
     .addSubcommand((s) => s.setName("setup").setDescription("set up your phone (once)")
       .addStringOption((o) => o.setName("type").setDescription("global (server), server (user in channel), or user (DM)").setRequired(true)
         .addChoices(
-          { name: "global", value: "global" },
-          { name: "server", value: "server" },
+          { name: "global (server)", value: "global" },
+          { name: "server (user in channel)", value: "server" },
           { name: "user (DMs)", value: "user" }
         ))
       .addChannelOption((o) => o.setName("channel").setDescription("channel for calls (required for global/server)").setRequired(false))
@@ -98,7 +97,12 @@ module.exports = {
     .addSubcommand((s) => s.setName("set-number").setDescription("change your number")
       .addStringOption((o) => o.setName("number").setDescription("custom number").setRequired(true)))
     .addSubcommand((s) => s.setName("dial").setDescription("call a number, user, or server")
-      .addStringOption((o) => o.setName("target").setDescription("Number, @user, user ID, or server ID").setRequired(true)))
+      .addStringOption((o) => o.setName("target").setDescription("Number, @user, user ID, or server ID").setRequired(true))
+      .addStringOption((o) => o.setName("method").setDescription("how to talk (user = DMs, server = Channels)").setRequired(true)
+        .addChoices(
+          { name: "user (DMs)", value: "user" },
+          { name: "server (Channels)", value: "server" }
+        )))
     .addSubcommand((s) => s.setName("hangup").setDescription("end current call"))
     .addSubcommand((s) => s.setName("history").setDescription("view your recent call history"))
     .addSubcommand((s) => s.setName("block").setDescription("block a number")
@@ -232,7 +236,7 @@ module.exports = {
       const duration = Math.floor((Date.now() - new Date(call.started_at).getTime()) / 1000);
       await pool.query(`INSERT INTO phone_history (caller_id, target_id, type, duration_seconds) VALUES ($1, $2, $3, $4)`, [call.caller_id, call.target_id, call.type, duration]);
       
-      // Fix: use client.fetchWebhook instead of ch.fetchWebhook
+      // Fixed the fetchWebhook method here
       if (call.caller_webhook_id) {
         const wh = await interaction.client.fetchWebhook(call.caller_webhook_id).catch(()=>null);
         if (wh) await wh.delete().catch(()=>{});
@@ -255,6 +259,7 @@ module.exports = {
 
     if (sub === "dial") {
       const targetStr = interaction.options.getString("target").trim();
+      const method = interaction.options.getString("method");
       
       const active = await pool.query(`SELECT * FROM active_calls WHERE caller_id = $1 OR target_id = $1`, [ownerId]);
       if (active.rows[0]) return interaction.editReply("you're already on a call.");
@@ -291,33 +296,42 @@ module.exports = {
       const busy = await pool.query(`SELECT 1 FROM active_calls WHERE caller_id = $1 OR target_id = $1`, [target.owner_id]);
       if (busy.rows[0]) return interaction.editReply("they are on another call (busy).");
 
-      let targetChannel;
-      if (target.type === "user") {
-        const tUser = await interaction.client.users.fetch(target.owner_id.replace("user:", "")).catch(()=>null);
-        if (!tUser) return interaction.editReply("target user not found.");
-        targetChannel = await tUser.createDM();
-      } else {
-        targetChannel = await interaction.client.channels.fetch(target.channel_id).catch(()=>null);
-      }
-      if (!targetChannel) return interaction.editReply("target channel/DM is missing.");
+      // ── ROUTING LOGIC BASED ON METHOD ──
+      let callerChannelId, targetChannelId;
+      let callerWebhookUrl = null, targetWebhookUrl = null;
+      let callerWebhookId = null, targetWebhookId = null;
 
-      let callerWebhookUrl = caller.webhook_url;
-      let callerWebhookId = null;
-      let callerChannelId = caller.channel_id;
+      if (method === "user") {
+        if (target.type === "global") return interaction.editReply("You cannot DM call a global server.");
+        
+        const callerDm = await interaction.user.createDM();
+        callerChannelId = callerDm.id;
 
-      if (caller.type === "user") {
-        const cUser = await interaction.client.users.fetch(interaction.user.id);
-        const dm = await cUser.createDM();
-        callerChannelId = dm.id;
+        const targetUser = await interaction.client.users.fetch(target.owner_id.split(":")[1]).catch(()=>null);
+        if (!targetUser) return interaction.editReply("Target user not found.");
+        const targetDm = await targetUser.createDM();
+        targetChannelId = targetDm.id;
+
       } else {
+        // Server method
+        if (!target.channel_id) {
+           return interaction.editReply("That user doesn't have a server phone channel. Try `method:user` for DMs.");
+        }
+        
+        callerChannelId = interaction.channelId;
+        targetChannelId = target.channel_id;
+
         try {
-          const webhooks = await interaction.channel.fetchWebhooks();
-          const w = webhooks.find((wh) => wh.name === "Chromed Phone") || await interaction.channel.createWebhook({ name: "Chromed Phone" });
-          callerWebhookUrl = w.url;
-          callerWebhookId = w.id;
-          callerChannelId = interaction.channelId;
-        } catch {
-          return interaction.editReply("i need `manage webhooks` in this channel to connect the call.");
+          const w1 = await interaction.channel.createWebhook({ name: "Chromed Phone" });
+          callerWebhookUrl = w1.url;
+          callerWebhookId = w1.id;
+
+          const targetCh = await interaction.client.channels.fetch(targetChannelId);
+          const w2 = await targetCh.createWebhook({ name: "Chromed Phone" });
+          targetWebhookUrl = w2.url;
+          targetWebhookId = w2.id;
+        } catch (e) {
+          return interaction.editReply("Missing permissions to create webhooks.");
         }
       }
 
@@ -327,11 +341,15 @@ module.exports = {
         new ButtonBuilder().setCustomId(`decline_${ringId}`).setLabel("Decline").setStyle(ButtonStyle.Danger)
       );
 
-      const pingStr = target.type === "global" && target.ping_role ? `<@&${target.ping_role}>` : `<@${target.owner_id.replace("user:","")}>`;
+      const pingStr = target.type === "global" && target.ping_role ? `<@&${target.ping_role}>` : `<@${target.owner_id.split(":")[1]}>`;
       
+      // Send ring to target channel (which is DM if method=user, or Home Channel if method=server)
+      const targetChannelToRing = await interaction.client.channels.fetch(targetChannelId).catch(()=>null);
+      if (!targetChannelToRing) return interaction.editReply("Target channel/DM is missing.");
+
       let ringMsg;
       try {
-        ringMsg = await targetChannel.send({
+        ringMsg = await targetChannelToRing.send({
           content: `${PHONE_EMOJI} **ayo ${pingStr}, ${interaction.user.username} is calling you!**`,
           components: [row]
         });
@@ -346,7 +364,7 @@ module.exports = {
           time: 30_000,
           filter: (i) => {
             if (target.type === "global") return i.member.permissions.has(PermissionFlagsBits.ManageChannels);
-            return i.user.id === target.owner_id.replace("user:", "");
+            return i.user.id === target.owner_id.split(":")[1];
           }
         });
       } catch (err) {
@@ -362,31 +380,18 @@ module.exports = {
       try {
         await btn.deferUpdate();
 
-        let callerThread = null;
-        let targetThread = null;
-        
-        if (target.type !== "user") {
-          const th = await targetChannel.threads.create({ name: `call-${interaction.user.username}`, autoArchiveDuration: 60, type: ChannelType.PrivateThread }).catch(async () => {
-            return await targetChannel.threads.create({ name: `call-${interaction.user.username}`, autoArchiveDuration: 60, type: ChannelType.PublicThread });
-          });
-          targetThread = th.id;
-          await th.members.add(target.owner_id.replace("user:","")).catch(()=>{});
-        }
-
-        const match = target.webhook_url?.match(/webhooks\/(\d+)\//);
-        const targetWhId = match ? match[1] : null;
-
+        // Insert call using the method as the type
         await pool.query(
           `INSERT INTO active_calls (caller_id, target_id, caller_webhook, target_webhook, caller_webhook_id, target_webhook_id, caller_channel, target_channel, caller_thread, target_thread, type) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-          [ownerId, target.owner_id, callerWebhookUrl, target.webhook_url, callerWebhookId, targetWhId, callerChannelId, targetChannel.id, callerThread, targetThread, target.type]
+          [ownerId, target.owner_id, callerWebhookUrl, targetWebhookUrl, callerWebhookId, targetWebhookId, callerChannelId, targetChannelId, null, null, method]
         );
 
         await btn.editReply({ content: `${PHONE_EMOJI} call connected.`, components: [] });
         
-        if (caller.type === "user") {
-          return interaction.editReply(`${PHONE_EMOJI} **call connected with ${target.owner_id.replace("user:","")}**.\n\n👉 check your DMs to talk.`);
+        if (method === "user") {
+          return interaction.editReply(`${PHONE_EMOJI} **call connected with ${target.owner_id.split(":")[1]}**.\n\n👉 check your DMs to talk.`);
         } else {
-          return interaction.editReply(`${PHONE_EMOJI} **call connected with ${target.owner_id.replace("user:","")}**.\n\n👉 you can talk right here in <#${interaction.channelId}>.`);
+          return interaction.editReply(`${PHONE_EMOJI} **call connected with ${target.owner_id.split(":")[1]}**.\n\n👉 you can talk right here in <#${interaction.channelId}>.`);
         }
 
       } catch (err) {
