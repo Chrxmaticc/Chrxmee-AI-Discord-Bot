@@ -1,5 +1,5 @@
 // events/phone.js
-const { WebhookClient } = require("discord.js");
+const { WebhookClient, EmbedBuilder } = require("discord.js");
 const { Pool } = require("pg");
 
 const PHONE_EMOJI = "<:Phone:1568008806124757094>";
@@ -8,7 +8,6 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejec
 module.exports = {
   name: "messageCreate",
   async execute(message) {
-    if (!message.guild) return;
     if (message.author.bot) return;
     if (message.webhookId) return;
 
@@ -27,12 +26,9 @@ module.exports = {
       const isCaller = 
         message.channelId === call.caller_channel || 
         message.channelId === call.caller_thread;
-        
+
+      const targetChannelId = isCaller ? call.target_channel : call.caller_channel;
       const targetWebhook = isCaller ? call.target_webhook : call.caller_webhook;
-
-      if (!targetWebhook) return;
-
-      const webhookClient = new WebhookClient({ url: targetWebhook });
 
       let content = message.content || "";
       if (message.attachments.size > 0) {
@@ -42,9 +38,28 @@ module.exports = {
 
       if (!content) return;
 
+      // If call type is 'user', target is DM (no webhook)
+      if (call.type === "user" || !targetWebhook) {
+        const targetChannel = await message.client.channels.fetch(targetChannelId).catch(()=>null);
+        if (!targetChannel) return;
+
+        const embed = new EmbedBuilder()
+          .setColor(0x7c7ce0)
+          .setAuthor({ name: message.author.username, iconURL: message.author.displayAvatarURL() })
+          .setDescription(content)
+          .setFooter({ text: `via ${message.guild ? message.guild.name : "DM"}` });
+
+        await targetChannel.send({ embeds: [embed] }).catch(() => {});
+        await message.react(PHONE_EMOJI).catch(() => {});
+        return;
+      }
+
+      // Otherwise, use webhooks for server/global
+      const webhookClient = new WebhookClient({ url: targetWebhook });
+
       await webhookClient.send({
         content: content,
-        username: `${message.member.displayName} (${message.guild.name})`,
+        username: `${message.member?.displayName || message.author.username} (${message.guild?.name || "DM"})`,
         avatarURL: message.author.displayAvatarURL(),
         allowedMentions: { parse: [] }
       }).catch((err) => console.error("[phone] webhook failed:", err.message));
