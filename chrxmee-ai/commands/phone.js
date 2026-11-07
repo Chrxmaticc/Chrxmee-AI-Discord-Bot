@@ -24,7 +24,7 @@ async function ensureTables() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS phone_registry (
       owner_id TEXT PRIMARY KEY,
-      type TEXT NOT NULL, -- 'global', 'server', or 'user'
+      type TEXT NOT NULL,
       phone_number TEXT UNIQUE NOT NULL,
       channel_id TEXT,
       webhook_url TEXT,
@@ -42,7 +42,7 @@ async function ensureTables() {
       target_channel TEXT,
       caller_thread TEXT,
       target_thread TEXT,
-      type TEXT NOT NULL, -- 'user' or 'server' (how the call is routed)
+      type TEXT NOT NULL,
       started_at TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS blocked_numbers (
@@ -92,6 +92,7 @@ module.exports = {
         ))
       .addChannelOption((o) => o.setName("channel").setDescription("channel for calls (required for global/server)").setRequired(false))
       .addRoleOption((o) => o.setName("ping").setDescription("role to ping for global calls").setRequired(false)))
+    .addSubcommand((s) => s.setName("settings").setDescription("toggle hidden threads for server calls"))
     .addSubcommand((s) => s.setName("set-channel").setDescription("change your home channel (global/server only)")
       .addChannelOption((o) => o.setName("channel").setDescription("new home channel").setRequired(true)))
     .addSubcommand((s) => s.setName("set-number").setDescription("change your number")
@@ -169,6 +170,13 @@ module.exports = {
     
     const ownerId = caller.owner_id;
 
+    if (sub === "settings") {
+      if (caller.type === "global") return interaction.editReply("this setting is only for user phones.");
+      const newVal = !caller.use_threads;
+      await pool.query(`UPDATE phone_registry SET use_threads = $1 WHERE owner_id = $2`, [newVal, ownerId]);
+      return interaction.editReply(`${PHONE_EMOJI} hidden threads for calls are now **${newVal ? "ON" : "OFF"}**.`);
+    }
+
     if (sub === "set-channel") {
       if (caller.type === "user") return interaction.editReply("user phones do not use channels.");
       if (caller.type === "global" && !interaction.member.permissions.has(PermissionFlagsBits.ManageChannels)) {
@@ -236,7 +244,6 @@ module.exports = {
       const duration = Math.floor((Date.now() - new Date(call.started_at).getTime()) / 1000);
       await pool.query(`INSERT INTO phone_history (caller_id, target_id, type, duration_seconds) VALUES ($1, $2, $3, $4)`, [call.caller_id, call.target_id, call.type, duration]);
       
-      // Fixed the fetchWebhook method here
       if (call.caller_webhook_id) {
         const wh = await interaction.client.fetchWebhook(call.caller_webhook_id).catch(()=>null);
         if (wh) await wh.delete().catch(()=>{});
@@ -296,40 +303,32 @@ module.exports = {
       const busy = await pool.query(`SELECT 1 FROM active_calls WHERE caller_id = $1 OR target_id = $1`, [target.owner_id]);
       if (busy.rows[0]) return interaction.editReply("they are on another call (busy).");
 
-      // ── ROUTING LOGIC BASED ON METHOD ──
       let callerChannelId, targetChannelId;
       let callerWebhookUrl = null, targetWebhookUrl = null;
       let callerWebhookId = null, targetWebhookId = null;
 
       if (method === "user") {
         if (target.type === "global") return interaction.editReply("You cannot DM call a global server.");
-        
         const callerDm = await interaction.user.createDM();
         callerChannelId = callerDm.id;
-
         const targetUser = await interaction.client.users.fetch(target.owner_id.split(":")[1]).catch(()=>null);
         if (!targetUser) return interaction.editReply("Target user not found.");
         const targetDm = await targetUser.createDM();
         targetChannelId = targetDm.id;
-
       } else {
-        // Server method
-        if (!target.channel_id) {
-           return interaction.editReply("That user doesn't have a server phone channel. Try `method:user` for DMs.");
-        }
-        
+        if (!target.channel_id) return interaction.editReply("That user doesn't have a server phone channel. Try `method:user` for DMs.");
         callerChannelId = interaction.channelId;
         targetChannelId = target.channel_id;
 
         try {
-          const w1 = await interaction.channel.createWebhook({ name: "Chromed Phone" });
-          callerWebhookUrl = w1.url;
-          callerWebhookId = w1.id;
+          const w1s = await interaction.channel.fetchWebhooks();
+          const w1 = w1s.find(w => w.name === "Chromed Phone") || await interaction.channel.createWebhook({ name: "Chromed Phone" });
+          callerWebhookUrl = w1.url; callerWebhookId = w1.id;
 
           const targetCh = await interaction.client.channels.fetch(targetChannelId);
-          const w2 = await targetCh.createWebhook({ name: "Chromed Phone" });
-          targetWebhookUrl = w2.url;
-          targetWebhookId = w2.id;
+          const w2s = await targetCh.fetchWebhooks();
+          const w2 = w2s.find(w => w.name === "Chromed Phone") || await targetCh.createWebhook({ name: "Chromed Phone" });
+          targetWebhookUrl = w2.url; targetWebhookId = w2.id;
         } catch (e) {
           return interaction.editReply("Missing permissions to create webhooks.");
         }
@@ -343,7 +342,6 @@ module.exports = {
 
       const pingStr = target.type === "global" && target.ping_role ? `<@&${target.ping_role}>` : `<@${target.owner_id.split(":")[1]}>`;
       
-      // Send ring to target channel (which is DM if method=user, or Home Channel if method=server)
       const targetChannelToRing = await interaction.client.channels.fetch(targetChannelId).catch(()=>null);
       if (!targetChannelToRing) return interaction.editReply("Target channel/DM is missing.");
 
@@ -367,36 +365,49 @@ module.exports = {
             return i.user.id === target.owner_id.split(":")[1];
           }
         });
+        
+        // ── ACKNOWLEDGE INSTANTLY SO DISCORD DOESN'T TIME OUT ──
+        await btn.deferUpdate().catch(()=>{});
       } catch (err) {
         await ringMsg.edit({ content: "📞 missed call.", components: [] }).catch(()=>{});
         return interaction.editReply("they didn't answer.");
       }
 
       if (btn.customId === `decline_${ringId}`) {
-        await btn.update({ content: "📞 call declined.", components: [] });
+        await ringMsg.edit({ content: "📞 call declined.", components: [] }).catch(()=>{});
         return interaction.editReply("call declined.");
       }
 
       try {
-        await btn.deferUpdate();
+        let callerThread = null;
+        let targetThread = null;
+        
+        // RESTORED THREAD LOGIC
+        const useThreads = method === "server" && (caller.use_threads || target.use_threads);
+        if (useThreads) {
+          const th = await targetChannelToRing.threads.create({ name: `call-${interaction.user.username}`, autoArchiveDuration: 60, type: ChannelType.PrivateThread }).catch(async () => {
+            return await targetChannelToRing.threads.create({ name: `call-${interaction.user.username}`, autoArchiveDuration: 60, type: ChannelType.PublicThread });
+          });
+          targetThread = th.id;
+          await th.members.add(target.owner_id.split(":")[1]).catch(()=>{});
+        }
 
-        // Insert call using the method as the type
         await pool.query(
           `INSERT INTO active_calls (caller_id, target_id, caller_webhook, target_webhook, caller_webhook_id, target_webhook_id, caller_channel, target_channel, caller_thread, target_thread, type) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-          [ownerId, target.owner_id, callerWebhookUrl, targetWebhookUrl, callerWebhookId, targetWebhookId, callerChannelId, targetChannelId, null, null, method]
+          [ownerId, target.owner_id, callerWebhookUrl, targetWebhookUrl, callerWebhookId, targetWebhookId, callerChannelId, targetChannelId, callerThread, targetThread, method]
         );
 
-        await btn.editReply({ content: `${PHONE_EMOJI} call connected.`, components: [] });
+        await ringMsg.edit({ content: `${PHONE_EMOJI} call connected.`, components: [] });
         
         if (method === "user") {
           return interaction.editReply(`${PHONE_EMOJI} **call connected with ${target.owner_id.split(":")[1]}**.\n\n👉 check your DMs to talk.`);
         } else {
-          return interaction.editReply(`${PHONE_EMOJI} **call connected with ${target.owner_id.split(":")[1]}**.\n\n👉 you can talk right here in <#${interaction.channelId}>.`);
+          return interaction.editReply(`${PHONE_EMOJI} **call connected with ${target.owner_id.split(":")[1]}**.\n\n👉 you can talk right now in <#${interaction.channelId}>.`);
         }
 
       } catch (err) {
         console.error("[phone] accept error:", err);
-        await btn.editReply({ content: "📞 call failed to connect.", components: [] }).catch(()=>{});
+        await ringMsg.edit({ content: "📞 call failed to connect.", components: [] }).catch(()=>{});
         return interaction.editReply(`call failed to connect: ${err.message}`);
       }
     }
