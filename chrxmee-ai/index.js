@@ -124,7 +124,7 @@ const { Shoukaku, Connectors } = require('shoukaku');
 const Nodes = [
   {
     name: 'chrxmee-lavalink',
-    url: 'chrxmee-lavalink.onrender.com:443', // dont forget to change port to 443 if it dont work. reminder #1.
+    url: 'chrxmee-lavalink-j7u3.onrender.com:443', // dont forget to change port to 443 if it dont work. reminder #1.
     auth: 'chrxmaticc2026',
     secure: true 
   }
