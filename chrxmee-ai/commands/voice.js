@@ -1,4 +1,5 @@
 // commands/voice.js
+process.env.FFMPEG_PATH = require("ffmpeg-static");
 const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
 const { 
   joinVoiceChannel, createAudioPlayer, createAudioResource, 
