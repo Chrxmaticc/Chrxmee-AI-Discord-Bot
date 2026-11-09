@@ -5,7 +5,7 @@ const queues = new Map();
 const markers = new Map();
 const endWatchers = new Map();
 
-// ── KEEP-ALIVE ──
+// ── KEEP-ALIVE (Stops Render from spinning down) ──
 setInterval(async () => {
   try {
     const client = require("../index.js"); 
@@ -168,7 +168,7 @@ module.exports = {
       if (result.loadType === "track") tracksToAdd.push(result.data);
       else if (result.loadType === "playlist") tracksToAdd = result.data.tracks;
       else if (result.loadType === "search") tracksToAdd.push(result.data[0]);
-      else return interaction.editReply("❌ could not load that track. (If SoundCloud, try a full URL, not a shortlink).");
+      else return interaction.editReply("❌ could not load that track. (If SoundCloud, try a full URL, not a mobile link).");
 
       queue.push(...tracksToAdd);
       queues.set(guildId, queue);
@@ -378,6 +378,7 @@ async function playNext(player, guildId, textChannel) {
   }
 
   try {
+    // Shoukaku v4 format
     await player.playTrack({ track: { encoded: track.encoded } });
     
     if (gm && gm.start !== null) {
