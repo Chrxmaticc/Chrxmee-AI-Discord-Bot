@@ -1,31 +1,19 @@
 // commands/voice.js
-process.env.FFMPEG_PATH = require("ffmpeg-static");
-const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
+process.env.FFMPEG_PATH = require("ffmpeg-static"); // MUST BE AT THE TOP
+
+const { SlashCommandBuilder } = require("discord.js");
 const { 
   joinVoiceChannel, createAudioPlayer, createAudioResource, 
-  VoiceConnectionStatus, StreamType // Added StreamType
+  StreamType 
 } = require("@discordjs/voice");
 const { Pool } = require("pg");
 const { Readable } = require("stream");
+const googleTTS = require("google-tts-api");
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
 
 const voiceStates = new Map(); 
-let speechListenerAttached = false; // Prevents duplicate listeners
-
-const SE_API = "https://api.streamelements.com/kappa/v2/speech";
-
-const TTS_VOICES = {
-  brian: "Brian",
-  matthew: "Matthew",
-  joey: "Joey",
-  amy: "Amy",
-  emma: "Emma",
-  nicole: "Nicole",
-  russell: "Russell",
-  kendra: "Kendra",
-  justin: "Justin"
-};
+let speechListenerAttached = false; 
 
 async function ensureOptTable() {
   await pool.query(`
@@ -36,16 +24,32 @@ async function ensureOptTable() {
 }
 ensureOptTable().catch(console.error);
 
-async function callAI(client, prompt) {
+// ── LOCAL AI WRAPPER FOR VOICE ──
+// This keeps the LLM in check specifically for voice chat
+async function getVoiceAI(client, prompt) {
   try {
     const aiModule = require("../events/messageCreate"); 
-    if (aiModule.callAI) {
-        return await aiModule.callAI("genius", [{ role: "user", content: prompt }], 0.85, 250);
-    }
+    
+    // We force the AI to act like a voice chat participant
+    const systemOverride = `You are Chromed in a Voice Chat. You are speaking OUT LOUD.
+RULES:
+1. MAX 2 sentences. Keep it brief.
+2. NO markdown, NO asterisks, NO emojis. (They can't be spoken).
+3. Speak casually, using slang like "twin", "cooked", "fr".
+4. Never say "Hey bro" or generic greetings. Answer the prompt directly.`;
+
+    const messages = [
+      { role: "system", content: systemOverride },
+      { role: "user", content: prompt }
+    ];
+
+    // Call your existing AI function
+    const reply = await aiModule.callAI("genius", messages, 0.85, 150);
+    return reply || "i have no idea what you just said twin.";
   } catch (e) {
     console.warn("[voice] AI call failed:", e.message);
+    return "my brain is lagging right now.";
   }
-  return "My brain is lagging. Say that again.";
 }
 
 module.exports = {
@@ -63,16 +67,6 @@ module.exports = {
     .addSubcommand((s) =>
       s.setName("ai").setDescription("speak an AI response")
         .addStringOption((o) => o.setName("prompt").setDescription("ask chromed something").setRequired(true))
-    )
-    .addSubcommand((s) =>
-      s.setName("voice").setDescription("change the TTS voice")
-        .addStringOption((o) => o.setName("name").setDescription("voice name").setRequired(true)
-          .addChoices(
-            { name: "Brian (Casual)", value: "brian" },
-            { name: "Matthew (Deep)", value: "matthew" },
-            { name: "Joey (Young)", value: "joey" },
-            { name: "Amy (British)", value: "amy" }
-          ))
     ),
 
   async execute(interaction) {
@@ -80,8 +74,6 @@ module.exports = {
     const guildId = interaction.guildId;
     const member = interaction.member;
     await interaction.deferReply({ ephemeral: true });
-
-    const getState = () => voiceStates.get(guildId) || { listening: false, voice: "brian" };
 
     if (sub === "join") {
       const vc = member.voice.channel;
@@ -99,22 +91,18 @@ module.exports = {
         const player = createAudioPlayer();
         connection.subscribe(player);
 
-        // Add error listeners so we can see if FFmpeg fails
-        player.on('error', error => {
-          console.error(`[voice] Player Error: ${error.message}`);
-        });
+        player.on('error', error => console.error(`[voice] Player Error: ${error.message}`));
 
         const state = {
           connection,
           player,
           listening: true,
           channelId: vc.id,
-          voice: getState().voice,
           emptyTimer: null
         };
         voiceStates.set(guildId, state);
 
-        // ── FIXED: Only attach the speech listener ONCE globally ──
+        // ── SPEECH RECOGNITION LISTENER ──
         if (!speechListenerAttached) {
           speechListenerAttached = true;
           interaction.client.on("speech", async (msg) => {
@@ -127,18 +115,19 @@ module.exports = {
             if (isOptedOut.rows.length > 0) return;
 
             const content = msg.content.toLowerCase();
-            if (content.includes("chromed") || content.includes("chrxmee")) {
+            // Triggers if they say "chromed" or if it's a direct question ending in ?
+            if (content.includes("chromed") || content.includes("chrxmee") || content.endsWith("?")) {
               console.log(`[voice] Heard: "${msg.content}" from ${msg.author.username}`);
-              const reply = await callAI(interaction.client, msg.content);
+              const reply = await getVoiceAI(interaction.client, msg.content);
               await speak(interaction.client, msg.guild.id, reply);
             }
           });
         }
 
+        // ── AUTO LEAVE ──
         const checkEmpty = () => {
           const ch = interaction.guild.channels.cache.get(vc.id);
           if (!ch) return;
-          
           const humans = ch.members.filter(m => !m.user.bot);
           const state = voiceStates.get(guildId);
           
@@ -147,7 +136,7 @@ module.exports = {
               if (voiceStates.has(guildId)) {
                 voiceStates.get(guildId).connection.destroy();
                 voiceStates.delete(guildId);
-                console.log(`[voice] Auto-left empty channel in ${guildId}`);
+                console.log(`[voice] Auto-left empty channel.`);
               }
             }, 30_000);
           } else if (humans.size > 0 && state?.emptyTimer) {
@@ -170,10 +159,8 @@ module.exports = {
     if (sub === "leave") {
       const state = voiceStates.get(guildId);
       if (!state) return interaction.editReply("i'm not in a voice channel.");
-
       if (state.emptyInterval) clearInterval(state.emptyInterval);
       if (state.emptyTimer) clearTimeout(state.emptyTimer);
-      
       state.connection.destroy();
       voiceStates.delete(guildId);
       return interaction.editReply("left the voice channel.");
@@ -195,25 +182,18 @@ module.exports = {
       if (!state) return interaction.editReply("i'm not in a voice channel. use `/voice join` first.");
 
       let text = interaction.options.getString("text") || interaction.options.getString("prompt");
+      
       if (sub === "ai") {
-        text = await callAI(interaction.client, text);
+        text = await getVoiceAI(interaction.client, text);
       }
 
       await speak(interaction.client, guildId, text);
       return interaction.editReply(`🔊 spoke: *${text.slice(0, 100)}${text.length > 100 ? "..." : ""}*`);
     }
-
-    if (sub === "voice") {
-      const state = voiceStates.get(guildId) || { voice: "brian" };
-      const newVoice = interaction.options.getString("name");
-      state.voice = newVoice;
-      voiceStates.set(guildId, state);
-      return interaction.editReply(`🎙️ voice changed to **${TTS_VOICES[newVoice] || newVoice}**.`);
-    }
   }
 };
 
-// ── HELPER: Speak Audio ──
+// ── HELPER: Speak Audio (Using Google TTS) ──
 async function speak(client, guildId, text) {
   const state = voiceStates.get(guildId);
   if (!state) return;
@@ -221,29 +201,30 @@ async function speak(client, guildId, text) {
   try {
     state.player.stop();
 
-    const voiceId = TTS_VOICES[state.voice] || "Brian";
-    const url = `${SE_API}?voice=${voiceId}&text=${encodeURIComponent(text.slice(0, 300))}`;
+    // Trim text to 200 chars max (Google TTS limit)
+    const safeText = text.slice(0, 200);
     
-    console.log(`[voice] fetching TTS from StreamElements...`);
+    // Fetch free Google TTS
+    const url = googleTTS.getAudioUrl(safeText, {
+      lang: 'en',
+      slow: false,
+      host: 'https://translate.google.com',
+    });
+
+    console.log(`[voice] fetching Google TTS...`);
     const res = await fetch(url);
-    
-    if (!res.ok) throw new Error(`TTS API error: ${res.status}`);
+    if (!res.ok) throw new Error(`Google TTS API error: ${res.status}`);
     
     const buffer = Buffer.from(await res.arrayBuffer());
-    
-    // ── DEBUG LOG ──
-    // If StreamElements blocks you, it returns a tiny JSON error string instead of an MP3
-    if (buffer.length < 1000) {
-       console.error("[voice] TTS Failed. Response was:", buffer.toString());
-       return;
-    }
-
     const stream = Readable.from(buffer);
-    
-    // We tell discord explicitly to pass this raw stream to ffmpeg
-    const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary });
-    state.player.play(resource);
 
+    // Explicitly use static ffmpeg path
+    const resource = createAudioResource(stream, { 
+      inputType: StreamType.Arbitrary,
+      ffmpegPath: require("ffmpeg-static")
+    });
+    
+    state.player.play(resource);
     console.log(`[voice] successfully piped audio to VC.`);
   } catch (err) {
     console.error("[voice] speak error:", err.message);
