@@ -25,7 +25,8 @@
         "turndown": "^7.2.4",
         "@travisvn/edge-tts": "^1.0.2",
         "@cartesia/cartesia-js": "^4.2.0",
-        "@sefinek/google-tts-api": "^2.1.9"
+        "@sefinek/google-tts-api": "^2.1.9",
+        "shoukaku": "^4.0.1"
         
     },
     "engines": {
