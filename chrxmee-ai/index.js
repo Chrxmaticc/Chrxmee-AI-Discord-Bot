@@ -6,6 +6,8 @@ const fs = require("fs");
 const path = require("path");
 const { Pool } = require("pg");
 const { setupAntinukeEvents } = require("./antinukeEvents");
+const { addSpeechEvent } = require("discord-speech-recognition");
+
 
 // ==================== HELPERS ====================
 function msToTime(ms) {
@@ -115,6 +117,8 @@ client.msToTime = msToTime;
 
 client.setMaxListeners(0);
 
+// Register the speech event (this allows the bot to "hear")
+addSpeechEvent(client);
 // ==================== POSTGRES POOL ====================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
