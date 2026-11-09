@@ -9,7 +9,6 @@ const { Pool } = require("pg");
 const { setupAntinukeEvents } = require("./antinukeEvents");
 const { addSpeechEvent } = require("discord-speech-recognition");
 
-
 // ==================== HELPERS ====================
 function msToTime(ms) {
   const seconds = Math.floor((ms / 1000) % 60);
@@ -120,6 +119,23 @@ client.setMaxListeners(0);
 
 // Register the speech event (this allows the bot to "hear")
 addSpeechEvent(client);
+const { Shoukaku, Connectors } = require('shoukaku');
+
+const Nodes = [
+  {
+    name: 'chrxmee-lavalink',
+    url: 'chrxmee-lavalink.onrender.com:443', // dont forget to change port to 443 if it dont work. reminder #1.
+    auth: 'chrxmaticc2026',
+    secure: true 
+  }
+];
+
+const shoukaku = new Shoukaku(new Connectors.DiscordJS(client), Nodes);
+client.shoukaku = shoukaku;
+
+shoukaku.on('ready', (name) => console.log(`[Lavalink] node ${name} is ready!`));
+shoukaku.on('error', (name, error) => console.error(`[Lavalink] node ${name} error:`, error));
+
 // ==================== POSTGRES POOL ====================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
