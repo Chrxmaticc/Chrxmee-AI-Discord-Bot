@@ -1,5 +1,6 @@
 console.log(" index.js started");
 
+require('dns').setDefaultResultOrder('ipv4first');
 require("dotenv").config();
 const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require("discord.js");
 const fs = require("fs");
