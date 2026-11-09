@@ -5,7 +5,7 @@ const queues = new Map();
 const markers = new Map();
 const endWatchers = new Map();
 
-// ── KEEP-ALIVE (Stops Render from spinning down) ──
+// ── KEEP-ALIVE ──
 setInterval(async () => {
   try {
     const client = require("../index.js"); 
@@ -60,7 +60,8 @@ module.exports = {
           .addChoices(
             { name: "YouTube", value: "ytsearch" },
             { name: "YouTube Music", value: "ytmsearch" },
-            { name: "SoundCloud", value: "scsearch" }
+            { name: "SoundCloud", value: "scsearch" },
+            { name: "Deezer", value: "dzsearch" }
           ))
     )
     .addSubcommand((s) => s.setName("skip").setDescription("skip the current song"))
@@ -109,7 +110,7 @@ module.exports = {
 
     if (!client.shoukaku) return interaction.editReply("❌ Lavalink is not initialized.");
     const node = client.shoukaku.options.nodeResolver(client.shoukaku.nodes);
-    if (!node) return interaction.editReply("❌ No Lavalink nodes available. Check Render logs.");
+    if (!node) return interaction.editReply("❌ No Lavalink nodes available.");
 
     let player = client.shoukaku.players.get(guildId);
     let queue = queues.get(guildId) || [];
@@ -127,7 +128,7 @@ module.exports = {
           channelId: vc.id,
           shardId: interaction.guild.shardId
         });
-        return interaction.editReply(`🔊 joined **${vc.name}**. use \`/music play\` to queue a song.`);
+        return interaction.editReply(`🔊 joined **${vc.name}**.`);
       } catch (err) {
         return interaction.editReply(`❌ failed to join: ${err.message}`);
       }
@@ -141,17 +142,26 @@ module.exports = {
       const query = interaction.options.getString("query");
       const provider = interaction.options.getString("provider") || "ytsearch";
       
-      // Wake up Lavalink if Render put it to sleep
       await interaction.editReply("⏳ *waking up music server...*");
       let isAwake = false;
       for (let i = 0; i < 12; i++) { 
         if (await wakeLavalink(node)) { isAwake = true; break; }
         await new Promise(r => setTimeout(r, 5000)); 
       }
-      if (!isAwake) return interaction.editReply("❌ Music server failed to wake up. Try again in a minute.");
+      if (!isAwake) return interaction.editReply("❌ Music server failed to wake up.");
 
-      // If it's a URL, ignore provider. If not, use the selected provider.
-      const searchQuery = /^https?:\/\//i.test(query) ? query : `${provider}:${query}`;
+      // Strict Provider Logic
+      let searchQuery;
+      if (/^https?:\/\//i.test(query)) {
+        searchQuery = query;
+      } else {
+        if (provider === "scsearch") searchQuery = `scsearch:${query}`;
+        else if (provider === "ytmsearch") searchQuery = `ytmsearch:${query}`;
+        else if (provider === "dzsearch") searchQuery = `dzsearch:${query}`;
+        else searchQuery = `ytsearch:${query}`;
+      }
+
+      console.log(`[Music Debug] Provider: ${provider} | Query: ${searchQuery}`);
 
       const result = await node.rest.resolve(searchQuery);
       if (!result || !result.data) return interaction.editReply("❌ no results found.");
@@ -168,7 +178,7 @@ module.exports = {
       if (result.loadType === "track") tracksToAdd.push(result.data);
       else if (result.loadType === "playlist") tracksToAdd = result.data.tracks;
       else if (result.loadType === "search") tracksToAdd.push(result.data[0]);
-      else return interaction.editReply("❌ could not load that track. (If SoundCloud, try a full URL, not a mobile link).");
+      else return interaction.editReply("❌ could not load that track.");
 
       queue.push(...tracksToAdd);
       queues.set(guildId, queue);
@@ -190,13 +200,9 @@ module.exports = {
       const timeStr = interaction.options.getString("time");
       const ms = parseTime(timeStr);
       if (ms === null) return interaction.editReply("❌ invalid time format (use 1:30).");
-
       gm.start = ms;
       markers.set(guildId, gm);
-
-      if (player && player.track) {
-        await player.seekTo(ms);
-      }
+      if (player && player.track) await player.seekTo(ms);
       return interaction.editReply(`⏩ start marker set to **${formatTime(ms)}**.`);
     }
 
@@ -204,13 +210,9 @@ module.exports = {
       const timeStr = interaction.options.getString("time");
       const ms = parseTime(timeStr);
       if (ms === null) return interaction.editReply("❌ invalid time format (use 1:30).");
-
       gm.end = ms;
       markers.set(guildId, gm);
-
-      if (player && player.track) {
-        startEndWatcher(player, guildId, interaction.channel);
-      }
+      if (player && player.track) startEndWatcher(player, guildId, interaction.channel);
       return interaction.editReply(`⏹️ end marker set to **${formatTime(ms)}**.`);
     }
 
@@ -226,8 +228,7 @@ module.exports = {
       return interaction.editReply("🧹 markers cleared.");
     }
 
-    // Rest of commands require an active player
-    if (!player) return interaction.editReply("❌ i'm not in a voice channel. use `/music join` or `/music play` first.");
+    if (!player) return interaction.editReply("❌ i'm not in a voice channel.");
 
     // ── FILTERS ──
     if (sub === "filter") {
@@ -322,7 +323,7 @@ module.exports = {
   }
 };
 
-// ── HELPERS: Playback & Markers ──
+// ── HELPERS ──
 function clearEndWatcher(guildId) {
   if (endWatchers.has(guildId)) {
     clearInterval(endWatchers.get(guildId));
@@ -378,7 +379,6 @@ async function playNext(player, guildId, textChannel) {
   }
 
   try {
-    // Shoukaku v4 format
     await player.playTrack({ track: { encoded: track.encoded } });
     
     if (gm && gm.start !== null) {
