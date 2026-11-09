@@ -3,9 +3,23 @@ const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
 
 const queues = new Map();
 const markers = new Map(); // guildId -> { start, end, loop }
-
-// Watcher intervals for the end markers
 const endWatchers = new Map();
+
+// ── KEEP-ALIVE: Pings Lavalink every 10 mins so Render doesn't spin it down ──
+setInterval(async () => {
+  try {
+    const client = require("../index.js"); 
+    if (client.shoukaku) {
+      const node = client.shoukaku.options.nodeResolver(client.shoukaku.nodes);
+      if (node) {
+        // Ping the REST API to keep it awake
+        await fetch(`https://${node.url}/version`).catch(() => {});
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+}, 10 * 60 * 1000);
 
 // ── HELPERS ──
 function parseTime(str) {
@@ -62,7 +76,6 @@ module.exports = {
             { name: "Reset", value: "reset" }
           ))
     )
-    // ── PLAYER MARKERS ──
     .addSubcommand((s) => 
       s.setName("player-set").setDescription("set the start marker (jump to time)")
         .addStringOption((o) => o.setName("time").setDescription("e.g. 1:30").setRequired(true))
@@ -84,7 +97,7 @@ module.exports = {
 
     if (!client.shoukaku) return interaction.editReply("❌ Lavalink is not initialized.");
     const node = client.shoukaku.options.nodeResolver(client.shoukaku.nodes);
-    if (!node) return interaction.editReply("❌ No Lavalink nodes available.");
+    if (!node) return interaction.editReply("❌ No Lavalink nodes available. Check Render logs.");
 
     let player = client.shoukaku.players.get(guildId);
     let queue = queues.get(guildId) || [];
@@ -200,28 +213,28 @@ module.exports = {
 
       if (filterType === "bassboost") {
         filters = { equalizer: [{ band: 0, gain: 0.25 }, { band: 1, gain: 0.2 }, { band: 2, gain: 0.15 }]};
-        filterName = "<:bassboost:123> **Bassboost**";
+        filterName = "**Bassboost**";
       } else if (filterType === "nightcore") {
         filters = { timescale: { speed: 1.2, pitch: 1.2, rate: 1.0 }};
-        filterName = "<:nightcore:123> **Nightcore**";
+        filterName = "**Nightcore**";
       } else if (filterType === "vaporwave") {
         filters = { timescale: { speed: 0.8, pitch: 0.8, rate: 1.0 }};
-        filterName = "<:vaporwave:123> **Vaporwave**";
+        filterName = "**Vaporwave**";
       } else if (filterType === "8d") {
         filters = { rotation: { rotationHz: 0.2 }};
-        filterName = "<:8d:123> **8D Audio**";
+        filterName = "**8D Audio**";
       } else if (filterType === "karaoke") {
         filters = { karaoke: { level: 1.0, monoLevel: 1.0, filterBand: 220.0, filterWidth: 100.0 }};
-        filterName = "<:karaoke:123> **Karaoke**";
+        filterName = "**Karaoke**";
       } else if (filterType === "tremolo") {
         filters = { tremolo: { frequency: 4.0, depth: 0.75 }};
-        filterName = "<:tremolo:123> **Tremolo**";
+        filterName = "**Tremolo**";
       } else if (filterType === "vibrato") {
         filters = { vibrato: { frequency: 4.0, depth: 0.75 }};
-        filterName = "<:vibrato:123> **Vibrato**";
+        filterName = "**Vibrato**";
       } else if (filterType === "reset") {
         filters = {};
-        filterName = "<:reset:123> **All Filters Removed**";
+        filterName = "**All Filters Removed**";
       }
 
       await player.setFilters(filters);
@@ -346,7 +359,8 @@ async function playNext(player, guildId, textChannel) {
   }
 
   try {
-    await player.playTrack({ track: track.encoded });
+    // Shoukaku v4 payload format
+    await player.playTrack({ track: { encoded: track.encoded } });
     
     // Auto-jump to start marker if it exists
     if (gm && gm.start !== null) {
@@ -360,6 +374,7 @@ async function playNext(player, guildId, textChannel) {
 
     textChannel.send(`🎵 now playing: **[${track.info.title}](${track.info.uri})**`).catch(()=>{});
   } catch (err) {
+    console.error("[Lavalink] Play Error:", err);
     queue.shift();
     playNext(player, guildId, textChannel);
   }
