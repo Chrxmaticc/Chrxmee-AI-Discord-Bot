@@ -1,6 +1,6 @@
 // commands/voice.js
 process.env.FFMPEG_PATH = require("ffmpeg-static");
-require("opusscript"); 
+require("@discordjs/opus"); 
 require("libsodium-wrappers").ready.then(() => console.log("[voice] libsodium ready"));
 
 const { SlashCommandBuilder } = require("discord.js");
