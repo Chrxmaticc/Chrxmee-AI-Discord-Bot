@@ -1,10 +1,12 @@
 // commands/voice.js
-process.env.FFMPEG_PATH = require("ffmpeg-static"); // MUST BE AT THE TOP
+process.env.FFMPEG_PATH = require("ffmpeg-static");
+require("opusscript"); // Force load pure JS opus
+require("libsodium-wrappers").ready.then(() => console.log("[voice] libsodium encryption ready"));
 
-const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
+const { SlashCommandBuilder } = require("discord.js");
 const { 
   joinVoiceChannel, createAudioPlayer, createAudioResource, 
-  VoiceConnectionStatus, StreamType, entersState 
+  VoiceConnectionStatus, StreamType, entersState, generateDependencyReport 
 } = require("@discordjs/voice");
 const { Pool } = require("pg");
 const { Readable } = require("stream");
@@ -12,17 +14,6 @@ const { EdgeTTS } = require("@travisvn/edge-tts");
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
 const voiceStates = new Map(); 
-
-// We Lazy-load Cartesia so it doesn't crash the file if the API key is missing
-let cartesia = null;
-try {
-  const { CartesiaClient } = require("@cartesia/cartesia-js");
-  if (process.env.CARTESIA_API_KEY) {
-    cartesia = new CartesiaClient({ apiKey: process.env.CARTESIA_API_KEY });
-  }
-} catch (e) {
-  console.log("[voice] Cartesia not loaded:", e.message);
-}
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -40,20 +31,24 @@ module.exports = {
     const guildId = interaction.guildId;
     const member = interaction.member;
     
-    // Reply instantly so Discord doesn't time out
     await interaction.deferReply({ ephemeral: true });
 
     if (sub === "join") {
       const vc = member.voice.channel;
       if (!vc) return interaction.editReply("you must be in a voice channel first.");
 
-      const permissions = vc.permissionsFor(interaction.guild.members.me);
-      if (!permissions.has(PermissionFlagsBits.Connect) || !permissions.has(PermissionFlagsBits.Speak)) {
-        return interaction.editReply("i don't have `Connect` or `Speak` permissions in that voice channel.");
-      }
+      // 1. Print dependency report to console (Helps us debug missing packages)
+      console.log(generateDependencyReport());
 
       try {
-        console.log(`[voice] Attempting to join VC: ${vc.id} in Guild: ${guildId}`);
+        // 2. Nuke any ghost connection
+        const oldState = voiceStates.get(guildId);
+        if (oldState) {
+          oldState.connection.destroy();
+          voiceStates.delete(guildId);
+        }
+
+        console.log(`[voice] Attempting to join VC: ${vc.id}`);
         
         const connection = joinVoiceChannel({
           channelId: vc.id,
@@ -65,29 +60,32 @@ module.exports = {
 
         const player = createAudioPlayer();
         connection.subscribe(player);
-        
-        // Listen for errors so we can print them
-        player.on('error', err => console.error(`[voice] Player Error:`, err));
-        connection.on('error', err => console.error(`[voice] Connection Error:`, err));
+
+        // Logs exactly what Discord is doing
+        connection.on('stateChange', (oldState, newState) => {
+          console.log(`[voice] Connection: ${oldState.status} -> ${newState.status}`);
+        });
+
+        connection.on('error', (err) => console.error(`[voice] Connection Error:`, err));
 
         const state = { connection, player, channelId: vc.id };
         voiceStates.set(guildId, state);
 
-        // Wait up to 5 seconds for the connection to actually establish
         try {
-          await entersState(connection, VoiceConnectionStatus.Ready, 5000);
+          // Wait up to 10 seconds for Discord to say "Ready"
+          await entersState(connection, VoiceConnectionStatus.Ready, 10000);
           console.log(`[voice] Connection is READY in ${vc.id}`);
           return interaction.editReply(`🔊 joined **${vc.name}**. i'm listening.`);
         } catch (error) {
           connection.destroy();
           voiceStates.delete(guildId);
-          console.error(`[voice] Failed to connect within 5 seconds. State:`, connection.state.status);
-          return interaction.editReply(`failed to connect. Check Render console for errors.`);
+          console.error(`[voice] Failed to connect within 10s. State: ${connection.state.status}`);
+          return interaction.editReply(`failed to connect. check Render console for state logs.`);
         }
 
       } catch (err) {
         console.error("[voice] Fatal join error:", err);
-        return interaction.editReply(`fatal error joining: ${err.message}`);
+        return interaction.editReply(`fatal error: ${err.message}`);
       }
     }
 
@@ -101,37 +99,32 @@ module.exports = {
 
     if (sub === "say") {
       const state = voiceStates.get(guildId);
-      if (!state) return interaction.editReply("i'm not in a voice channel. use `/voice join` first.");
+      if (!state) return interaction.editReply("i'm not in a voice channel.");
       
       let text = interaction.options.getString("text");
-      await speak(guildId, text);
-      return interaction.editReply(`🔊 spoke: *${text.slice(0, 100)}*`);
+      
+      try {
+        state.player.stop();
+        console.log(`[voice] Fetching Edge TTS...`);
+        
+        const tts = new EdgeTTS(text.slice(0, 300), "en-US-GuyNeural");
+        const result = await tts.synthesize();
+        const audioBuffer = Buffer.from(await result.audio.arrayBuffer());
+
+        const stream = Readable.from(audioBuffer);
+        const resource = createAudioResource(stream, { 
+          inputType: StreamType.Arbitrary,
+          ffmpegPath: require("ffmpeg-static")
+        });
+        
+        state.player.play(resource);
+        console.log(`[voice] Playing audio...`);
+        
+        return interaction.editReply(`🔊 spoke: *${text.slice(0, 100)}*`);
+      } catch (err) {
+        console.error("[voice] speak error:", err);
+        return interaction.editReply(`failed to speak: ${err.message}`);
+      }
     }
   }
 };
-
-// ── HELPER: Speak Audio ──
-async function speak(guildId, text) {
-  const state = voiceStates.get(guildId);
-  if (!state) return;
-
-  try {
-    state.player.stop();
-    console.log(`[voice] fetching Edge TTS for: "${text}"`);
-    
-    const tts = new EdgeTTS(text.slice(0, 300), "en-US-GuyNeural");
-    const result = await tts.synthesize();
-    const audioBuffer = Buffer.from(await result.audio.arrayBuffer());
-
-    const stream = Readable.from(audioBuffer);
-    const resource = createAudioResource(stream, { 
-      inputType: StreamType.Arbitrary,
-      ffmpegPath: require("ffmpeg-static")
-    });
-    
-    state.player.play(resource);
-    console.log(`[voice] successfully piped audio to VC.`);
-  } catch (err) {
-    console.error("[voice] speak error:", err);
-  }
-}
