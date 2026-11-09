@@ -11,9 +11,7 @@ setInterval(async () => {
     const client = require("../index.js"); 
     if (client.shoukaku) {
       const node = client.shoukaku.options.nodeResolver(client.shoukaku.nodes);
-      if (node) {
-        await fetch(`https://${node.url}/version`).catch(() => {});
-      }
+      if (node) await fetch(`https://${node.url}/version`).catch(() => {});
     }
   } catch (e) {}
 }, 10 * 60 * 1000);
@@ -58,6 +56,12 @@ module.exports = {
     .addSubcommand((s) =>
       s.setName("play").setDescription("play a song or playlist")
         .addStringOption((o) => o.setName("query").setDescription("song name or URL").setRequired(true))
+        .addStringOption((o) => o.setName("provider").setDescription("where to search (ignored if URL is provided)").setRequired(false)
+          .addChoices(
+            { name: "YouTube", value: "ytsearch" },
+            { name: "YouTube Music", value: "ytmsearch" },
+            { name: "SoundCloud", value: "scsearch" }
+          ))
     )
     .addSubcommand((s) => s.setName("skip").setDescription("skip the current song"))
     .addSubcommand((s) => s.setName("stop").setDescription("stop music and clear the queue"))
@@ -135,6 +139,7 @@ module.exports = {
       if (!vc) return interaction.editReply("❌ you must be in a voice channel.");
 
       const query = interaction.options.getString("query");
+      const provider = interaction.options.getString("provider") || "ytsearch";
       
       // Wake up Lavalink if Render put it to sleep
       await interaction.editReply("⏳ *waking up music server...*");
@@ -145,7 +150,8 @@ module.exports = {
       }
       if (!isAwake) return interaction.editReply("❌ Music server failed to wake up. Try again in a minute.");
 
-      const searchQuery = /^https?:\/\//i.test(query) ? query : `ytsearch:${query}`;
+      // If it's a URL, ignore provider. If not, use the selected provider.
+      const searchQuery = /^https?:\/\//i.test(query) ? query : `${provider}:${query}`;
 
       const result = await node.rest.resolve(searchQuery);
       if (!result || !result.data) return interaction.editReply("❌ no results found.");
@@ -162,7 +168,7 @@ module.exports = {
       if (result.loadType === "track") tracksToAdd.push(result.data);
       else if (result.loadType === "playlist") tracksToAdd = result.data.tracks;
       else if (result.loadType === "search") tracksToAdd.push(result.data[0]);
-      else return interaction.editReply("❌ could not load that track.");
+      else return interaction.editReply("❌ could not load that track. (If SoundCloud, try a full URL, not a shortlink).");
 
       queue.push(...tracksToAdd);
       queues.set(guildId, queue);
@@ -372,7 +378,6 @@ async function playNext(player, guildId, textChannel) {
   }
 
   try {
-    // 👇 THIS IS THE EXACT V4 PAYLOAD FIX 👇
     await player.playTrack({ track: { encoded: track.encoded } });
     
     if (gm && gm.start !== null) {
