@@ -1,22 +1,19 @@
 // commands/voice.js
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require("discord.js");
+const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
 const { 
   joinVoiceChannel, createAudioPlayer, createAudioResource, 
-  AudioPlayerStatus, VoiceConnectionStatus, entersState 
+  VoiceConnectionStatus, StreamType // Added StreamType
 } = require("@discordjs/voice");
-const { addSpeechEvent } = require("discord-speech-recognition");
 const { Pool } = require("pg");
 const { Readable } = require("stream");
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
 
-// ── STATE ──
-const voiceStates = new Map(); // guildId -> { connection, player, listening, channelId, voice, emptyTimer }
+const voiceStates = new Map(); 
+let speechListenerAttached = false; // Prevents duplicate listeners
 
-// StreamElements TTS API (Free, no key)
 const SE_API = "https://api.streamelements.com/kappa/v2/speech";
 
-// Map of friendly names to StreamElements voice IDs
 const TTS_VOICES = {
   brian: "Brian",
   matthew: "Matthew",
@@ -38,13 +35,9 @@ async function ensureOptTable() {
 }
 ensureOptTable().catch(console.error);
 
-// ── LLM INTEGRATION ──
-// Helper to call your existing AI pipeline
 async function callAI(client, prompt) {
   try {
-    // Dynamically require the AI module to avoid circular dependency issues
     const aiModule = require("../events/messageCreate"); 
-    // Use the exported callAI if available, otherwise fallback
     if (aiModule.callAI) {
         return await aiModule.callAI("genius", [{ role: "user", content: prompt }], 0.85, 250);
     }
@@ -77,12 +70,7 @@ module.exports = {
             { name: "Brian (Casual)", value: "brian" },
             { name: "Matthew (Deep)", value: "matthew" },
             { name: "Joey (Young)", value: "joey" },
-            { name: "Amy (British)", value: "amy" },
-            { name: "Emma (British)", value: "emma" },
-            { name: "Nicole (Australian)", value: "nicole" },
-            { name: "Russell (Australian)", value: "russell" },
-            { name: "Kendra (American)", value: "kendra" },
-            { name: "Justin (American)", value: "justin" }
+            { name: "Amy (British)", value: "amy" }
           ))
     ),
 
@@ -92,10 +80,8 @@ module.exports = {
     const member = interaction.member;
     await interaction.deferReply({ ephemeral: true });
 
-    // Helper to get or create state
     const getState = () => voiceStates.get(guildId) || { listening: false, voice: "brian" };
 
-    // ── JOIN ──
     if (sub === "join") {
       const vc = member.voice.channel;
       if (!vc) return interaction.editReply("you must be in a voice channel first.");
@@ -112,6 +98,11 @@ module.exports = {
         const player = createAudioPlayer();
         connection.subscribe(player);
 
+        // Add error listeners so we can see if FFmpeg fails
+        player.on('error', error => {
+          console.error(`[voice] Player Error: ${error.message}`);
+        });
+
         const state = {
           connection,
           player,
@@ -122,30 +113,27 @@ module.exports = {
         };
         voiceStates.set(guildId, state);
 
-        // ── SPEECH RECOGNITION ──
-        addSpeechEvent(interaction.client, { group: vc.id });
-        
-        interaction.client.on("speech", async (msg) => {
-          // Ignore if not in this guild or not listening
-          if (msg.guild.id !== guildId) return;
-          const currentState = voiceStates.get(guildId);
-          if (!currentState?.listening) return;
-          if (!msg.content) return; // Silence or noise
+        // ── FIXED: Only attach the speech listener ONCE globally ──
+        if (!speechListenerAttached) {
+          speechListenerAttached = true;
+          interaction.client.on("speech", async (msg) => {
+            if (!msg.guild || !msg.content) return;
+            
+            const currentState = voiceStates.get(msg.guild.id);
+            if (!currentState?.listening) return;
 
-          // Check if user opted out
-          const isOptedOut = await pool.query("SELECT 1 FROM voice_optouts WHERE user_id = $1", [msg.author.id]);
-          if (isOptedOut.rows.length > 0) return;
+            const isOptedOut = await pool.query("SELECT 1 FROM voice_optouts WHERE user_id = $1", [msg.author.id]);
+            if (isOptedOut.rows.length > 0) return;
 
-          // Check if the bot was pinged or if it's a direct question
-          const isPinged = msg.content.toLowerCase().includes("chromed") || msg.content.toLowerCase().includes("chrxmee");
-          
-          if (isPinged) {
-            const reply = await callAI(interaction.client, msg.content);
-            await speak(interaction.client, guildId, reply);
-          }
-        });
+            const content = msg.content.toLowerCase();
+            if (content.includes("chromed") || content.includes("chrxmee")) {
+              console.log(`[voice] Heard: "${msg.content}" from ${msg.author.username}`);
+              const reply = await callAI(interaction.client, msg.content);
+              await speak(interaction.client, msg.guild.id, reply);
+            }
+          });
+        }
 
-        // ── AUTO LEAVE LOGIC ──
         const checkEmpty = () => {
           const ch = interaction.guild.channels.cache.get(vc.id);
           if (!ch) return;
@@ -160,28 +148,24 @@ module.exports = {
                 voiceStates.delete(guildId);
                 console.log(`[voice] Auto-left empty channel in ${guildId}`);
               }
-            }, 30_000); // 30 seconds
+            }, 30_000);
           } else if (humans.size > 0 && state?.emptyTimer) {
             clearTimeout(state.emptyTimer);
             state.emptyTimer = null;
           }
         };
 
-        // Poll every 5 seconds for empty channel
         const emptyInterval = setInterval(checkEmpty, 5000);
-        // Store interval to clear later
-        const stateWithInterval = voiceStates.get(guildId);
-        stateWithInterval.emptyInterval = emptyInterval;
-        voiceStates.set(guildId, stateWithInterval);
+        state.emptyInterval = emptyInterval;
+        voiceStates.set(guildId, state);
 
-        return interaction.editReply(`🔊 joined **${vc.name}**. i'm listening for "chromed" or direct questions.`);
+        return interaction.editReply(`🔊 joined **${vc.name}**. i'm listening.`);
       } catch (err) {
         console.error("[voice] join error:", err);
         return interaction.editReply("failed to join voice channel.");
       }
     }
 
-    // ── LEAVE ──
     if (sub === "leave") {
       const state = voiceStates.get(guildId);
       if (!state) return interaction.editReply("i'm not in a voice channel.");
@@ -194,7 +178,6 @@ module.exports = {
       return interaction.editReply("left the voice channel.");
     }
 
-    // ── OPT OUT ──
     if (sub === "optout") {
       const res = await pool.query("SELECT 1 FROM voice_optouts WHERE user_id = $1", [member.id]);
       if (res.rows.length > 0) {
@@ -206,7 +189,6 @@ module.exports = {
       }
     }
 
-    // ── SAY / AI ──
     if (sub === "say" || sub === "ai") {
       const state = voiceStates.get(guildId);
       if (!state) return interaction.editReply("i'm not in a voice channel. use `/voice join` first.");
@@ -220,7 +202,6 @@ module.exports = {
       return interaction.editReply(`🔊 spoke: *${text.slice(0, 100)}${text.length > 100 ? "..." : ""}*`);
     }
 
-    // ── VOICE CHANGE ──
     if (sub === "voice") {
       const state = voiceStates.get(guildId) || { voice: "brian" };
       const newVoice = interaction.options.getString("name");
@@ -237,24 +218,32 @@ async function speak(client, guildId, text) {
   if (!state) return;
 
   try {
-    // 1. Stop current audio if playing
     state.player.stop();
 
-    // 2. Fetch TTS from StreamElements
     const voiceId = TTS_VOICES[state.voice] || "Brian";
     const url = `${SE_API}?voice=${voiceId}&text=${encodeURIComponent(text.slice(0, 300))}`;
     
+    console.log(`[voice] fetching TTS from StreamElements...`);
     const res = await fetch(url);
+    
     if (!res.ok) throw new Error(`TTS API error: ${res.status}`);
     
     const buffer = Buffer.from(await res.arrayBuffer());
-    const stream = Readable.from(buffer);
+    
+    // ── DEBUG LOG ──
+    // If StreamElements blocks you, it returns a tiny JSON error string instead of an MP3
+    if (buffer.length < 1000) {
+       console.error("[voice] TTS Failed. Response was:", buffer.toString());
+       return;
+    }
 
-    // 3. Create resource and play
-    const resource = createAudioResource(stream);
+    const stream = Readable.from(buffer);
+    
+    // We tell discord explicitly to pass this raw stream to ffmpeg
+    const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary });
     state.player.play(resource);
 
-    console.log(`[voice] speaking in ${guildId}: "${text.slice(0, 50)}..."`);
+    console.log(`[voice] successfully piped audio to VC.`);
   } catch (err) {
     console.error("[voice] speak error:", err.message);
   }
