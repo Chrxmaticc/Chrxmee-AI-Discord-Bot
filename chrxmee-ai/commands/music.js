@@ -2,23 +2,20 @@
 const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
 
 const queues = new Map();
-const markers = new Map(); // guildId -> { start, end, loop }
+const markers = new Map();
 const endWatchers = new Map();
 
-// ── KEEP-ALIVE: Pings Lavalink every 10 mins so Render doesn't spin it down ──
+// ── KEEP-ALIVE ──
 setInterval(async () => {
   try {
     const client = require("../index.js"); 
     if (client.shoukaku) {
       const node = client.shoukaku.options.nodeResolver(client.shoukaku.nodes);
       if (node) {
-        // Ping the REST API to keep it awake
         await fetch(`https://${node.url}/version`).catch(() => {});
       }
     }
-  } catch (e) {
-    // ignore
-  }
+  } catch (e) {}
 }, 10 * 60 * 1000);
 
 // ── HELPERS ──
@@ -26,9 +23,9 @@ function parseTime(str) {
   if (!str) return null;
   const parts = str.split(":").map(Number);
   if (parts.some(isNaN)) return null;
-  if (parts.length === 2) return (parts[0] * 60 + parts[1]) * 1000; // mm:ss
-  if (parts.length === 3) return (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000; // hh:mm:ss
-  if (parts.length === 1) return parts[0] * 1000; // ss
+  if (parts.length === 2) return (parts[0] * 60 + parts[1]) * 1000; 
+  if (parts.length === 3) return (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000; 
+  if (parts.length === 1) return parts[0] * 1000; 
   return null;
 }
 
@@ -39,6 +36,17 @@ function formatTime(ms) {
   const hours = Math.floor(ms / (1000 * 60 * 60));
   if (hours > 0) return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+async function wakeLavalink(node) {
+  try {
+    const res = await fetch(`https://${node.url}/version`, {
+      headers: { Authorization: node.auth }
+    });
+    return res.ok;
+  } catch (err) {
+    return false;
+  }
 }
 
 // ── COMMAND ──
@@ -127,6 +135,16 @@ module.exports = {
       if (!vc) return interaction.editReply("❌ you must be in a voice channel.");
 
       const query = interaction.options.getString("query");
+      
+      // Wake up Lavalink if Render put it to sleep
+      await interaction.editReply("⏳ *waking up music server...*");
+      let isAwake = false;
+      for (let i = 0; i < 12; i++) { 
+        if (await wakeLavalink(node)) { isAwake = true; break; }
+        await new Promise(r => setTimeout(r, 5000)); 
+      }
+      if (!isAwake) return interaction.editReply("❌ Music server failed to wake up. Try again in a minute.");
+
       const searchQuery = /^https?:\/\//i.test(query) ? query : `ytsearch:${query}`;
 
       const result = await node.rest.resolve(searchQuery);
@@ -299,7 +317,6 @@ module.exports = {
 };
 
 // ── HELPERS: Playback & Markers ──
-
 function clearEndWatcher(guildId) {
   if (endWatchers.has(guildId)) {
     clearInterval(endWatchers.get(guildId));
@@ -308,7 +325,7 @@ function clearEndWatcher(guildId) {
 }
 
 function startEndWatcher(player, guildId, textChannel) {
-  clearEndWatcher(guildId); // Clear old one if exists
+  clearEndWatcher(guildId); 
   const gm = markers.get(guildId);
   if (!gm || !gm.end) return;
 
@@ -316,16 +333,12 @@ function startEndWatcher(player, guildId, textChannel) {
     if (!player || !player.track) return clearEndWatcher(guildId);
     if (player.paused) return;
 
-    // If we hit the end marker (with a 1.5s buffer for polling)
     if (player.position >= gm.end - 1500) {
       clearEndWatcher(guildId);
-      
       if (gm.loop && gm.start !== null) {
-        // Loop back to start
         await player.seekTo(gm.start);
-        startEndWatcher(player, guildId, textChannel); // Restart watcher
+        startEndWatcher(player, guildId, textChannel); 
       } else {
-        // Go to next song
         player.stopTrack(); 
       }
     }
@@ -359,15 +372,12 @@ async function playNext(player, guildId, textChannel) {
   }
 
   try {
-    // Shoukaku v4 payload format
+    // 👇 THIS IS THE EXACT V4 PAYLOAD FIX 👇
     await player.playTrack({ track: { encoded: track.encoded } });
     
-    // Auto-jump to start marker if it exists
     if (gm && gm.start !== null) {
       await player.seekTo(gm.start);
     }
-    
-    // Start the end watcher if needed
     if (gm && gm.end !== null) {
       startEndWatcher(player, guildId, textChannel);
     }
