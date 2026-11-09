@@ -1,19 +1,37 @@
 // commands/voice.js
 process.env.FFMPEG_PATH = require("ffmpeg-static");
-require("opusscript"); // Force load pure JS opus
-require("libsodium-wrappers").ready.then(() => console.log("[voice] libsodium encryption ready"));
+require("opusscript"); 
+require("libsodium-wrappers").ready.then(() => console.log("[voice] libsodium ready"));
 
 const { SlashCommandBuilder } = require("discord.js");
 const { 
   joinVoiceChannel, createAudioPlayer, createAudioResource, 
-  VoiceConnectionStatus, StreamType, entersState, generateDependencyReport 
+  VoiceConnectionStatus, StreamType, entersState 
 } = require("@discordjs/voice");
-const { Pool } = require("pg");
 const { Readable } = require("stream");
 const { EdgeTTS } = require("@travisvn/edge-tts");
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+// ── STATE ──
 const voiceStates = new Map(); 
+let speechListenerAttached = false;
+
+async function getVoiceAI(client, prompt) {
+  try {
+    const aiModule = require("../events/messageCreate"); 
+    const systemOverride = `You are Chromed in a Voice Chat. Max 2 sentences. No emojis. Speak casually, using slang like "twin", "cooked", "fr". Never say generic greetings.`;
+    
+    const messages = [
+      { role: "system", content: systemOverride },
+      { role: "user", content: prompt }
+    ];
+    
+    const reply = await aiModule.callAI("genius", messages, 0.85, 150);
+    return reply || "i have no idea what you just said twin.";
+  } catch (e) {
+    console.error("[voice] AI Error:", e.message);
+    return "my brain is lagging right now.";
+  }
+}
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -24,6 +42,10 @@ module.exports = {
     .addSubcommand((s) =>
       s.setName("say").setDescription("make chromed speak raw text")
         .addStringOption((o) => o.setName("text").setDescription("what to say").setRequired(true))
+    )
+    .addSubcommand((s) =>
+      s.setName("ai").setDescription("speak an AI response")
+        .addStringOption((o) => o.setName("prompt").setDescription("ask chromed something").setRequired(true))
     ),
 
   async execute(interaction) {
@@ -33,22 +55,20 @@ module.exports = {
     
     await interaction.deferReply({ ephemeral: true });
 
+    // ── JOIN ──
     if (sub === "join") {
       const vc = member.voice.channel;
       if (!vc) return interaction.editReply("you must be in a voice channel first.");
 
-      // 1. Print dependency report to console (Helps us debug missing packages)
-      console.log(generateDependencyReport());
-
       try {
-        // 2. Nuke any ghost connection
+        // Nuke old connection if it exists to avoid ghost states
         const oldState = voiceStates.get(guildId);
         if (oldState) {
           oldState.connection.destroy();
           voiceStates.delete(guildId);
         }
 
-        console.log(`[voice] Attempting to join VC: ${vc.id}`);
+        console.log(`[voice] Connecting to VC: ${vc.id}`);
         
         const connection = joinVoiceChannel({
           channelId: vc.id,
@@ -61,26 +81,38 @@ module.exports = {
         const player = createAudioPlayer();
         connection.subscribe(player);
 
-        // Logs exactly what Discord is doing
-        connection.on('stateChange', (oldState, newState) => {
-          console.log(`[voice] Connection: ${oldState.status} -> ${newState.status}`);
-        });
-
-        connection.on('error', (err) => console.error(`[voice] Connection Error:`, err));
-
-        const state = { connection, player, channelId: vc.id };
-        voiceStates.set(guildId, state);
+        voiceStates.set(guildId, { connection, player, channelId: vc.id });
 
         try {
-          // Wait up to 10 seconds for Discord to say "Ready"
-          await entersState(connection, VoiceConnectionStatus.Ready, 10000);
-          console.log(`[voice] Connection is READY in ${vc.id}`);
+          // Wait 15 seconds to give Render time to establish the UDP socket
+          await entersState(connection, VoiceConnectionStatus.Ready, 15000);
+          console.log(`[voice] Connection READY in ${vc.id}`);
+          
+          // Attach Speech Recognition once
+          if (!speechListenerAttached) {
+            speechListenerAttached = true;
+            interaction.client.on("speech", async (msg) => {
+              if (!msg.guild || !msg.content) return;
+              
+              const currentState = voiceStates.get(msg.guild.id);
+              if (!currentState) return;
+
+              // Triggers if they say "chromed" or ask a direct question
+              const content = msg.content.toLowerCase();
+              if (content.includes("chromed") || content.includes("chrxmee") || content.endsWith("?")) {
+                console.log(`[voice] Heard: "${msg.content}" from ${msg.author.username}`);
+                const reply = await getVoiceAI(interaction.client, msg.content);
+                await speak(msg.guild.id, reply);
+              }
+            });
+          }
+
           return interaction.editReply(`🔊 joined **${vc.name}**. i'm listening.`);
         } catch (error) {
           connection.destroy();
           voiceStates.delete(guildId);
-          console.error(`[voice] Failed to connect within 10s. State: ${connection.state.status}`);
-          return interaction.editReply(`failed to connect. check Render console for state logs.`);
+          console.error(`[voice] Failed to connect in 15s. State: ${connection.state.status}`);
+          return interaction.editReply(`failed to connect. Render might be blocking UDP.`);
         }
 
       } catch (err) {
@@ -89,6 +121,7 @@ module.exports = {
       }
     }
 
+    // ── LEAVE ──
     if (sub === "leave") {
       const state = voiceStates.get(guildId);
       if (!state) return interaction.editReply("i'm not in a voice channel.");
@@ -97,34 +130,48 @@ module.exports = {
       return interaction.editReply("left the voice channel.");
     }
 
-    if (sub === "say") {
+    // ── SAY / AI ──
+    if (sub === "say" || sub === "ai") {
       const state = voiceStates.get(guildId);
       if (!state) return interaction.editReply("i'm not in a voice channel.");
       
-      let text = interaction.options.getString("text");
+      let text = interaction.options.getString("text") || interaction.options.getString("prompt");
       
-      try {
-        state.player.stop();
-        console.log(`[voice] Fetching Edge TTS...`);
-        
-        const tts = new EdgeTTS(text.slice(0, 300), "en-US-GuyNeural");
-        const result = await tts.synthesize();
-        const audioBuffer = Buffer.from(await result.audio.arrayBuffer());
+      if (sub === "ai") {
+        await interaction.editReply(`🧠 thinking...`);
+        text = await getVoiceAI(interaction.client, text);
+      }
 
-        const stream = Readable.from(audioBuffer);
-        const resource = createAudioResource(stream, { 
-          inputType: StreamType.Arbitrary,
-          ffmpegPath: require("ffmpeg-static")
-        });
-        
-        state.player.play(resource);
-        console.log(`[voice] Playing audio...`);
-        
-        return interaction.editReply(`🔊 spoke: *${text.slice(0, 100)}*`);
+      try {
+        await speak(guildId, text);
+        return interaction.editReply(`🔊 spoke: *${text.slice(0, 100)}${text.length > 100 ? "..." : ""}*`);
       } catch (err) {
-        console.error("[voice] speak error:", err);
         return interaction.editReply(`failed to speak: ${err.message}`);
       }
     }
   }
 };
+
+// ── HELPER: Speak ──
+async function speak(guildId, text) {
+  const state = voiceStates.get(guildId);
+  if (!state) return;
+
+  state.player.stop();
+  console.log(`[voice] Generating TTS for: "${text.slice(0, 50)}..."`);
+  
+  // Edge TTS
+  const tts = new EdgeTTS(text.slice(0, 300), "en-US-GuyNeural");
+  const result = await tts.synthesize();
+  const audioBuffer = Buffer.from(await result.audio.arrayBuffer());
+
+  // Pipe to voice
+  const stream = Readable.from(audioBuffer);
+  const resource = createAudioResource(stream, { 
+    inputType: StreamType.Arbitrary,
+    ffmpegPath: require("ffmpeg-static")
+  });
+  
+  state.player.play(resource);
+  console.log(`[voice] Audio piping to VC...`);
+}
